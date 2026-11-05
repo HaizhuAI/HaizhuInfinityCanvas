@@ -105,6 +105,7 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
 
   // portable project bundle: export .hzc from the canvas menu, import it as a new canvas
   await page.click('[data-testid="project-menu"]')
+  await page.waitForTimeout(400) // let the menu finish fading in
   await page.screenshot({ path: OUT + '/ui6-menu.png' })
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid="export-bundle"]')])
   const saved = await dl.path()

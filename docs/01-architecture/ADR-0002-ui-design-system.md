@@ -1,6 +1,6 @@
 # ADR-0002 · 界面设计系统与动效（beta.4）
 
-- 状态：**已采纳**（2026-11-05）
+- 状态：**部分被取代**（2026-11-05 采纳；beta.5 起配色、布局与星空背景由 [ADR-0003](./ADR-0003-studio-design-system.md) 取代，动效规则与 Galaxy 片段继续有效）
 - 参考：GSAP（动效库）、Galaxy / uiverse.io（开源 UI 片段库）、Taste Skill（前端设计准则）
 
 ## 背景

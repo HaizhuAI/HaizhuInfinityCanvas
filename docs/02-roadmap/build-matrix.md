@@ -12,13 +12,16 @@
 
 1. `ci.yml`（每次 push/PR）：安装依赖 → 类型检查 → 单元测试 → 构建前端与服务。
 2. `release.yml`（打 `v*` tag 触发）：矩阵构建 Win/Linux 桌面包 + Docker 镜像 → 上传为 Release 草稿资产（草稿 = 私有，符合暂不公开源码的要求）。
-3. 产物命名：`HaizhuInfinityCanvas-<version>-<os>-<arch>.<ext>`，例如 `HaizhuInfinityCanvas-1.0.0-beta.1-win-x64.exe`。
+3. 产物命名：`HaizhuInfinityCanvas-<version>-<os>-<arch>.<ext>`；Windows 的安装包与便携版分别加 `-setup` / `-portable`，例如 `HaizhuInfinityCanvas-1.0.0-rc.1-win-x64-setup.exe`、`HaizhuInfinityCanvas-1.0.0-rc.1-win-x64-portable.exe`（rc.1 之前两者同名，便携版覆盖了安装包）。
 
-## FFmpeg 分发策略
+## FFmpeg 分发策略（beta.5 起实际执行）
 
-- 桌面版：随包携带 FFmpeg **独立可执行文件**（优先 LGPL 构建），放在应用资源目录，子进程调用。
-- Docker：镜像内安装发行版 FFmpeg。
-- 发布前专项复核许可证（见 [许可证审计](../00-research/02-license-audit.md)）。
+- 桌面版：**不内置** FFmpeg。使用系统 PATH 中的 `ffmpeg` / `ffprobe`，或 `HZC_FFMPEG` / `HZC_FFPROBE`；设置 → 关于 显示状态与安装方法。这样安装包不包含任何 GPL / LGPL 编码器。
+- Docker：镜像内安装 Debian 的 FFmpeg 软件包（GPL 构建）。镜像目前只在 CI 中构建、未公开发布；公开发布前见 [许可证审计](../00-research/02-license-audit.md) 的 FFmpeg 一节。
+
+## 启动测试（rc.1 起）
+
+`Build installers` 流水线在打包后真正启动应用：Linux 在虚拟显示（xvfb）下运行 `linux-unpacked`，Windows 在 `windows-latest` 上运行 `win-unpacked` 里的程序。应用以 `HZC_SMOKE=1` 启动内置服务、加载界面、把结果写到 `HZC_SMOKE_OUT` 文件后退出；找不到「window ready」即判定失败。
 
 ## 本地验证边界（诚实声明）
 

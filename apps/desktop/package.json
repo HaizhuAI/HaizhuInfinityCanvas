@@ -59,7 +59,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "HaizhuInfinityCanvas-${version}-${os}-${arch}-setup.${ext}"
     },
     "linux": {
       "target": [
@@ -69,6 +70,9 @@
       "category": "AudioVideo",
       "maintainer": "Haizhu <noreply@haizhu.ai>",
       "icon": "build/icons"
+    },
+    "portable": {
+      "artifactName": "HaizhuInfinityCanvas-${version}-${os}-${arch}-portable.${ext}"
     }
   },
   "homepage": "https://github.com/HaizhuAI/HaizhuInfinityCanvas",

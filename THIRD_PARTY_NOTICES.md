@@ -17,7 +17,14 @@
 | @fontsource-variable/geist、@fontsource-variable/geist-mono | OFL-1.1 | 界面字体，随包打包 | beta.4 |
 | @fontsource-variable/inter | OFL-1.1 | 界面主字体（beta.5 起替代 Geist 正文） | beta.5 |
 | yaml | ISC | 解析 SKILL.md 的 YAML frontmatter | beta.4 |
-| FFmpeg（独立可执行文件） | LGPL-2.1+（视编译选项） | 抽帧/合成 | beta.5 |
+| FFmpeg（独立可执行文件） | LGPL-2.1+ / GPL（视编译选项） | 抽帧/合成。**桌面安装包不包含**，使用用户自己安装的 FFmpeg；Docker 镜像内为 Debian 软件包 | beta.5 |
+
+### 外部工具（不随产品分发）
+
+| 工具 | 许可证 | 关系 |
+| --- | --- | --- |
+| Shotcut | GPL-3.0 | 用户自行安装，用来打开我们导出的剪辑工程（MLT XML 数据文件） |
+| MLT 框架 `melt` | LGPL-2.1 | 仅在 CI 中安装，用于测试导出的剪辑工程能否正确渲染 |
 
 ## B. 摘取代码登记
 
