@@ -14,6 +14,7 @@ import { SecretBox } from './secrets'
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 const MP4 = Buffer.from('000000186674797069736f6d0000020069736f6d69736f32', 'hex') // tiny ftyp box
 const KEY = 'r8_test_key_123456'
+const MP3 = Buffer.from('494433040000000000', 'hex') // "ID3" header
 
 // ------------------------------------------------ one mock server playing OpenAI-images, Replicate, fal and a CDN
 let mock: FastifyInstance
@@ -33,6 +34,13 @@ beforeAll(async () => {
   mock.get('/files/page.html', async (_r, reply) => reply.header('content-type', 'text/html').send('<html></html>'))
   // OpenAI-compatible images
   mock.post('/v1/images/generations', async () => ({ data: [{ b64_json: PNG.toString('base64') }] }))
+  // OpenAI-compatible speech
+  mock.post('/v1/audio/speech', async (req, reply) => {
+    const b = req.body as { input?: string }
+    if (b.input === 'FAIL') return reply.code(401).send({ error: `invalid key ${KEY}` })
+    if (b.input === 'JSON') return reply.header('content-type', 'application/json').send({ ok: true })
+    return reply.header('content-type', 'audio/mpeg').send(MP3)
+  })
   // Replicate
   mock.post('/rep/v1/models/:owner/:name/predictions', async () => ({ id: 'p1', status: 'starting' }))
   mock.get('/rep/v1/predictions/p1', async () => {
@@ -208,6 +216,57 @@ describe('video generation (fal queue)', () => {
     const p = store.createProject('t', graph('video-gen', prof({ kind: 'video', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'x' }).id))
     const { last } = await run(p.id)
     expect(last.get('g').error).toMatch(/replicate 或 fal/)
+  })
+})
+
+describe('text to speech', () => {
+  const ttsGraph = (profileId: string, text = '你好，欢迎来到海边。', params: Record<string, unknown> = {}): ProjectGraph => ({
+    version: 1,
+    nodes: [
+      { id: 't', type: 'text', position: { x: 0, y: 0 }, data: { text } },
+      { id: 's', type: 'tts', position: { x: 400, y: 0 }, data: { profileId, params } },
+    ],
+    edges: [{ id: 'e', source: 't', sourceHandle: 'out', target: 's', targetHandle: 'in' }],
+  })
+
+  it('openai-compat: /audio/speech with voice + speed, stores the mp3', async () => {
+    const pr = prof({ kind: 'tts', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'tts-1', defaults: { response_format: 'mp3' } })
+    const p = store.createProject('t', ttsGraph(pr.id, '你好，欢迎来到海边。', { voice: 'nova', speed: 1.2 }))
+    const { last, end } = await run(p.id)
+    expect(end.status).toBe('done')
+    const a = last.get('s').outputs.out[0]
+    expect(a).toMatchObject({ type: 'audio', mime: 'audio/mpeg' })
+    expect((await assetBytes(a.assetId)).equals(MP3)).toBe(true)
+    const req = hits.find((h) => h.url === '/v1/audio/speech')!
+    expect(req.auth).toBe(`Bearer ${KEY}`)
+    expect(req.body).toMatchObject({ model: 'tts-1', input: '你好，欢迎来到海边。', voice: 'nova', speed: 1.2, response_format: 'mp3' })
+  })
+
+  it('openai-compat: errors are reported with the key redacted; non-audio replies are rejected', async () => {
+    const pr = prof({ kind: 'tts', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'tts-1' })
+    const bad = await run(store.createProject('t', ttsGraph(pr.id, 'FAIL')).id)
+    expect(bad.last.get('s').error).toContain('401')
+    expect(bad.last.get('s').error).not.toContain(KEY)
+    const json = await run(store.createProject('t', ttsGraph(pr.id, 'JSON')).id)
+    expect(json.last.get('s').error).toMatch(/非音频/)
+  })
+
+  it('needs text', async () => {
+    const pr = prof({ kind: 'tts', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'tts-1' })
+    const { last } = await run(store.createProject('t', ttsGraph(pr.id, '')).id)
+    expect(last.get('s').error).toMatch(/没有要朗读的文本/)
+  })
+
+  it('replicate: sends the text as "text" and the voice param', async () => {
+    replicateMode = 'ok'
+    const pr = prof({ kind: 'tts', adapter: 'replicate', endpoint: `${M}/rep/v1`, model: 'owner/tts' })
+    const p = store.createProject('t', ttsGraph(pr.id, '台词', { voice: 'zh_female' }))
+    const { last } = await run(p.id)
+    // the mock returns a png url for every prediction, so the type check must reject it as non-audio
+    expect(last.get('s').error).toMatch(/期望得到音频/)
+    const submit = hits.find((h) => h.method === 'POST' && h.url.endsWith('/predictions'))!
+    expect(submit.body.input).toMatchObject({ text: '台词', voice: 'zh_female' })
+    expect(submit.body.input.prompt).toBeUndefined()
   })
 })
 

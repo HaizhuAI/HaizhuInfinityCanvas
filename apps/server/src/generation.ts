@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ModelProfile } from '@hzc/core'
-import { MIME_EXT, type AssetStore } from './assets'
+import { MIME_ALIAS, MIME_EXT, type AssetStore } from './assets'
 import type { JobRow, Store } from './db'
 import { ProviderError } from './providers'
 
@@ -77,6 +77,7 @@ export async function downloadToAsset(url: string, assets: AssetStore, want: 'im
   const buf = Buffer.from(await res.arrayBuffer())
   if (buf.length > MAX_DOWNLOAD) throw new ProviderError('生成结果超过大小上限')
   let mime = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+  mime = MIME_ALIAS[mime] ?? mime
   if (!MIME_EXT[mime]) {
     const ext = new URL(url).pathname.split('.').pop()?.toLowerCase() ?? ''
     mime = EXT_MIME[ext] ?? mime
@@ -104,6 +105,58 @@ export async function openaiImages(profile: ModelProfile, apiKey: string | undef
   const urls = data.map((d) => (d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url)).filter((u): u is string => !!u)
   if (!urls.length) throw new ProviderError('模型服务响应中没有图片（data[].b64_json / data[].url）')
   return urls
+}
+
+/* ------------------------------------------------------------------ OpenAI-compatible speech (synchronous) */
+
+const FORMAT_MIME: Record<string, string> = { mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', aac: 'audio/aac', opus: 'audio/opus', pcm: '' }
+
+/**
+ * POST {endpoint}/audio/speech — OpenAI TTS and the many local servers that mimic it
+ * (e.g. Kokoro-FastAPI, CosyVoice / GPT-SoVITS OpenAI-style wrappers). Returns raw audio bytes.
+ */
+export async function openaiSpeech(
+  profile: ModelProfile, apiKey: string | undefined,
+  req: { input: string; voice?: string; speed?: number; signal: AbortSignal },
+): Promise<{ bytes: Buffer; mime: string }> {
+  if (!profile.endpoint) throw new ProviderError('模型档案未填写接口地址')
+  const d = providerDefaults(profile.defaults)
+  const body: Record<string, unknown> = { response_format: 'mp3', voice: 'alloy', ...d, model: profile.model, input: req.input }
+  if (req.voice) body.voice = req.voice
+  if (typeof req.speed === 'number') body.speed = req.speed
+  const fmt = String(body.response_format)
+  if (fmt === 'pcm') throw new ProviderError('response_format=pcm 是无封装的原始音频，无法直接播放，请改用 mp3 / wav / flac')
+  const b = profile.endpoint.replace(/\/+$/, '')
+  const url = b.endsWith('/audio/speech') ? b : `${b}/audio/speech`
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST', redirect: 'error',
+      headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(180_000)]),
+    })
+  } catch (e) {
+    if (req.signal.aborted) throw e
+    const err = e as Error & { cause?: { code?: string } }
+    throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? '超时' : (err.cause?.code ?? err.message)}`)
+  }
+  if (!res.ok) {
+    const t = await res.text()
+    fail(res.status, apiKey ? t.split(apiKey).join('***') : t)
+  }
+  const bytes = Buffer.from(await res.arrayBuffer())
+  let mime = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+  mime = MIME_ALIAS[mime] ?? mime
+  // only infer the type from response_format when the server did not say what it sent
+  if (!mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream') mime = FORMAT_MIME[fmt] || mime
+  if (!mime.startsWith('audio/') || !MIME_EXT[mime]) {
+    const raw = bytes.toString('utf8', 0, 300)
+    const peek = mime.startsWith('application/json') || mime.startsWith('text/') ? `：${apiKey ? raw.split(apiKey).join('***') : raw}` : ''
+    throw new ProviderError(`语音服务返回了非音频内容（${mime || '未知类型'}）${peek}`)
+  }
+  if (!bytes.length) throw new ProviderError('语音服务返回了空音频')
+  return { bytes, mime }
 }
 
 /* ------------------------------------------------------------------ async job providers */

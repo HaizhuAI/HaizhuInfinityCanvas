@@ -8,7 +8,11 @@ export const MIME_EXT: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
   'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
   'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'weba',
+  'audio/flac': 'flac', 'audio/aac': 'aac', 'audio/opus': 'opus', 'audio/mp4': 'm4a',
 }
+
+/** Non-standard media types some servers send, mapped to the registered type. */
+export const MIME_ALIAS: Record<string, string> = { 'audio/mp3': 'audio/mpeg', 'audio/x-flac': 'audio/flac', 'audio/wave': 'audio/wav', 'audio/vnd.wave': 'audio/wav' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -23,6 +27,7 @@ export class AssetStore {
 
   /** Throws on unsupported mime or content that does not match the declared image type. */
   put(bytes: Buffer, mime: string, name = 'upload') {
+    mime = MIME_ALIAS[mime] ?? mime
     const ext = MIME_EXT[mime]
     if (!ext) throw new Error(`unsupported media type: ${mime}`)
     if (mime.startsWith('image/') && !sniffImage(bytes, mime)) throw new Error('file content does not match its image type')

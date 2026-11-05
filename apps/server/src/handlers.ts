@@ -4,7 +4,7 @@ import {
 } from '@hzc/core'
 import type { AssetStore } from './assets'
 import { chatAdapterFor, ProviderError, type ChatAdapter } from './providers'
-import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, providerDefaults, runJob, type JobCtx } from './generation'
+import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
 
 export class NodeError extends Error {}
 
@@ -24,7 +24,6 @@ export interface HandlerCtx {
 export type Handler = (ctx: HandlerCtx) => Promise<NodeOutputs>
 
 const PLANNED: Record<string, string> = {
-  tts: 'v1.0.0-beta.4', director: 'v1.0.0-beta.4',
   'video-reverse': 'v1.0.0-beta.5', export: 'v1.0.0-beta.6',
 }
 
@@ -79,11 +78,14 @@ function extraParams(ctx: HandlerCtx): Record<string, unknown> {
 }
 
 /** Build the provider input for replicate / fal from node inputs + profile defaults + node params. */
-function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: string[]; first?: string; last?: string }) {
+function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: string[]; first?: string; last?: string }, want: Want, prompt: string) {
   const userFields = (profile.defaults?._fields ?? {}) as Partial<Record<'prompt' | 'image' | 'first' | 'last', string>>
-  const f = { ...FIELD_DEFAULTS[profile.adapter]!, ...userFields }
+  // speech models usually call their input "text"
+  const f = { ...FIELD_DEFAULTS[profile.adapter]!, ...(want === 'audio' ? { prompt: 'text' } : {}), ...userFields }
   const p = ctx.node.data.params ?? {}
-  const input: Record<string, unknown> = { ...providerDefaults(profile.defaults), [f.prompt]: genPrompt(ctx) }
+  const input: Record<string, unknown> = { ...providerDefaults(profile.defaults), [f.prompt]: prompt }
+  if (want === 'audio' && typeof p.voice === 'string' && p.voice) input.voice = p.voice
+  if (want === 'audio' && typeof p.speed === 'number') input.speed = p.speed
   if (typeof p.aspect_ratio === 'string' && p.aspect_ratio) input.aspect_ratio = p.aspect_ratio
   if (typeof p.duration === 'number') input.duration = p.duration
   if (media.image?.length) input[f.image] = media.image.length === 1 ? media.image[0] : media.image
@@ -92,20 +94,26 @@ function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: str
   return { ...input, ...extraParams(ctx) }
 }
 
-async function generate(ctx: HandlerCtx, want: 'image' | 'video', media: { image?: string[]; first?: string; last?: string }) {
+type Want = 'image' | 'video' | 'audio'
+const WANT_LABEL: Record<Want, string> = { image: '图片', video: '视频', audio: '音频' }
+
+async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; first?: string; last?: string }, prompt: string) {
   const profile = requireProfile(ctx)
   const provider = ASYNC_PROVIDERS[profile.adapter]
-  if (!provider) throw new NodeError(`${want === 'image' ? '图片' : '视频'}生成请使用 replicate 或 fal 适配器${want === 'image' ? '（或 openai-compat 的 /images/generations）' : ''}`)
+  if (!provider) {
+    const sync = want === 'image' ? '（或 openai-compat 的 /images/generations）' : want === 'audio' ? '（或 openai-compat 的 /audio/speech）' : ''
+    throw new NodeError(`${WANT_LABEL[want]}生成请使用 replicate 或 fal 适配器${sync}`)
+  }
   const timeoutSec = Number(profile.defaults?._timeoutSec ?? (want === 'video' ? 45 * 60 : 15 * 60))
-  const output = await runJob({ ...ctx.job, signal: ctx.signal }, provider, profile.adapter, profile, ctx.apiKey, asyncInput(ctx, profile, media), timeoutSec)
+  const output = await runJob({ ...ctx.job, signal: ctx.signal }, provider, profile.adapter, profile, ctx.apiKey, asyncInput(ctx, profile, media, want, prompt), timeoutSec)
   const urls = extractMediaUrls(output)
-  if (!urls.length) throw new ProviderError('模型完成了任务，但结果里没有找到图片/视频地址')
+  if (!urls.length) throw new ProviderError(`模型完成了任务，但结果里没有找到${WANT_LABEL[want]}地址`)
   ctx.job.report('下载结果…')
   const assets = []
   for (const u of urls) {
     try { assets.push(await downloadToAsset(u, ctx.assets, want, ctx.signal)) } catch (e) { if (ctx.signal.aborted || urls.length === 1) throw e }
   }
-  if (!assets.length) throw new ProviderError(`结果中没有可用的${want === 'image' ? '图片' : '视频'}`)
+  if (!assets.length) throw new ProviderError(`结果中没有可用的${WANT_LABEL[want]}`)
   return assets.map((a) => ({ type: want, assetId: a.id, mime: a.mime }) as PortValue)
 }
 
@@ -152,13 +160,29 @@ export const HANDLERS: Record<string, Handler> = {
       for (const u of urls) { const a = await downloadToAsset(u, ctx.assets, 'image', ctx.signal); out.push({ type: 'image', assetId: a.id, mime: a.mime }) }
       return { out }
     }
-    return { out: await generate(ctx, 'image', { image: refs.map((r) => dataUri(ctx, r.assetId)) }) }
+    return { out: await generate(ctx, 'image', { image: refs.map((r) => dataUri(ctx, r.assetId)) }, genPrompt(ctx)) }
   },
 
   'video-gen': async (ctx) => {
     const first = valuesOfType(ctx.inputs.first, 'image')[0]
     const last = valuesOfType(ctx.inputs.last, 'image')[0]
-    return { out: await generate(ctx, 'video', { first: first && dataUri(ctx, first.assetId), last: last && dataUri(ctx, last.assetId) }) }
+    return { out: await generate(ctx, 'video', { first: first && dataUri(ctx, first.assetId), last: last && dataUri(ctx, last.assetId) }, genPrompt(ctx)) }
+  },
+
+  tts: async (ctx) => {
+    const text = valuesToText(ctx.inputs.in).trim() || str(ctx.node.data.text)
+    if (!text) throw new NodeError('没有要朗读的文本：请连接文本节点，或在节点内填写台词')
+    const profile = requireProfile(ctx)
+    const p = ctx.node.data.params ?? {}
+    if (profile.adapter === 'openai-compat') {
+      const { bytes, mime } = await openaiSpeech(profile, ctx.apiKey, {
+        input: text, voice: typeof p.voice === 'string' && p.voice ? p.voice : undefined,
+        speed: typeof p.speed === 'number' ? p.speed : undefined, signal: ctx.signal,
+      })
+      const a = ctx.assets.put(bytes, mime, `speech.${mime.split('/')[1]}`)
+      return { out: [{ type: 'audio', assetId: a.id, mime: a.mime }] }
+    }
+    return { out: await generate(ctx, 'audio', {}, text) }
   },
 
   // preview has no outputs; we store what it received under `in` so the UI can render it
