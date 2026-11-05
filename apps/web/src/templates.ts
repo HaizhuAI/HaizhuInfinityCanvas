@@ -24,6 +24,23 @@ export const TEMPLATES: Template[] = [
     },
   },
   {
+    id: 'video-reverse',
+    name: '视频 → 镜头反推',
+    description: '上传一段视频，自动切分镜头、提取关键帧并反推每个镜头的提示词，可一键展开成翻拍节点',
+    flow: ['video', 'video-reverse', 'image-gen', 'video-gen'],
+    graph: () => {
+      const a = id('vid'), b = id('vrev')
+      return {
+        version: 1,
+        nodes: [
+          { id: a, type: 'video', position: { x: 0, y: 40 }, data: { label: '参考视频' } },
+          { id: b, type: 'video-reverse', position: { x: 400, y: 0 }, data: { params: { maxShots: 8, threshold: 0.3, lang: 'zh' } } },
+        ],
+        edges: [{ id: id('e'), source: a, sourceHandle: 'out', target: b, targetHandle: 'video' }],
+      }
+    },
+  },
+  {
     id: 'image-reverse',
     name: '图片 → 提示词反推',
     description: '上传一张图，反推出可复用的生成提示词',

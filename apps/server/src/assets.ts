@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export class AssetStore {
   private dir: string
 
-  constructor(dataDir: string, private store: Store) {
+  constructor(readonly dataDir: string, private store: Store) {
     this.dir = join(dataDir, 'assets')
     mkdirSync(this.dir, { recursive: true })
   }

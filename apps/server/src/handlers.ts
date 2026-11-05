@@ -1,11 +1,14 @@
 import {
-  ASPECT_RATIOS, extractJson, normalizeStoryboard, StoryboardParseError,
+  ASPECT_RATIOS, extractJson, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
   DEFAULT_VLM_INSTRUCTION, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, reversePromptInstruction, valuesOfType, valuesToText,
   type GraphNode, type ModelProfile, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
 import { chatAdapterFor, ProviderError, type ChatAdapter } from './providers'
 import type { SkillStore } from './skills'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { detectScenes, extractFrame, MediaError, probe, segmentsFromCuts, withTemp } from './media'
 import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
 
 export class NodeError extends Error {}
@@ -27,7 +30,7 @@ export interface HandlerCtx {
 export type Handler = (ctx: HandlerCtx) => Promise<NodeOutputs>
 
 const PLANNED: Record<string, string> = {
-  'video-reverse': 'v1.0.0-beta.5', export: 'v1.0.0-beta.6',
+  export: 'v1.0.0-beta.6',
 }
 
 function requireProfile(ctx: HandlerCtx): ModelProfile {
@@ -229,6 +232,68 @@ export const HANDLERS: Record<string, Handler> = {
         if (!(e2 instanceof StoryboardParseError)) throw e2
         throw new NodeError(`模型两次都没有返回有效分镜（${e2.message}）。模型回复开头：${reply.slice(0, 160)}`)
       }
+    }
+  },
+
+  'video-reverse': async (ctx) => {
+    const vid = valuesOfType(ctx.inputs.video, 'video')[0]
+    if (!vid) throw new NodeError('请连接一个视频')
+    const asset = ctx.assets.get(vid.assetId)
+    if (!asset) throw new NodeError('视频素材不存在')
+    requireProfile(ctx)
+    const p = ctx.node.data.params ?? {}
+    const maxShots = Math.min(16, Math.max(1, Math.round(Number(p.maxShots ?? 8)) || 8))
+    const threshold = Math.min(0.9, Math.max(0.05, Number(p.threshold ?? 0.3) || 0.3))
+    const lang = p.lang === 'en' ? 'en' : 'zh'
+    try {
+      ctx.job.report('读取视频信息…')
+      const info = await probe(asset.file, ctx.signal)
+      if (!info.duration) throw new NodeError('无法读取视频时长')
+      ctx.job.report('分析镜头切换…')
+      const segs = segmentsFromCuts(await detectScenes(asset.file, threshold, ctx.signal), info.duration, maxShots)
+      const frames = await withTemp(ctx.assets.dataDir, async (dir) => {
+        const out: { assetId: string; mime: string }[] = []
+        for (const [i, s] of segs.entries()) {
+          ctx.job.report(`提取关键帧 ${i + 1}/${segs.length}`)
+          const f = join(dir, `k${i}.jpg`)
+          await extractFrame(asset.file, s.start + (s.end - s.start) / 2, f, 768, ctx.signal)
+          const a = ctx.assets.put(readFileSync(f), 'image/jpeg', `关键帧-${i + 1}.jpg`)
+          out.push({ assetId: a.id, mime: a.mime })
+        }
+        return out
+      })
+      const durations = segs.map((s) => s.end - s.start)
+      ctx.job.report('视觉模型解读镜头…')
+      const reply = await chat(ctx, videoReverseInstruction(durations, lang), { imageIds: frames.map((f) => f.assetId) })
+      let parsed: { title?: string; shots: Shot[] }
+      try { parsed = normalizeStoryboard(extractJson(reply)) } catch (e) {
+        if (!(e instanceof StoryboardParseError)) throw e
+        throw new NodeError(`视觉模型没有返回有效的镜头表（${e.message}）。回复开头：${reply.slice(0, 160)}`)
+      }
+      // the video, not the model, is the source of truth for count, timing and keyframes
+      const shots: Shot[] = segs.map((s, i) => {
+        const m = parsed.shots[i]
+        return {
+          index: i + 1,
+          title: m?.title || `镜头 ${i + 1}`,
+          visual: m?.visual || '（模型未描述这个镜头）',
+          camera: m?.camera ?? '',
+          dialogue: '',
+          duration: Math.max(1, Math.round(s.end - s.start)),
+          imagePrompt: m?.imagePrompt || m?.visual || '',
+          videoPrompt: m?.videoPrompt || '',
+          keyframe: frames[i],
+          start: Math.round(s.start * 100) / 100,
+        }
+      })
+      const text = shots.map((s) => `镜头 ${s.index}（${s.duration}s）\n画面：${s.imagePrompt}\n运动：${s.videoPrompt}`).join('\n\n')
+      return {
+        out: [{ type: 'storyboard', ...(parsed.title ? { title: parsed.title } : {}), shots }],
+        text: [{ type: 'text', text }],
+      }
+    } catch (e) {
+      if (e instanceof MediaError) throw new NodeError(e.message)
+      throw e
     }
   },
 

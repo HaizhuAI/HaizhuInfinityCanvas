@@ -85,6 +85,7 @@ export const api = {
   uploadAsset,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
+  system: (refresh = false) => req<{ version: string; node: string; platform: string; ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string } }>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
   listSkills: () => req<SkillMeta[]>('GET', '/api/skills'),
   importSkill: (content: string) => req<SkillMeta>('POST', '/api/skills', { content }),
   deleteSkill: (name: string) => req<void>('DELETE', `/api/skills/${encodeURIComponent(name)}`),

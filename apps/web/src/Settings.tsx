@@ -307,13 +307,32 @@ function AppearancePane() {
 }
 
 function AboutPane() {
+  const [sys, setSys] = useState<Awaited<ReturnType<typeof api.system>> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = (refresh = false) => { setBusy(true); void api.system(refresh).then(setSys).catch(() => setSys(null)).finally(() => setBusy(false)) }
+  useEffect(() => { load() }, [])
+  const f = sys?.ffmpeg
   return (
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向创作类智能体的无限画布。当前版本 v1.0.0-beta.5。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-beta.5。</div>
       </div>
-      <div className="hint"><Info /><span>项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。</span></div>
+      <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
+        <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
+          <span className="dot" aria-hidden="true" />
+          {sys == null ? '检测中…' : f?.ok ? `已就绪 · ${f.version ?? ''}${f.h264 ? ' · H.264' : ' · 无 H.264 编码器'}` : '未找到'}
+          <button className="btn xs" disabled={busy} onClick={() => load(true)}>重新检测</button>
+        </div>
+        {sys && !f?.ok && (
+          <span className="help">
+            安装后重启应用即可：Windows <code>winget install ffmpeg</code>，macOS <code>brew install ffmpeg</code>，Ubuntu/Debian <code>sudo apt install ffmpeg</code>。
+            也可以用环境变量 <code>HZC_FFMPEG</code> / <code>HZC_FFPROBE</code> 指定可执行文件路径。
+          </span>
+        )}
+      </div>
+      {sys && <dl className="meta-list"><dt>运行环境</dt><dd>Node {sys.node} · {sys.platform}</dd></dl>}
+      <div className="hint"><Info aria-hidden="true" /><span>项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。</span></div>
     </div>
   )
 }

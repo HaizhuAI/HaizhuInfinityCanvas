@@ -161,9 +161,9 @@ describe('engine + openai-compat provider', () => {
   })
 
   it('says unimplemented nodes arrive in a later beta', async () => {
-    const p = project({ version: 1, nodes: [{ id: 'g', type: 'video-reverse', position: { x: 0, y: 0 }, data: {} }], edges: [] })
+    const p = project({ version: 1, nodes: [{ id: 'g', type: 'export', position: { x: 0, y: 0 }, data: {} }], edges: [] })
     const { last } = await run(p.id)
-    expect(last.get('g').error).toMatch(/beta\.5/)
+    expect(last.get('g').error).toMatch(/beta\.6/)
   })
 })
 

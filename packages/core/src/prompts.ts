@@ -37,4 +37,18 @@ export function reversePromptInstruction(style: ReverseStyle = 'general', lang: 
   ].join('\n')
 }
 
+/** Instruction for reading a video's shots from one keyframe each (in order). */
+export function videoReverseInstruction(durations: number[], lang: ReverseLang = 'zh'): string {
+  const n = durations.length
+  const list = durations.map((d, i) => `镜头 ${i + 1}：${d.toFixed(1)} 秒`).join('；')
+  return [
+    `下面按播放顺序给出同一段视频的 ${n} 张关键帧，每张代表一个镜头（${list}）。`,
+    '请逐个镜头反推：画面里有什么、景别与镜头运动（根据构图与前后镜头推断）、可直接复用的文生图提示词与图生视频提示词。',
+    '保持人物、产品与风格描述在各镜头之间一致：在每个 image_prompt 里重复同一段主体外观描述和风格描述。',
+    `image_prompt 与 video_prompt 用${lang === 'en' ? '英文' : '中文'}书写，其余字段用中文。听不到声音，dialogue 一律为空字符串。`,
+    '只输出一个 JSON 对象，不要解释、不要 Markdown 代码块：',
+    `{"title": "这段视频的标题", "shots": [{"title": "镜头小标题", "visual": "画面内容", "camera": "景别与运镜", "dialogue": "", "image_prompt": "…", "video_prompt": "…"}]}，shots 恰好 ${n} 个，顺序与关键帧一致。`,
+  ].join('\n')
+}
+
 export const DEFAULT_VLM_INSTRUCTION = '请详细描述这张图片的内容：主体、场景、构图、光线、色彩与风格。'

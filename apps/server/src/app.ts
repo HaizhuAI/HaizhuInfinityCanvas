@@ -6,8 +6,9 @@ import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
 import { SkillError, type SkillStore } from './skills'
+import { ffmpegInfo } from './media'
 
-export const APP_VERSION = '1.0.0-beta.4'
+export const APP_VERSION = '1.0.0-beta.5'
 
 export interface AppOptions {
   store: Store
@@ -47,6 +48,12 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   }
 
   app.get('/api/health', async () => ({ ok: true, name: 'haizhu-infinity-canvas', version: APP_VERSION }))
+
+  /** environment status for Settings: FFmpeg availability (video reverse / export need it) */
+  app.get<{ Querystring: { refresh?: string } }>('/api/system', async (req) => {
+    const f = await ffmpegInfo(req.query.refresh === '1')
+    return { version: APP_VERSION, node: process.versions.node, platform: process.platform, ffmpeg: { ok: f.ok, version: f.version, h264: f.h264, aac: f.aac, error: f.error } }
+  })
 
   // ---- model profiles
   app.get('/api/profiles', async () => store.listProfiles().map(publicProfile))

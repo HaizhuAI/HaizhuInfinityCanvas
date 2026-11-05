@@ -106,16 +106,24 @@ export const useStore = create<State>((set, get) => ({
     const ROW = 480, X0 = dir.position.x + 400
     const newNodes: CanvasNode[] = []
     const newEdges: Edge[] = []
+    // shots read from a video (video reverse) carry their keyframe: remake rows start from it
+    const remake = sb.shots.some((s) => s.keyframe)
     sb.shots.forEach((shot, i) => {
       const y = dir.position.y + i * ROW
       const tag = `镜头 ${shot.index}`
       const imgId = `n_${uid()}`, vidId = `n_${uid()}`
-      newNodes.push({ id: imgId, type: 'image-gen', position: { x: X0, y }, data: { label: `${tag} · 画面`, text: shot.imagePrompt, profileId: img?.id, params: aspect ? { aspect_ratio: aspect } : {} } })
-      newNodes.push({ id: vidId, type: 'video-gen', position: { x: X0 + 400, y }, data: { label: `${tag} · 视频`, text: shot.videoPrompt, profileId: vid?.id, params: { ...(aspect ? { aspect_ratio: aspect } : {}) } } })
+      const x0 = remake ? X0 + 400 : X0
+      if (shot.keyframe) {
+        const kfId = `n_${uid()}`
+        newNodes.push({ id: kfId, type: 'image', position: { x: X0, y }, data: { label: `${tag} · 原片关键帧`, assetId: shot.keyframe.assetId, mime: shot.keyframe.mime } })
+        newEdges.push({ id: `e_${uid()}`, source: kfId, sourceHandle: 'out', target: imgId, targetHandle: 'ref' })
+      }
+      newNodes.push({ id: imgId, type: 'image-gen', position: { x: x0, y }, data: { label: `${tag} · 画面`, text: shot.imagePrompt, profileId: img?.id, params: aspect ? { aspect_ratio: aspect } : {} } })
+      newNodes.push({ id: vidId, type: 'video-gen', position: { x: x0 + 400, y }, data: { label: `${tag} · 视频`, text: shot.videoPrompt, profileId: vid?.id, params: { ...(aspect ? { aspect_ratio: aspect } : {}), ...(shot.keyframe ? { duration: shot.duration <= 7 ? 5 : 10 } : {}) } } })
       newEdges.push({ id: `e_${uid()}`, source: imgId, sourceHandle: 'out', target: vidId, targetHandle: 'first' })
       if (shot.dialogue) {
         const ttsId = `n_${uid()}`
-        newNodes.push({ id: ttsId, type: 'tts', position: { x: X0 + 800, y }, data: { label: `${tag} · 配音`, text: shot.dialogue, profileId: tts?.id, params: {} } })
+        newNodes.push({ id: ttsId, type: 'tts', position: { x: x0 + 800, y }, data: { label: `${tag} · 配音`, text: shot.dialogue, profileId: tts?.id, params: {} } })
       }
     })
     set((s) => ({ nodes: [...s.nodes, ...newNodes], edges: [...s.edges, ...newEdges], saveState: 'dirty' }))
