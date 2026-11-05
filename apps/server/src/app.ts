@@ -8,7 +8,7 @@ import type { Engine } from './engine'
 import { SkillError, type SkillStore } from './skills'
 import { ffmpegInfo } from './media'
 
-export const APP_VERSION = '1.0.0-beta.5'
+export const APP_VERSION = '1.0.0-rc.1'
 
 export interface AppOptions {
   store: Store

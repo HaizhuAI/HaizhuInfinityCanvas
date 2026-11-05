@@ -1,6 +1,6 @@
 {
   "name": "@hzc/desktop",
-  "version": "1.0.0-beta.4",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "Haizhu Infinity Canvas desktop shell (Electron)",
   "author": "Haizhu",
@@ -21,12 +21,14 @@
     "productName": "HaizhuInfinityCanvas",
     "executableName": "haizhu-infinity-canvas",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "artifactName": "HaizhuInfinityCanvas-${version}-${os}-${arch}.${ext}",
     "files": [
       "main.cjs",
-      "package.json"
+      "package.json",
+      "build/icon.png"
     ],
     "extraResources": [
       {
@@ -52,7 +54,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -64,7 +67,8 @@
         "deb"
       ],
       "category": "AudioVideo",
-      "maintainer": "Haizhu <noreply@haizhu.ai>"
+      "maintainer": "Haizhu <noreply@haizhu.ai>",
+      "icon": "build/icons"
     }
   },
   "homepage": "https://github.com/HaizhuAI/HaizhuInfinityCanvas",

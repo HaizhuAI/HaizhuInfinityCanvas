@@ -21,3 +21,6 @@ data/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# desktop build resources (icons) are source, not output
+!apps/desktop/build/

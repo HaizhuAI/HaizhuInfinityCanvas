@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowRight, Check, ChevronDown, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
@@ -17,8 +17,10 @@ import { TEMPLATES } from './templates'
 import { inspectorPref, setInspectorPref } from './theme'
 import { useAddNode } from './useAddNode'
 import { useStore } from './store'
+import { api } from './api'
+import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-beta.5'
+export const APP_VERSION = 'v1.0.0-rc.1'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -71,6 +73,7 @@ function ProjectMenu() {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (!open) return
     enterMenu(menuRef.current)
@@ -81,6 +84,7 @@ function ProjectMenu() {
   return (
     <div className="project" ref={ref}>
       <input className="pname" value={projectName} onChange={(e) => renameProject(e.target.value)} aria-label="画布名称" title="点击重命名" />
+      <input ref={fileRef} type="file" accept=".json,application/json" hidden data-testid="import-file" onChange={(e) => { const f = e.target.files?.[0]; setOpen(false); if (f) void importCanvas(f); e.target.value = '' }} />
       <button className="btn ghost xs icon" onClick={() => setOpen((o) => !o)} aria-label="切换或新建画布" aria-expanded={open} data-testid="project-menu"><ChevronDown /></button>
       {open && (
         <div className="menu" role="menu" ref={menuRef}>
@@ -92,10 +96,60 @@ function ProjectMenu() {
           ))}
           <div className="menu-sep" />
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus aria-hidden="true" />新建画布</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); exportCanvas() }} data-testid="export-canvas"><Download aria-hidden="true" />导出画布文件（.json）</button>
+          <button role="menuitem" className="menu-item" onClick={() => fileRef.current?.click()} data-testid="import-canvas"><FileUp aria-hidden="true" />导入画布文件…</button>
         </div>
       )}
     </div>
   )
+}
+
+/** Keeps a rendering fault from blanking the window: shows what happened and a way back. */
+class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
+  state: { error?: Error } = {}
+  static getDerivedStateFromError(error: Error) { return { error } }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="canvas-empty" role="alert" style={{ position: 'relative' }}>
+        <div className="empty-card">
+          <div className="eyebrow">出错了</div>
+          <h2>界面遇到了一个问题</h2>
+          <p>你的画布已经自动保存在本机。重新加载即可继续；如果反复出现，请把下面这行信息告诉我们。</p>
+          <pre className="err" style={{ marginBottom: 16 }}>{this.state.error.message}</pre>
+          <button className="btn primary" onClick={() => location.reload()}>重新加载</button>
+        </div>
+      </div>
+    )
+  }
+}
+
+/** A portable copy of the current canvas (graph only — media stays in the local asset store). */
+function exportCanvas() {
+  const { projectName, nodes, edges } = useStore.getState()
+  const graph: ProjectGraph = {
+    version: 1,
+    nodes: nodes.map((n) => ({ id: n.id, type: n.type ?? 'text', position: n.position, data: n.data })),
+    edges: edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? 'out', target: e.target, targetHandle: e.targetHandle ?? 'in' })),
+  }
+  const blob = new Blob([JSON.stringify({ format: 'haizhu-canvas', version: 1, name: projectName, exportedAt: new Date().toISOString(), graph }, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `${projectName || 'canvas'}.haizhu.json`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+}
+
+async function importCanvas(file: File) {
+  const s = useStore.getState()
+  try {
+    const j = JSON.parse(await file.text()) as { format?: string; name?: string; graph?: ProjectGraph }
+    if (j.format !== 'haizhu-canvas' || j.graph?.version !== 1 || !Array.isArray(j.graph.nodes) || !Array.isArray(j.graph.edges)) throw new Error('不是 Haizhu 画布文件')
+    const p = await api.createProject(`${j.name ?? '导入的画布'}（导入）`, j.graph)
+    useStore.setState({ projects: await api.listProjects() })
+    await s.openProject(p.id)
+    s.showToast('已导入画布。素材文件需要在本机素材库中存在才能显示。')
+  } catch (e) { s.showToast(`导入失败：${(e as Error).message}`) }
 }
 
 function SaveIndicator() {
@@ -285,7 +339,7 @@ export function App() {
             <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
           </div>
         </header>
-        <ProjectWorkspace inspector={inspector} setInspector={setInspector} />
+        <ErrorBoundary><ProjectWorkspace inspector={inspector} setInspector={setInspector} /></ErrorBoundary>
         {s.settingsOpen && <Settings />}
         <ConfirmRun />
         <Lightbox />
