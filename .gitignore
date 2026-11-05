@@ -1,0 +1,23 @@
+node_modules/
+dist/
+out/
+release/
+build/
+.turbo/
+.vite/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# local runtime data (projects, assets, secrets)
+data/
+*.sqlite
+*.sqlite-journal
+*.db
+
+# editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
