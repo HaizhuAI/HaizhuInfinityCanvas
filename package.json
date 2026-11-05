@@ -4,12 +4,27 @@
   "private": true,
   "description": "Haizhu Infinity Canvas - creative agent workshop on an infinite canvas",
   "packageManager": "pnpm@10.28.0",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "pnpm -r --parallel --filter @hzc/server --filter @hzc/web dev",
     "build": "pnpm --filter @hzc/core build && pnpm --filter @hzc/web build && pnpm --filter @hzc/server build",
-    "start": "node apps/server/dist/index.js",
+    "start": "node apps/server/dist/index.mjs",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "desktop:dev": "pnpm build && pnpm --filter @hzc/desktop start",
+    "desktop:package-dir": "pnpm build && pnpm --filter @hzc/desktop package:dir",
+    "desktop:package": "pnpm build && pnpm --filter @hzc/desktop package:dist",
+    "e2e": "node e2e/smoke.cjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }

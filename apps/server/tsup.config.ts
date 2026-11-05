@@ -1,12 +1,15 @@
 import { defineConfig } from 'tsup'
 
+// Single self-contained ESM file: desktop (Electron resources/) and Docker both just run
+// `node dist/index.mjs` with no node_modules. Real npm deps are bundled in too.
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: { index: 'src/index.ts' },
   format: ['esm'],
   target: 'node22',
-  clean: true,
-  // bundle the workspace package (it ships TS source); keep real npm deps external
-  noExternal: ['@hzc/core'],
-  // node:sqlite is a Node builtin; esbuild must not strip the `node:` prefix
   platform: 'node',
+  clean: true,
+  outExtension: () => ({ js: '.mjs' }),
+  noExternal: [/.*/],
+  // bundled CJS deps (fastify & friends) call require(); give them one in ESM scope
+  banner: { js: "import { createRequire as __hzcCreateRequire } from 'node:module'; const require = __hzcCreateRequire(import.meta.url);" },
 })
