@@ -1,7 +1,7 @@
 import {
   ASPECT_RATIOS, extractJson, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
   DEFAULT_VLM_INSTRUCTION, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, reversePromptInstruction, valuesOfType, valuesToText,
-  type GraphNode, type ModelProfile, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
+  type GraphNode, type ModelProfile, type ProjectGraph, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
 import { chatAdapterFor, ProviderError, type ChatAdapter } from './providers'
@@ -9,6 +9,7 @@ import type { SkillStore } from './skills'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { detectScenes, extractFrame, MediaError, probe, segmentsFromCuts, withTemp } from './media'
+import { exportFilm } from './exporter'
 import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
 
 export class NodeError extends Error {}
@@ -25,13 +26,13 @@ export interface HandlerCtx {
   /** long-running provider jobs (image / video generation) */
   job: Omit<JobCtx, 'signal'>
   skills?: SkillStore
+  /** the graph being run (positions are used to match voices to clips by canvas row) */
+  graph?: ProjectGraph
 }
 
 export type Handler = (ctx: HandlerCtx) => Promise<NodeOutputs>
 
-const PLANNED: Record<string, string> = {
-  export: 'v1.0.0-beta.6',
-}
+const PLANNED: Record<string, string> = {}
 
 function requireProfile(ctx: HandlerCtx): ModelProfile {
   const def = NODE_TYPE_MAP[ctx.node.type]
@@ -291,6 +292,45 @@ export const HANDLERS: Record<string, Handler> = {
         out: [{ type: 'storyboard', ...(parsed.title ? { title: parsed.title } : {}), shots }],
         text: [{ type: 'text', text }],
       }
+    } catch (e) {
+      if (e instanceof MediaError) throw new NodeError(e.message)
+      throw e
+    }
+  },
+
+  export: async (ctx) => {
+    const clips = valuesOfType(ctx.inputs.video, 'video')
+    if (!clips.length) throw new NodeError('请把要合成的视频片段连到「视频」端口（按画布上从上到下、从左到右的顺序拼接）')
+    const file = (id: string) => { const a = ctx.assets.get(id); if (!a) throw new NodeError('有一个素材已不存在'); return a.file }
+    const p = ctx.node.data.params ?? {}
+    // keep blank lines: line i belongs to clip i, a blank line is a silent shot
+    const subs = valuesToText(ctx.inputs.subs).replace(/\s+$/, '').split('\n').map((l) => l.trim())
+    // match each voice to the clip in the same canvas row (nearest y within 240px)
+    const g = ctx.graph
+    const srcY = (handle: string) => g ? g.edges.filter((e) => e.target === ctx.node.id && e.targetHandle === handle)
+      .map((e) => g.nodes.find((n) => n.id === e.source)?.position).filter(Boolean).sort((a, b) => a!.y - b!.y || a!.x - b!.x).map((q) => q!.y) : []
+    const clipY = srcY('video'), voiceY = srcY('audio')
+    const voices = valuesOfType(ctx.inputs.audio, 'audio')
+    let voiceClip: number[] | undefined
+    if (clipY.length === clips.length && voiceY.length === voices.length && voices.length !== clips.length) {
+      const m = voiceY.map((y) => { let best = -1, d = Infinity; clipY.forEach((cy, i) => { const dd = Math.abs(cy - y); if (dd < d) { d = dd; best = i } }); return d <= 240 ? best : -1 })
+      if (m.every((i) => i >= 0)) voiceClip = m
+    }
+    try {
+      ctx.job.report('准备片段…')
+      const r = await exportFilm({
+        clips: clips.map((c) => ({ file: file(c.assetId) })),
+        voices: voices.map((a) => file(a.assetId)),
+        voiceClip,
+        subtitles: subs,
+        size: typeof p.size === 'string' ? p.size : undefined,
+        fps: typeof p.fps === 'number' ? p.fps : undefined,
+        keepAudio: p.keepAudio === 'drop' ? 'drop' : 'mix',
+        dataDir: ctx.assets.dataDir, signal: ctx.signal,
+        onProgress: (pct) => ctx.job.report(`合成中 ${pct}%`),
+      })
+      const a = ctx.assets.put(r.bytes, 'video/mp4', `成片-${r.size}.mp4`)
+      return { out: [{ type: 'video', assetId: a.id, mime: a.mime }], ...(r.srt ? { srt: [{ type: 'text', text: r.srt }] } : {}) }
     } catch (e) {
       if (e instanceof MediaError) throw new NodeError(e.message)
       throw e

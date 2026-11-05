@@ -107,6 +107,7 @@ kbd { font: 500 10.5px/1 var(--mono); padding: 3px 5px; border-radius: 5px; bord
   cursor: pointer; white-space: nowrap; font-weight: 550; font-size: 13px;
   transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), opacity var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast) var(--ease);
 }
+a.btn { text-decoration: none; }
 .btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--line-3); }
 .btn:active:not(:disabled) { transform: scale(.97); transition-duration: 60ms; }
 .btn:disabled { opacity: .42; cursor: not-allowed; }

@@ -31,6 +31,19 @@ export interface StartOptions {
 /** Node types that never call a provider — always recomputed, never "cached" in the UI sense. */
 const TRIVIAL = new Set(['text', 'image', 'video', 'audio', 'preview'])
 
+/**
+ * Multi-input ports receive values in canvas order (top-to-bottom, then left-to-right), so a column
+ * of storyboard rows feeds an Export node in shot order regardless of wiring order. Used by both the
+ * run and the estimate so their cache keys agree.
+ */
+function canvasOrderedEdges(graph: ProjectGraph) {
+  const pos = new Map(graph.nodes.map((n) => [n.id, n.position]))
+  return [...graph.edges].sort((a, b) => {
+    const pa = pos.get(a.source), pb = pos.get(b.source)
+    return (pa?.y ?? 0) - (pb?.y ?? 0) || (pa?.x ?? 0) - (pb?.x ?? 0)
+  })
+}
+
 /** Outputs of trivial nodes computed without side effects (for estimates). undefined = would fail. */
 function trivialOutputs(node: GraphNode, inputs: Record<string, NodeOutputs[string]>): NodeOutputs | undefined {
   if (node.type === 'text') return { out: [{ type: 'text', text: node.data.text ?? '' }] }
@@ -66,19 +79,20 @@ export class Engine {
     const targets = opts.nodeIds?.length ? new Set(opts.nodeIds) : undefined
     const order = topoOrder(graph, targets ? ancestorsOf(graph, [...targets]) : undefined)
     const sim = new Map<string, NodeOutputs>()
+    const edges = canvasOrderedEdges(graph)
     const unknown = new Set<string>() // nodes whose output we cannot predict (they will really run)
     const items: EstimateItem[] = []
     for (const nodeId of order) {
       const node = graph.nodes.find((n) => n.id === nodeId)!
       const upstreamUnknown = graph.edges.some((e) => e.target === nodeId && unknown.has(e.source))
       if (TRIVIAL.has(node.type)) {
-        const out = trivialOutputs(node, collectInputs(graph.edges, nodeId, sim))
+        const out = trivialOutputs(node, collectInputs(edges, nodeId, sim))
         if (out && !upstreamUnknown) sim.set(nodeId, out); else unknown.add(nodeId)
         continue
       }
       const stored = this.store.getNodeOutput(projectId, nodeId)
       const force = opts.force && (!targets || targets.has(nodeId))
-      const cached = !upstreamUnknown && !force && !!stored && stored.cacheKey === this.cacheKey(graph, nodeId, collectInputs(graph.edges, nodeId, sim))
+      const cached = !upstreamUnknown && !force && !!stored && stored.cacheKey === this.cacheKey(graph, nodeId, collectInputs(edges, nodeId, sim))
       if (cached) sim.set(nodeId, stored!.outputs); else unknown.add(nodeId)
       const profile = node.data.profileId ? this.store.getProfile(node.data.profileId) : undefined
       items.push({
@@ -172,6 +186,7 @@ export class Engine {
 
     const outputs = new Map<string, NodeOutputs>()
     const failed = new Set<string>()
+    const edgesInOrder = canvasOrderedEdges(graph)
     let anyError = false
 
     for (const nodeId of order) {
@@ -185,7 +200,7 @@ export class Engine {
         continue
       }
 
-      const inputs = collectInputs(graph.edges, nodeId, outputs)
+      const inputs = collectInputs(edgesInOrder, nodeId, outputs)
       const key = this.cacheKey(graph, nodeId, inputs)
       const force = opts.force && (!targets || targets.has(nodeId))
       const cached = this.store.getNodeOutput(run.projectId, nodeId)
@@ -209,7 +224,7 @@ export class Engine {
         const out = await handlerFor(node.type)({
           node, inputs, profile,
           apiKey: profile ? this.store.getApiKey(profile.id) : undefined,
-          assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter, skills: this.skills,
+          assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter, skills: this.skills, graph,
           job: { store: this.store, projectId: run.projectId, nodeId, cacheKey: key, force: !!force, report, pollDelays: this.pollDelays },
         })
         outputs.set(nodeId, out)

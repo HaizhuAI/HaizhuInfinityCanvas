@@ -71,7 +71,7 @@ export const NODE_TYPES: NodeTypeDef[] = [
   {
     type: 'export', category: 'output', label: '导出成片', description: '合成视频 + 配音 + 字幕',
     inputs: [{ id: 'video', type: 'video', label: '视频', multiple: true }, { id: 'audio', type: 'audio', label: '配音', multiple: true }, { id: 'subs', type: 'text', label: '字幕' }],
-    outputs: [{ id: 'out', type: 'video', label: '成片' }],
+    outputs: [{ id: 'out', type: 'video', label: '成片' }, { id: 'srt', type: 'text', label: '字幕 SRT' }],
   },
 ]
 

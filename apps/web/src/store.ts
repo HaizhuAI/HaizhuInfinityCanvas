@@ -126,6 +126,17 @@ export const useStore = create<State>((set, get) => ({
         newNodes.push({ id: ttsId, type: 'tts', position: { x: x0 + 800, y }, data: { label: `${tag} · 配音`, text: shot.dialogue, profileId: tts?.id, params: {} } })
       }
     })
+    // one Export node at the end of the rows, wired to every shot's video (canvas order = shot
+    // order), every voice line (aligned to its row) and a subtitle node (one line per shot)
+    const xEnd = (remake ? X0 + 400 : X0) + 1200
+    const subsId = `n_${uid()}`, exportId = `n_${uid()}`
+    newNodes.push({ id: subsId, type: 'text', position: { x: xEnd - 400, y: dir.position.y + sb.shots.length * ROW }, data: { label: '字幕（每行对应一个镜头）', text: sb.shots.map((s) => s.dialogue).join('\n') } })
+    newNodes.push({ id: exportId, type: 'export', position: { x: xEnd, y: dir.position.y }, data: { label: sb.title ? `成片 · ${sb.title}` : '导出成片', params: { fps: 30 } } })
+    for (const n of newNodes) {
+      if (n.type === 'video-gen') newEdges.push({ id: `e_${uid()}`, source: n.id, sourceHandle: 'out', target: exportId, targetHandle: 'video' })
+      if (n.type === 'tts') newEdges.push({ id: `e_${uid()}`, source: n.id, sourceHandle: 'out', target: exportId, targetHandle: 'audio' })
+    }
+    if (sb.shots.some((s) => s.dialogue)) newEdges.push({ id: `e_${uid()}`, source: subsId, sourceHandle: 'out', target: exportId, targetHandle: 'subs' })
     set((s) => ({ nodes: [...s.nodes, ...newNodes], edges: [...s.edges, ...newEdges], saveState: 'dirty' }))
     return newNodes.map((n) => n.id)
   },

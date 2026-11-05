@@ -15,12 +15,12 @@ export interface FfmpegInfo { ok: boolean; version?: string; ffmpeg: string; ffp
 
 const bin = () => ({ ffmpeg: process.env.HZC_FFMPEG || 'ffmpeg', ffprobe: process.env.HZC_FFPROBE || 'ffprobe' })
 
-export function run(cmd: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+export function run(cmd: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number; onStdout?: (chunk: string) => void } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     let child
     try { child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }) } catch (e) { return reject(new MediaError(`无法启动 ${cmd}：${(e as Error).message}`)) }
     let stdout = '', stderr = ''
-    child.stdout.on('data', (d) => { stdout += d; if (stdout.length > 8_000_000) stdout = stdout.slice(-4_000_000) })
+    child.stdout.on('data', (d) => { const s = String(d); opts.onStdout?.(s); stdout += s; if (stdout.length > 8_000_000) stdout = stdout.slice(-4_000_000) })
     child.stderr.on('data', (d) => { stderr += d; if (stderr.length > 8_000_000) stderr = stderr.slice(-4_000_000) })
     const kill = () => child.kill('SIGKILL')
     const timer = opts.timeoutMs ? setTimeout(kill, opts.timeoutMs) : undefined

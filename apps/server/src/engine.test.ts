@@ -160,10 +160,10 @@ describe('engine + openai-compat provider', () => {
     expect(states.at(-1)!.state.status).toBe('cancelled')
   })
 
-  it('says unimplemented nodes arrive in a later beta', async () => {
-    const p = project({ version: 1, nodes: [{ id: 'g', type: 'export', position: { x: 0, y: 0 }, data: {} }], edges: [] })
+  it('reports unknown node types clearly', async () => {
+    const p = project({ version: 1, nodes: [{ id: 'g', type: 'no-such-node', position: { x: 0, y: 0 }, data: {} }], edges: [] })
     const { last } = await run(p.id)
-    expect(last.get('g').error).toMatch(/beta\.6/)
+    expect(last.get('g').error).toMatch(/未知节点类型/)
   })
 })
 

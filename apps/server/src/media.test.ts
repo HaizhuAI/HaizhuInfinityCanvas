@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -143,5 +143,120 @@ describe.skipIf(!HAS_FFMPEG)('FFmpeg + video prompt reverse', () => {
         await ffmpegInfo(true)
       }
     })
+  })
+})
+
+describe('buildSrt (pure)', () => {
+  it('aligns one line per clip, else spreads lines evenly', async () => {
+    const { buildSrt } = await import('./exporter')
+    expect(buildSrt(['一', '二'], [2, 3])).toBe('1\n00:00:00,000 --> 00:00:01,950\n一\n\n2\n00:00:02,000 --> 00:00:04,950\n二\n')
+    expect(buildSrt(['a', 'b', 'c'], [3, 3])).toContain('00:00:02,000 --> 00:00:03,950')
+  })
+})
+
+describe.skipIf(!HAS_FFMPEG)('export node (FFmpeg)', () => {
+  let dir: string, data: string, store: Store, assets: AssetStore, engine: Engine, app: FastifyInstance
+  const ff = (args: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args])
+  const probeJson = (f: string) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', f]).toString())
+  /** average RGB of the frame at t */
+  const pixel = (f: string, t: number) => [...execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', String(t), '-i', f, '-frames:v', '1', '-vf', 'scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])]
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'hzc-exp-'))
+    ff(['-f', 'lavfi', '-i', 'color=c=red:s=640x360:d=1:r=25', '-f', 'lavfi', '-i', 'sine=f=440:d=1', '-shortest', '-c:v', 'libx264', '-c:a', 'aac', join(dir, 'red.mp4')])
+    ff(['-f', 'lavfi', '-i', 'color=c=blue:s=320x240:d=2:r=30', '-c:v', 'libx264', join(dir, 'blue.mp4')]) // silent, different size and fps
+    ff(['-f', 'lavfi', '-i', 'sine=f=660:d=0.6', join(dir, 'v1.wav')])
+    ff(['-f', 'lavfi', '-i', 'sine=f=880:d=0.8', join(dir, 'v2.wav')])
+  })
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  beforeEach(async () => {
+    data = mkdtempSync(join(tmpdir(), 'hzc-exp-d-'))
+    store = new Store(':memory:', new SecretBox(join(data, 'master.key')))
+    assets = new AssetStore(data, store)
+    const skills = new SkillStore(BUILTIN, data)
+    engine = new Engine(store, assets, { skills })
+    app = await buildApp({ store, assets, engine, skills })
+  })
+  afterEach(async () => { await app.close(); store.close(); rmSync(data, { recursive: true, force: true }) })
+
+  async function run(graph: ProjectGraph) {
+    const p = store.createProject('t', graph)
+    const res = await app.inject({ method: 'POST', url: `/api/projects/${p.id}/run`, payload: {} })
+    const events = await engine.wait(res.json().runId)
+    const last = new Map<string, any>(); const progress: string[] = []
+    for (const e of events) if (e.kind === 'node') { last.set(e.nodeId, e.state); if (e.state.progress) progress.push(e.state.progress) }
+    return { last, progress }
+  }
+  const put = (f: string, mime: string) => assets.put(readFileSync(join(dir, f)), mime, f)
+
+  it('normalises, concatenates in canvas order, aligns voices per clip and muxes soft subtitles', async () => {
+    const red = put('red.mp4', 'video/mp4'), blue = put('blue.mp4', 'video/mp4')
+    const v1 = put('v1.wav', 'audio/wav'), v2 = put('v2.wav', 'audio/wav')
+    const graph: ProjectGraph = {
+      version: 1,
+      nodes: [
+        // blue is wired FIRST but sits LOWER on the canvas -> red must play first
+        { id: 'b', type: 'video', position: { x: 0, y: 400 }, data: { assetId: blue.id, mime: 'video/mp4' } },
+        { id: 'r', type: 'video', position: { x: 0, y: 0 }, data: { assetId: red.id, mime: 'video/mp4' } },
+        { id: 'a1', type: 'audio', position: { x: 300, y: 0 }, data: { assetId: v1.id, mime: 'audio/wav' } },
+        { id: 'a2', type: 'audio', position: { x: 300, y: 400 }, data: { assetId: v2.id, mime: 'audio/wav' } },
+        { id: 's', type: 'text', position: { x: 300, y: 800 }, data: { text: '第一句台词\n第二句台词' } },
+        { id: 'x', type: 'export', position: { x: 700, y: 0 }, data: { params: { size: '1280x720', fps: 25 } } },
+      ],
+      edges: [
+        { id: 'e1', source: 'b', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e2', source: 'r', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e3', source: 'a2', sourceHandle: 'out', target: 'x', targetHandle: 'audio' },
+        { id: 'e4', source: 'a1', sourceHandle: 'out', target: 'x', targetHandle: 'audio' },
+        { id: 'e5', source: 's', sourceHandle: 'out', target: 'x', targetHandle: 'subs' },
+      ],
+    }
+    const { last, progress } = await run(graph)
+    expect(last.get('x').error).toBeUndefined()
+    const film = last.get('x').outputs.out[0]
+    expect(film).toMatchObject({ type: 'video', mime: 'video/mp4' })
+    const file = assets.get(film.assetId)!.file
+    const meta = probeJson(file)
+    expect(Number(meta.format.duration)).toBeCloseTo(3, 0)
+    const v = meta.streams.find((s: any) => s.codec_type === 'video')
+    expect([v.width, v.height]).toEqual([1280, 720])
+    expect(meta.streams.some((s: any) => s.codec_type === 'audio')).toBe(true)
+    expect(meta.streams.some((s: any) => s.codec_type === 'subtitle')).toBe(true)
+    const [r0, , b0] = pixel(file, 0.4)
+    expect(r0).toBeGreaterThan(150); expect(b0).toBeLessThan(80)   // red first (canvas order)
+    const [r1, , b1] = pixel(file, 2.2)
+    expect(b1).toBeGreaterThan(150); expect(r1).toBeLessThan(80)   // then blue
+    expect(last.get('x').outputs.srt[0].text).toContain('00:00:01,000 --> 00:00:02,950\n第二句台词')
+    expect(progress.some((p) => /合成中 \d+%/.test(p))).toBe(true)
+  })
+
+  it('places a voice under the clip in the same canvas row', async () => {
+    const red = put('red.mp4', 'video/mp4'), blue = put('blue.mp4', 'video/mp4'), v2 = put('v2.wav', 'audio/wav')
+    const { last } = await run({
+      version: 1,
+      nodes: [
+        { id: 'r', type: 'video', position: { x: 0, y: 0 }, data: { assetId: red.id, mime: 'video/mp4' } },
+        { id: 'b', type: 'video', position: { x: 0, y: 400 }, data: { assetId: blue.id, mime: 'video/mp4' } },
+        { id: 'a', type: 'audio', position: { x: 300, y: 410 }, data: { assetId: v2.id, mime: 'audio/wav' } }, // row 2 only
+        { id: 'x', type: 'export', position: { x: 700, y: 0 }, data: { params: { keepAudio: 'drop' } } },
+      ],
+      edges: [
+        { id: 'e1', source: 'r', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e2', source: 'b', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e3', source: 'a', sourceHandle: 'out', target: 'x', targetHandle: 'audio' },
+      ],
+    })
+    const file = assets.get(last.get('x').outputs.out[0].assetId)!.file
+    const loud = (ss: number, t: number) => {
+      const r = spawnSync('ffmpeg', ['-hide_banner', '-ss', String(ss), '-t', String(t), '-i', file, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' })
+      return Number(/mean_volume: (-?[\d.]+) dB/.exec(r.stderr)?.[1])
+    }
+    expect(loud(0, 0.9)).toBeLessThan(-60)       // clip 1: silent (no voice, original audio dropped)
+    expect(loud(1.05, 0.6)).toBeGreaterThan(-40) // clip 2 starts at 1 s: the voice plays there
+  })
+
+  it('needs at least one clip', async () => {
+    const { last } = await run({ version: 1, nodes: [{ id: 'x', type: 'export', position: { x: 0, y: 0 }, data: {} }], edges: [] })
+    expect(last.get('x').error).toMatch(/视频片段/)
   })
 })
