@@ -24,7 +24,13 @@
 
 ### Not verified yet
 - 未连接任何真实的云端模型服务（只用 mock 验证了协议格式）；真实服务商的兼容性请用你的 Key 实测。
-- Windows 安装包：CI 已开始构建，结果见 Actions。
+- Windows 安装包在真机上的安装与运行（未签名，首次运行 SmartScreen 会提示「未知发布者」）。
+
+### Verified on CI（GitHub Actions run 42056605765，commit 32367b3）
+- Windows：NSIS 安装包 + portable `.exe` 构建成功（artifact `desktop-windows-latest`）。
+- Linux：AppImage + `.deb` 构建成功（artifact `desktop-ubuntu-latest`）。
+- Docker：镜像构建成功；冒烟测试通过（带口令可访问、无口令 401、未设置口令时拒绝启动）。
+- CI：类型检查、单元测试、两套 E2E 全部通过。
 
 ## [1.0.0-beta.1] — 2026-11-05（代码完成，未打 tag）
 
