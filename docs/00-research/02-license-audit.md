@@ -73,7 +73,7 @@
 | --- | --- | --- | --- |
 | FFmpeg（桌面版） | LGPL / GPL（视构建） | **不随安装包分发**；调用用户自己安装的可执行文件（独立进程、参数数组） | 🟢 安装包不含 FFmpeg，无分发义务 |
 | FFmpeg（Docker 镜像） | Debian 软件包为 GPL 构建（含 x264） | 镜像内 `apt install ffmpeg`；镜像目前只在 CI 构建，**未公开发布** | 🟡 公开发布镜像 = 分发 GPL 二进制。可接受的做法：随镜像保留 Debian 的版权文件（`/usr/share/doc/*/copyright`），并在发布说明里指明对应源码可从 Debian 源码仓库获取（未修改的发行版软件包）。或者发布不含 FFmpeg 的镜像，由用户挂载。**需你决定** |
-| MLT 框架 / `melt` | LGPL-2.1 | 只在 CI 测试中安装，用来渲染我们生成的工程文件；不分发、不链接 | 🟢 |
+| MLT 框架 / `melt` | 框架 LGPL-2.1+；`melt` 命令行 GPL-2.0+ | 只在 CI 测试中安装，用来渲染我们生成的工程文件；不分发、不链接 | 🟢 |
 | Shotcut | GPL-3.0 | 用户自行安装；我们只生成它能打开的 MLT XML 数据文件（自己的代码，不含其代码） | 🟢 |
 | Electron safeStorage | MIT（Electron 的一部分） | 桌面版把 API Key 加密密钥交给系统钥匙串 | 🟢 |
 | ZIP 读写 | 自研（Node.js 内置 zlib） | 项目包与剪辑工程 | 🟢 |
