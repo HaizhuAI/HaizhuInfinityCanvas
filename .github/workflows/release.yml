@@ -1,11 +1,23 @@
 name: Build installers
 
-# Runs on version tags (v1.0.0-beta.N, …) or manually. Artifacts are attached to the workflow run
-# (private while the repo is private); nothing is published publicly by this workflow.
+# Runs on version tags, on dev-branch pushes that touch shipped code, or manually. Artifacts are attached to the run
+# (no GitHub Release is created by this workflow).
 on:
   push:
     tags: ["v*"]
+    # test builds on the development branch whenever shipped code changes
+    branches: ["claude/**"]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - "Dockerfile"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   desktop:
