@@ -9,6 +9,10 @@ import { AssetStore } from './assets'
 import { Store } from './db'
 import { Engine } from './engine'
 import { SecretBox } from './secrets'
+import { SkillStore } from './skills'
+import { fileURLToPath } from 'node:url'
+
+const BUILTIN_SKILLS = fileURLToPath(new URL('../skills', import.meta.url))
 
 const PNG_1x1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 const KEY = 'sk-test-0123456789abcdef'
@@ -45,8 +49,8 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'hzc-eng-'))
   store = new Store(':memory:', new SecretBox(join(dir, 'master.key')))
   assets = new AssetStore(dir, store)
-  engine = new Engine(store, assets)
-  app = await buildApp({ store, assets, engine })
+  engine = new Engine(store, assets, { skills: new SkillStore(BUILTIN_SKILLS, dir) })
+  app = await buildApp({ store, assets, engine, skills: new SkillStore(BUILTIN_SKILLS, dir) })
 })
 afterEach(async () => { await app.close(); store.close(); rmSync(dir, { recursive: true, force: true }) })
 

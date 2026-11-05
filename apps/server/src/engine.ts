@@ -7,6 +7,8 @@ import type { AssetStore } from './assets'
 import type { Store } from './db'
 import { handlerFor, NodeError, type HandlerCtx } from './handlers'
 import { ProviderError } from './providers'
+import type { SkillStore } from './skills'
+import { DEFAULT_DIRECTOR_SKILL } from './handlers'
 
 type Listener = (e: RunEvent) => void
 
@@ -42,13 +44,19 @@ export class Engine {
   /** one active run per project: starting a new one cancels the previous */
   private active = new Map<string, string>()
 
+  private chatAdapter?: HandlerCtx['chatAdapter']
+  private pollDelays?: number[]
+  private skills?: SkillStore
+
   constructor(
     private store: Store,
     private assets: AssetStore,
-    private chatAdapter?: HandlerCtx['chatAdapter'],
-    /** test hook: provider polling schedule */
-    private pollDelays?: number[],
-  ) {}
+    opts: { chatAdapter?: HandlerCtx['chatAdapter']; /** test hook: provider polling schedule */ pollDelays?: number[]; skills?: SkillStore } = {},
+  ) {
+    this.chatAdapter = opts.chatAdapter
+    this.pollDelays = opts.pollDelays
+    this.skills = opts.skills
+  }
 
   /**
    * What a run would do, without calling anything: which provider calls will be reused from cache,
@@ -143,6 +151,8 @@ export class Engine {
       type: n.type,
       data: { text: n.data.text, params: n.data.params, assetId: n.data.assetId, profileId: n.data.profileId },
       profile: p ? { adapter: p.adapter, endpoint: p.endpoint, model: p.model, defaults: p.defaults, updatedAt: p.updatedAt } : null,
+      // editing a skill's instructions must invalidate cached director results
+      skill: n.type === 'director' ? (this.skills?.get(String(n.data.params?.skill || DEFAULT_DIRECTOR_SKILL))?.body ?? null) : undefined,
       inputs,
     }
     return createHash('sha256').update(JSON.stringify(material)).digest('hex')
@@ -199,7 +209,7 @@ export class Engine {
         const out = await handlerFor(node.type)({
           node, inputs, profile,
           apiKey: profile ? this.store.getApiKey(profile.id) : undefined,
-          assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter,
+          assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter, skills: this.skills,
           job: { store: this.store, projectId: run.projectId, nodeId, cacheKey: key, force: !!force, report, pollDelays: this.pollDelays },
         })
         outputs.set(nodeId, out)

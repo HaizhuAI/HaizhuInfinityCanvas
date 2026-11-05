@@ -5,6 +5,8 @@ import { Store } from './db'
 import { SecretBox } from './secrets'
 import { AssetStore } from './assets'
 import { Engine } from './engine'
+import { SkillStore } from './skills'
+import { existsSync } from 'node:fs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dataDir = resolve(process.env.HZC_DATA_DIR ?? join(process.cwd(), 'data'))
@@ -21,8 +23,11 @@ if (host !== '127.0.0.1' && host !== 'localhost' && !accessToken) {
 const store = new Store(join(dataDir, 'hzc.sqlite'), new SecretBox(join(dataDir, 'master.key')))
 const webDir = process.env.HZC_WEB_DIR ?? resolve(here, '../../web/dist')
 const assets = new AssetStore(dataDir, store)
-const engine = new Engine(store, assets)
-const app = await buildApp({ store, assets, engine, webDir, accessToken })
+// built-in skills sit next to the bundle (dist/skills) or, in dev, at apps/server/skills
+const builtinSkills = process.env.HZC_SKILLS_DIR ?? [resolve(here, 'skills'), resolve(here, '../skills')].find((d) => existsSync(d))
+const skills = new SkillStore(builtinSkills, dataDir)
+const engine = new Engine(store, assets, { skills })
+const app = await buildApp({ store, assets, engine, skills, webDir, accessToken })
 
 await app.listen({ port, host })
 console.log(`[hzc] Haizhu Infinity Canvas listening on http://${host}:${port}  (data: ${dataDir})`)

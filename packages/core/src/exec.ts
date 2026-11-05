@@ -1,5 +1,6 @@
 import type { GraphEdge, GraphNode, ProjectGraph } from './graph'
 import type { PortType } from './ports'
+import { storyboardToText, type Shot } from './storyboard'
 
 /** A value flowing along an edge. Media is passed by asset reference, never inline. */
 export type PortValue =
@@ -7,7 +8,7 @@ export type PortValue =
   | { type: 'image'; assetId: string; mime: string }
   | { type: 'video'; assetId: string; mime: string }
   | { type: 'audio'; assetId: string; mime: string }
-  | { type: 'storyboard'; shots: unknown[] }
+  | { type: 'storyboard'; title?: string; shots: Shot[] }
 
 /** Outputs of one node, keyed by output port id. */
 export type NodeOutputs = Record<string, PortValue[]>
@@ -95,7 +96,7 @@ export function collectInputs(
 /** Render values as text for text-typed consumers (storyboard → JSON, media → placeholder). */
 export function valuesToText(vals: PortValue[] | undefined): string {
   return (vals ?? [])
-    .map((v) => (v.type === 'text' ? v.text : v.type === 'storyboard' ? JSON.stringify(v.shots, null, 2) : `[${v.type}:${v.assetId}]`))
+    .map((v) => (v.type === 'text' ? v.text : v.type === 'storyboard' ? storyboardToText(v) : `[${v.type}:${v.assetId}]`))
     .join('\n\n')
 }
 

@@ -5,13 +5,15 @@ import { validateProfileInput, type ProjectGraph } from '@hzc/core'
 import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
+import { SkillError, type SkillStore } from './skills'
 
-export const APP_VERSION = '1.0.0-beta.3'
+export const APP_VERSION = '1.0.0-beta.4'
 
 export interface AppOptions {
   store: Store
   assets: AssetStore
   engine: Engine
+  skills: SkillStore
   /** built web UI directory; if it exists it is served at / */
   webDir?: string
   /**
@@ -32,7 +34,7 @@ function isGraph(g: unknown): g is ProjectGraph {
 }
 
 export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
-  const { store, assets, engine } = opts
+  const { store, assets, engine, skills } = opts
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 })
 
   if (opts.accessToken) {
@@ -109,6 +111,27 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     reply.header('x-content-type-options', 'nosniff')
     reply.header('content-disposition', 'inline')
     return reply.send(createReadStream(a.file))
+  })
+
+  // ---- skills (Agent Skills SKILL.md)
+  app.get('/api/skills', async () => skills.list())
+  app.get<{ Params: { name: string } }>('/api/skills/:name', async (req, reply) => skills.get(req.params.name) ?? reply.code(404).send({ error: 'not found' }))
+  app.post<{ Body: { content?: unknown } }>('/api/skills', async (req, reply) => {
+    if (typeof req.body?.content !== 'string') return reply.code(400).send({ error: 'content (SKILL.md text) is required' })
+    try {
+      const { body: _b, ...meta } = skills.import(req.body.content)
+      return reply.code(201).send(meta)
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+  app.delete<{ Params: { name: string } }>('/api/skills/:name', async (req, reply) => {
+    try {
+      return skills.remove(req.params.name) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' })
+    } catch (e) {
+      if (e instanceof SkillError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
   })
 
   // ---- runs

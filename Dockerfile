@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile --filter @hzc/core --filter @hzc/server --fil
 FROM node:22-slim
 WORKDIR /app
 RUN useradd -m -u 10001 hzc && mkdir -p /data && chown hzc /data
-COPY --from=build /app/apps/server/dist/index.mjs ./server/index.mjs
+COPY --from=build /app/apps/server/dist ./server
 COPY --from=build /app/apps/web/dist ./web
 ENV HZC_DATA_DIR=/data HZC_WEB_DIR=/app/web HZC_HOST=0.0.0.0 PORT=8787 NODE_ENV=production
 # FFmpeg arrives with beta.5 (frame extraction / export)

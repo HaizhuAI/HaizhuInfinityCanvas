@@ -1,9 +1,11 @@
 import {
+  ASPECT_RATIOS, extractJson, normalizeStoryboard, StoryboardParseError,
   DEFAULT_VLM_INSTRUCTION, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, reversePromptInstruction, valuesOfType, valuesToText,
   type GraphNode, type ModelProfile, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
 import { chatAdapterFor, ProviderError, type ChatAdapter } from './providers'
+import type { SkillStore } from './skills'
 import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
 
 export class NodeError extends Error {}
@@ -19,6 +21,7 @@ export interface HandlerCtx {
   chatAdapter?: (p: ModelProfile) => ChatAdapter
   /** long-running provider jobs (image / video generation) */
   job: Omit<JobCtx, 'signal'>
+  skills?: SkillStore
 }
 
 export type Handler = (ctx: HandlerCtx) => Promise<NodeOutputs>
@@ -117,6 +120,22 @@ async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; 
   return assets.map((a) => ({ type: want, assetId: a.id, mime: a.mime }) as PortValue)
 }
 
+export const DEFAULT_DIRECTOR_SKILL = 'director-short-film'
+
+/** Appended to every director skill: the machine-readable contract the canvas relies on. */
+export function directorContract(o: { shots: number; lang: 'zh' | 'en'; aspect?: string; style?: string }) {
+  return [
+    '## 输出格式（必须严格遵守）',
+    '只输出一个 JSON 对象，不要任何解释，不要 Markdown 代码块。结构如下：',
+    '{"title": "片名", "shots": [{"title": "镜头小标题", "visual": "画面内容", "camera": "景别与运镜", "dialogue": "台词或旁白，没有则为空字符串", "duration": 5, "image_prompt": "文生图提示词", "video_prompt": "图生视频提示词"}]}',
+    `- shots 恰好 ${o.shots} 个，按播放顺序排列。`,
+    '- duration 是 2 到 10 之间的整数（秒）。',
+    `- image_prompt 和 video_prompt 用${o.lang === 'en' ? '英文' : '中文'}书写；title、visual、camera、dialogue 用中文。`,
+    o.aspect ? `- 画面比例为 ${o.aspect}，按这个比例设计构图。` : '',
+    o.style ? `- 整体视觉风格：${o.style}。把它写进每个 image_prompt。` : '',
+  ].filter(Boolean).join('\n')
+}
+
 export const HANDLERS: Record<string, Handler> = {
   text: async ({ node }) => ({ out: [{ type: 'text', text: node.data.text ?? '' }] }),
   image: media('image'),
@@ -183,6 +202,34 @@ export const HANDLERS: Record<string, Handler> = {
       return { out: [{ type: 'audio', assetId: a.id, mime: a.mime }] }
     }
     return { out: await generate(ctx, 'audio', {}, text) }
+  },
+
+  director: async (ctx) => {
+    const idea = valuesToText(ctx.inputs.in).trim() || str(ctx.node.data.text)
+    if (!idea) throw new NodeError('没有创意或剧本：请连接文本节点，或在节点内填写')
+    const p = ctx.node.data.params ?? {}
+    const skillName = str(p.skill) || DEFAULT_DIRECTOR_SKILL
+    const skill = ctx.skills?.get(skillName)
+    if (!skill) throw new NodeError(`找不到 Skill「${skillName}」`)
+    const shots = Math.min(12, Math.max(1, Math.round(Number(p.shots ?? 6)) || 6))
+    const lang = p.lang === 'en' ? 'en' : 'zh'
+    const aspect = (ASPECT_RATIOS as readonly string[]).includes(p.aspect_ratio as string) ? (p.aspect_ratio as string) : undefined
+    const system = `${skill.body}\n\n${directorContract({ shots, lang, aspect, style: str(p.style) || undefined })}`
+    const ask = `请为下面的内容设计 ${shots} 个镜头的分镜：\n\n${idea}`
+    let reply = await chat(ctx, ask, { system })
+    try {
+      return { out: [{ type: 'storyboard', ...normalizeStoryboard(extractJson(reply)) }] }
+    } catch (e) {
+      if (!(e instanceof StoryboardParseError)) throw e
+      ctx.job.report('输出格式不对，正在让模型重写…')
+      reply = await chat(ctx, `${ask}\n\n（你上一次的回复无法解析：${e.message}。这次只输出符合格式的 JSON 对象。）`, { system })
+      try {
+        return { out: [{ type: 'storyboard', ...normalizeStoryboard(extractJson(reply)) }] }
+      } catch (e2) {
+        if (!(e2 instanceof StoryboardParseError)) throw e2
+        throw new NodeError(`模型两次都没有返回有效分镜（${e2.message}）。模型回复开头：${reply.slice(0, 160)}`)
+      }
+    }
   },
 
   // preview has no outputs; we store what it received under `in` so the UI can render it

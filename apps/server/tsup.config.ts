@@ -1,3 +1,4 @@
+import { cpSync, existsSync } from 'node:fs'
 import { defineConfig } from 'tsup'
 
 // Single self-contained ESM file: desktop (Electron resources/) and Docker both just run
@@ -12,4 +13,8 @@ export default defineConfig({
   noExternal: [/.*/],
   // bundled CJS deps (fastify & friends) call require(); give them one in ESM scope
   banner: { js: "import { createRequire as __hzcCreateRequire } from 'node:module'; const require = __hzcCreateRequire(import.meta.url);" },
+  // built-in Agent Skills ship next to the bundle (dist/skills). Node API, not `cp`, so it works on Windows CI.
+  onSuccess: async () => {
+    if (existsSync('skills')) cpSync('skills', 'dist/skills', { recursive: true })
+  },
 })
