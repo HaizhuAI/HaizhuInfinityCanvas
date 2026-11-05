@@ -6,7 +6,7 @@ import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
 
-export const APP_VERSION = '1.0.0-beta.2'
+export const APP_VERSION = '1.0.0-beta.3'
 
 export interface AppOptions {
   store: Store
@@ -119,6 +119,17 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (nodeIds?.some((id) => !p.graph.nodes.find((n) => n.id === id))) return reply.code(400).send({ error: 'unknown node id' })
     const runId = engine.start(p.id, p.graph, { nodeIds, force: req.body?.force === true })
     return reply.code(202).send({ runId })
+  })
+
+  app.post<{ Params: { id: string }; Body: { nodeIds?: unknown; force?: unknown } }>('/api/projects/:id/estimate', async (req, reply) => {
+    const p = store.getProject(req.params.id)
+    if (!p) return reply.code(404).send({ error: 'not found' })
+    const nodeIds = Array.isArray(req.body?.nodeIds) ? req.body.nodeIds.filter((x): x is string => typeof x === 'string') : undefined
+    try {
+      return engine.estimate(p.id, p.graph, { nodeIds, force: req.body?.force === true })
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
   })
 
   app.post<{ Params: { id: string } }>('/api/runs/:id/cancel', async (req, reply) =>

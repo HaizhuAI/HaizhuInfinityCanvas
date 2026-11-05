@@ -19,6 +19,31 @@ export interface ProjectRow {
   updatedAt: string
 }
 
+export interface JobRow {
+  id: string
+  projectId: string
+  nodeId: string
+  cacheKey: string
+  adapter: string
+  remoteId: string
+  pollUrl?: string
+  resultUrl?: string
+  cancelUrl?: string
+  status: 'submitted' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  error?: string
+  createdAt: string
+  updatedAt: string
+}
+
+function toJob(r: Record<string, unknown>): JobRow {
+  return {
+    id: r.id as string, projectId: r.project_id as string, nodeId: r.node_id as string, cacheKey: r.cache_key as string,
+    adapter: r.adapter as string, remoteId: r.remote_id as string, pollUrl: (r.poll_url as string) ?? undefined,
+    resultUrl: (r.result_url as string) ?? undefined, cancelUrl: (r.cancel_url as string) ?? undefined,
+    status: r.status as JobRow['status'], error: (r.error as string) ?? undefined, createdAt: r.created_at as string, updatedAt: r.updated_at as string,
+  }
+}
+
 export class Store {
   private db: DatabaseSyncType
 
@@ -40,12 +65,40 @@ export class Store {
         id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL,
         name TEXT NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, node_id TEXT NOT NULL, cache_key TEXT NOT NULL,
+        adapter TEXT NOT NULL, remote_id TEXT NOT NULL, poll_url TEXT, result_url TEXT, cancel_url TEXT,
+        status TEXT NOT NULL, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS jobs_lookup ON jobs (project_id, node_id, cache_key, status);
       CREATE TABLE IF NOT EXISTS node_outputs (
         project_id TEXT NOT NULL, node_id TEXT NOT NULL, cache_key TEXT NOT NULL,
         outputs TEXT NOT NULL, finished_at TEXT NOT NULL,
         PRIMARY KEY (project_id, node_id)
       );
     `)
+    // migrations for databases created by earlier betas
+    const cols = (this.db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]).map((c) => c.name)
+    if (!cols.includes('cost')) this.db.exec('ALTER TABLE profiles ADD COLUMN cost TEXT')
+  }
+
+  // ---------- provider jobs (long-running remote generations; survive restarts, never double-submitted)
+  findActiveJob(projectId: string, nodeId: string, cacheKey: string): JobRow | undefined {
+    const r = this.db.prepare(
+      "SELECT * FROM jobs WHERE project_id = ? AND node_id = ? AND cache_key = ? AND status IN ('submitted','running') ORDER BY created_at DESC LIMIT 1",
+    ).get(projectId, nodeId, cacheKey)
+    return r ? toJob(r) : undefined
+  }
+
+  insertJob(j: Omit<JobRow, 'createdAt' | 'updatedAt' | 'error'>) {
+    const now = new Date().toISOString()
+    this.db.prepare('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
+      j.id, j.projectId, j.nodeId, j.cacheKey, j.adapter, j.remoteId, j.pollUrl ?? null, j.resultUrl ?? null, j.cancelUrl ?? null, j.status, null, now, now,
+    )
+  }
+
+  updateJob(id: string, patch: { status: JobRow['status']; error?: string }) {
+    this.db.prepare('UPDATE jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?').run(patch.status, patch.error ?? null, new Date().toISOString(), id)
   }
 
   // ---------- assets (file bytes live on disk; see assets.ts)
@@ -82,6 +135,7 @@ export class Store {
     return {
       id: r.id as string, name: r.name as string, kind: r.kind as ModelProfile['kind'], adapter: r.adapter as ModelProfile['adapter'],
       endpoint: r.endpoint as string, model: r.model as string, defaults: JSON.parse(r.defaults as string),
+      cost: r.cost ? JSON.parse(r.cost as string) : undefined,
       secretRef: r.secret ? (r.id as string) : '', hasKey: !!r.secret,
       createdAt: r.created_at as string, updatedAt: r.updated_at as string,
     }
@@ -99,9 +153,11 @@ export class Store {
   createProfile(input: ModelProfileInput) {
     const id = randomUUID()
     const now = new Date().toISOString()
-    this.db.prepare('INSERT INTO profiles VALUES (?,?,?,?,?,?,?,?,?,?)').run(
+    this.db.prepare(
+      'INSERT INTO profiles (id, name, kind, adapter, endpoint, model, defaults, secret, created_at, updated_at, cost) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    ).run(
       id, input.name, input.kind, input.adapter, input.endpoint, input.model, JSON.stringify(input.defaults ?? {}),
-      input.apiKey ? this.secrets.encrypt(input.apiKey) : null, now, now,
+      input.apiKey ? this.secrets.encrypt(input.apiKey) : null, now, now, input.cost ? JSON.stringify(input.cost) : null,
     )
     return this.getProfile(id)!
   }
@@ -112,8 +168,9 @@ export class Store {
     if (!cur) return undefined
     const secret = input.apiKey === undefined ? cur.secret : input.apiKey === '' ? null : this.secrets.encrypt(input.apiKey)
     this.db.prepare(
-      'UPDATE profiles SET name=?, kind=?, adapter=?, endpoint=?, model=?, defaults=?, secret=?, updated_at=? WHERE id=?',
-    ).run(input.name, input.kind, input.adapter, input.endpoint, input.model, JSON.stringify(input.defaults ?? {}), secret, new Date().toISOString(), id)
+      'UPDATE profiles SET name=?, kind=?, adapter=?, endpoint=?, model=?, defaults=?, secret=?, cost=?, updated_at=? WHERE id=?',
+    ).run(input.name, input.kind, input.adapter, input.endpoint, input.model, JSON.stringify(input.defaults ?? {}), secret,
+      input.cost ? JSON.stringify(input.cost) : null, new Date().toISOString(), id)
     return this.getProfile(id)!
   }
 

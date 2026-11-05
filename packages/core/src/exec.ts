@@ -17,6 +17,8 @@ export type NodeStatus = 'idle' | 'queued' | 'running' | 'done' | 'cached' | 'er
 export interface NodeRunState {
   status: NodeStatus
   error?: string
+  /** human-readable progress of a long provider job, e.g. "排队中（第 3 位）" */
+  progress?: string
   outputs?: NodeOutputs
   startedAt?: string
   finishedAt?: string
@@ -102,3 +104,24 @@ export function valuesOfType<T extends PortType>(vals: PortValue[] | undefined, 
 }
 
 export type { GraphNode }
+
+/** One line of the pre-run estimate. */
+export interface EstimateItem {
+  nodeId: string
+  type: string
+  label: string
+  profileName?: string
+  /** a result with the same inputs/params already exists and will be reused (no provider call) */
+  cached: boolean
+  /** calls a paid generation API (image / video / speech) */
+  generative: boolean
+  cost?: { amount: number; currency: string } | null
+}
+
+export interface Estimate {
+  items: EstimateItem[]
+  /** totals by currency over the non-cached items that have a known cost */
+  totals: Record<string, number>
+  /** non-cached provider calls without a configured price */
+  unpriced: number
+}

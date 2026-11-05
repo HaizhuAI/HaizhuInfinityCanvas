@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  ancestorsOf, collectInputs, topoOrder,
-  type NodeOutputs, type NodeRunState, type ProjectGraph, type RunEvent,
+  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, topoOrder,
+  type Estimate, type EstimateItem, type GraphNode, type NodeOutputs, type NodeRunState, type ProjectGraph, type RunEvent,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
 import type { Store } from './db'
@@ -29,6 +29,14 @@ export interface StartOptions {
 /** Node types that never call a provider — always recomputed, never "cached" in the UI sense. */
 const TRIVIAL = new Set(['text', 'image', 'video', 'audio', 'preview'])
 
+/** Outputs of trivial nodes computed without side effects (for estimates). undefined = would fail. */
+function trivialOutputs(node: GraphNode, inputs: Record<string, NodeOutputs[string]>): NodeOutputs | undefined {
+  if (node.type === 'text') return { out: [{ type: 'text', text: node.data.text ?? '' }] }
+  if (node.type === 'preview') return { in: inputs.in ?? [] }
+  if (!node.data.assetId || !node.data.mime) return undefined
+  return { out: [{ type: node.type as 'image' | 'video' | 'audio', assetId: node.data.assetId, mime: node.data.mime }] }
+}
+
 export class Engine {
   private runs = new Map<string, Run>()
   /** one active run per project: starting a new one cancels the previous */
@@ -38,7 +46,47 @@ export class Engine {
     private store: Store,
     private assets: AssetStore,
     private chatAdapter?: HandlerCtx['chatAdapter'],
+    /** test hook: provider polling schedule */
+    private pollDelays?: number[],
   ) {}
+
+  /**
+   * What a run would do, without calling anything: which provider calls will be reused from cache,
+   * which are generative (paid media), and the total of the user-entered per-call prices.
+   */
+  estimate(projectId: string, graph: ProjectGraph, opts: StartOptions = {}): Estimate {
+    const targets = opts.nodeIds?.length ? new Set(opts.nodeIds) : undefined
+    const order = topoOrder(graph, targets ? ancestorsOf(graph, [...targets]) : undefined)
+    const sim = new Map<string, NodeOutputs>()
+    const unknown = new Set<string>() // nodes whose output we cannot predict (they will really run)
+    const items: EstimateItem[] = []
+    for (const nodeId of order) {
+      const node = graph.nodes.find((n) => n.id === nodeId)!
+      const upstreamUnknown = graph.edges.some((e) => e.target === nodeId && unknown.has(e.source))
+      if (TRIVIAL.has(node.type)) {
+        const out = trivialOutputs(node, collectInputs(graph.edges, nodeId, sim))
+        if (out && !upstreamUnknown) sim.set(nodeId, out); else unknown.add(nodeId)
+        continue
+      }
+      const stored = this.store.getNodeOutput(projectId, nodeId)
+      const force = opts.force && (!targets || targets.has(nodeId))
+      const cached = !upstreamUnknown && !force && !!stored && stored.cacheKey === this.cacheKey(graph, nodeId, collectInputs(graph.edges, nodeId, sim))
+      if (cached) sim.set(nodeId, stored!.outputs); else unknown.add(nodeId)
+      const profile = node.data.profileId ? this.store.getProfile(node.data.profileId) : undefined
+      items.push({
+        nodeId, type: node.type, label: node.data.label ?? NODE_TYPE_MAP[node.type]?.label ?? node.type,
+        profileName: profile?.name, cached, generative: GENERATIVE_TYPES.has(node.type), cost: profile?.cost ?? null,
+      })
+    }
+    const totals: Record<string, number> = {}
+    let unpriced = 0
+    for (const it of items) {
+      if (it.cached) continue
+      if (it.cost) totals[it.cost.currency] = Math.round(((totals[it.cost.currency] ?? 0) + it.cost.amount) * 10000) / 10000
+      else unpriced++
+    }
+    return { items, totals, unpriced }
+  }
 
   start(projectId: string, graph: ProjectGraph, opts: StartOptions = {}): string {
     const prev = this.active.get(projectId)
@@ -141,10 +189,18 @@ export class Engine {
       this.setNode(run, nodeId, { status: 'running', startedAt })
       try {
         const profile = node.data.profileId ? this.store.getProfile(node.data.profileId) : undefined
+        // provider polling is already rate-limited; only forward changed messages (never drop the latest one)
+        let lastProgress = ''
+        const report = (progress: string) => {
+          if (progress === lastProgress) return
+          lastProgress = progress
+          this.setNode(run, nodeId, { status: 'running', startedAt, progress })
+        }
         const out = await handlerFor(node.type)({
           node, inputs, profile,
           apiKey: profile ? this.store.getApiKey(profile.id) : undefined,
           assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter,
+          job: { store: this.store, projectId: run.projectId, nodeId, cacheKey: key, force: !!force, report, pollDelays: this.pollDelays },
         })
         outputs.set(nodeId, out)
         this.store.setNodeOutput(run.projectId, nodeId, key, out)

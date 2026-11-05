@@ -27,9 +27,13 @@ export interface ModelProfile {
   secretRef: string
   model: string
   defaults: Record<string, unknown>
+  /** optional user-entered price of one call, used for the pre-run estimate */
+  cost?: ProfileCost
   createdAt: string
   updatedAt: string
 }
+
+export interface ProfileCost { amount: number; currency: string }
 
 /** Shape accepted from the client when creating/updating; `apiKey` is write-only. */
 export interface ModelProfileInput {
@@ -39,6 +43,7 @@ export interface ModelProfileInput {
   endpoint: string
   model: string
   defaults?: Record<string, unknown>
+  cost?: ProfileCost | null
   apiKey?: string
 }
 
@@ -57,6 +62,14 @@ export function validateProfileInput(input: unknown): { ok: true; value: ModelPr
   if (o.defaults !== undefined && (typeof o.defaults !== 'object' || o.defaults === null || Array.isArray(o.defaults)))
     return { ok: false, error: 'defaults must be an object' }
   if (o.apiKey !== undefined && typeof o.apiKey !== 'string') return { ok: false, error: 'apiKey must be a string' }
+  let cost: ProfileCost | null = null
+  if (o.cost !== undefined && o.cost !== null) {
+    const c = o.cost as Record<string, unknown>
+    if (typeof c !== 'object' || typeof c.amount !== 'number' || !Number.isFinite(c.amount) || c.amount < 0)
+      return { ok: false, error: 'cost.amount must be a non-negative number' }
+    if (typeof c.currency !== 'string' || !/^[A-Za-z¥$€£]{1,8}$/.test(c.currency)) return { ok: false, error: 'cost.currency must be a short currency code, e.g. CNY or USD' }
+    cost = { amount: c.amount, currency: c.currency.toUpperCase() }
+  }
   return {
     ok: true,
     value: {
@@ -66,6 +79,7 @@ export function validateProfileInput(input: unknown): { ok: true; value: ModelPr
       endpoint: o.endpoint,
       model: o.model.trim(),
       defaults: (o.defaults as Record<string, unknown>) ?? {},
+      cost,
       apiKey: o.apiKey as string | undefined,
     },
   }

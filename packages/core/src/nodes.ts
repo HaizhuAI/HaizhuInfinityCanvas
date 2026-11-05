@@ -83,3 +83,9 @@ export const CATEGORY_LABEL: Record<NodeCategory, string> = {
   tool: '创作工具',
   output: '输出',
 }
+
+/** Node types whose provider calls generate media and usually cost real money. */
+export const GENERATIVE_TYPES = new Set(['image-gen', 'video-gen', 'tts'])
+
+export const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] as const
+export const VIDEO_DURATIONS = [5, 10] as const
