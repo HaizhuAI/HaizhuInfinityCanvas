@@ -2,7 +2,7 @@
 
 | 产物 | 平台 | 打包 | 构建环境 | 首次产出 |
 | --- | --- | --- | --- | --- |
-| WebUI（源码运行） | 任意有 Node 22 的机器 | `pnpm build && node apps/server/dist/index.js`，服务同时托管前端静态文件 | 本地/CI | beta.1 |
+| WebUI（源码运行） | 任意有 Node 22 的机器 | `pnpm build && node apps/server/dist/index.mjs`（单文件自包含，无需 node_modules），服务同时托管前端静态文件 | 本地/CI | beta.1 |
 | WebUI（容器） | Linux amd64/arm64 | Docker 镜像（多阶段构建，内含 FFmpeg） | GitHub Actions ubuntu | beta.1 骨架 / beta.5 含 FFmpeg |
 | Windows 桌面 | Win10/11 x64 | electron-builder：NSIS 安装包 + portable `.exe` | **GitHub Actions `windows-latest`**（Windows 安装包需 Windows 环境构建，沙箱内不做） | beta.1 骨架 / beta.7 打磨 |
 | Linux 桌面 | x64 | electron-builder：AppImage + `.deb` | GitHub Actions `ubuntu-latest` | beta.1 骨架 / beta.7 打磨 |

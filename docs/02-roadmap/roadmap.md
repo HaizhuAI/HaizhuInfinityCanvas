@@ -41,4 +41,6 @@
 ## 当前进度
 
 - [x] Phase 0：调研、许可证审计、可行性、技术选型（本目录 + `docs/00-research`、`docs/01-architecture`）
-- [ ] v1.0.0-beta.1：脚手架 → WebUI 骨架 → 模型档案 → 三端构建骨架（进行中）
+- [x] v1.0.0-beta.1 代码部分：脚手架、WebUI 画布与拖拽、模型档案、Electron 壳、Linux 包、Docker/CI 配置（详见 CHANGELOG 的 Verified / Not verified）
+- [ ] v1.0.0-beta.1 发布收尾：CI 在远端跑通、Windows 安装包产出并由你真机验证、打 tag（需你确认）
+- [ ] v1.0.0-beta.2：DAG 执行引擎 + LLM/VLM 节点 + 图片提示词反推

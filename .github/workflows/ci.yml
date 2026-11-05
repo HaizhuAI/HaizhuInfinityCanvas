@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: E2E (fresh data dir, bundled server)
+        run: |
+          export HZC_DATA_DIR="$(mktemp -d)" PORT=8788
+          node apps/server/dist/index.mjs &
+          for i in $(seq 1 30); do curl -sf localhost:8788/api/health && break; sleep 1; done
+          HZC_E2E_OUT="$RUNNER_TEMP" node e2e/smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshot
+          path: ${{ runner.temp }}/canvas-beta1.png
+          if-no-files-found: ignore

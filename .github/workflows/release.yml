@@ -1,0 +1,62 @@
+name: Build installers
+
+# Runs on version tags (v1.0.0-beta.N, …) or manually. Artifacts are attached to the workflow run
+# (private while the repo is private); nothing is published publicly by this workflow.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            flag: --win
+            artifacts: |
+              apps/desktop/release/*.exe
+          - os: ubuntu-latest
+            flag: --linux
+            artifacts: |
+              apps/desktop/release/*.AppImage
+              apps/desktop/release/*.deb
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # electron-builder fetches its own Electron
+      - run: pnpm build
+      - name: Package desktop app
+        run: pnpm --filter @hzc/desktop exec electron-builder ${{ matrix.flag }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+          retention-days: 30
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build WebUI image
+        run: docker build -t haizhu-infinity-canvas:ci .
+      - name: Smoke test image (non-loopback bind requires a token)
+        run: |
+          docker run -d --name hzc -e HZC_TOKEN=ci-token -p 8787:8787 haizhu-infinity-canvas:ci
+          for i in $(seq 1 30); do curl -sf localhost:8787/api/health && break; sleep 1; done
+          curl -sf localhost:8787/api/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8787/api/profiles)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-hzc-token: ci-token' localhost:8787/api/profiles)" = 200
+          # without a token the container must refuse to start
+          ! docker run --rm haizhu-infinity-canvas:ci

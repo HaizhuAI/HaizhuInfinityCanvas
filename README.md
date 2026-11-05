@@ -28,6 +28,22 @@
 | [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) | 第三方依赖与借鉴来源登记 |
 | [CHANGELOG.md](./CHANGELOG.md) | 变更记录 |
 
+## 快速开始（开发）
+
+需要 Node ≥ 22.13、pnpm 10。
+
+```bash
+pnpm install
+pnpm dev                 # server :8787 + web :5173（web 代理 /api）
+pnpm build && pnpm start # 构建后单进程运行：http://127.0.0.1:8787
+pnpm test && pnpm typecheck
+pnpm desktop:dev         # Electron 桌面壳（需 pnpm build 产物）
+pnpm desktop:package     # 当前系统的安装包（Linux: AppImage + deb；Windows 请用 CI）
+```
+
+WebUI 容器部署：复制 `.env.example` 为 `.env` 并设置 `HZC_TOKEN`，然后 `docker compose up -d --build`。
+服务端在非回环地址监听时**必须**设置 `HZC_TOKEN`，否则拒绝启动。
+
 ## 工作方式
 
 - 每完成一个独立步骤就提交一次，并同步到远端开发分支。

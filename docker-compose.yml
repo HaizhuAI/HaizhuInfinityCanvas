@@ -1,0 +1,14 @@
+services:
+  haizhu-canvas:
+    build: .
+    image: haizhu-infinity-canvas:1.0.0-beta.1
+    ports:
+      - "8787:8787"
+    environment:
+      # required: access token for the WebUI API (enter it in 设置 → 访问口令)
+      HZC_TOKEN: ${HZC_TOKEN:?set HZC_TOKEN in your environment or .env}
+    volumes:
+      - hzc-data:/data
+    restart: unless-stopped
+volumes:
+  hzc-data:
