@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ModelProfile, ModelProfileInput, ProjectGraph } from '@hzc/core'
 import { EMPTY_GRAPH } from '@hzc/core'
-import type { SecretBox } from './secrets'
+import { SecretError, type SecretBox } from './secrets'
 
 // Loaded at runtime via require so bundlers (tsup/esbuild) cannot strip the `node:` prefix,
 // which would turn the import into the non-existent "sqlite" package.
@@ -199,7 +199,12 @@ export class Store {
   /** server-internal only (provider calls) */
   getApiKey(id: string): string | undefined {
     const r = this.db.prepare('SELECT secret FROM profiles WHERE id = ?').get(id) as { secret: string | null } | undefined
-    return r?.secret ? this.secrets.decrypt(r.secret) : undefined
+    if (!r?.secret) return undefined
+    try {
+      return this.secrets.decrypt(r.secret)
+    } catch {
+      throw new SecretError('这个模型档案保存的 API Key 无法解密（本机的加密密钥已更换），请在「设置 → 模型档案」里重新填写 Key')
+    }
   }
 
   // ---------- projects

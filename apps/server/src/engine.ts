@@ -7,6 +7,7 @@ import type { AssetStore } from './assets'
 import type { Store } from './db'
 import { handlerFor, NodeError, type HandlerCtx } from './handlers'
 import { ProviderError } from './providers'
+import { SecretError } from './secrets'
 import type { SkillStore } from './skills'
 import { DEFAULT_DIRECTOR_SKILL } from './handlers'
 
@@ -234,7 +235,7 @@ export class Engine {
         failed.add(nodeId)
         if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); continue }
         anyError = true
-        const known = e instanceof NodeError || e instanceof ProviderError
+        const known = e instanceof NodeError || e instanceof ProviderError || e instanceof SecretError
         this.setNode(run, nodeId, { status: 'error', error: known ? (e as Error).message : `内部错误：${(e as Error).message}`, startedAt, finishedAt: new Date().toISOString() })
       }
     }

@@ -49,6 +49,26 @@ jobs:
       - run: pnpm build
       - name: Package desktop app
         run: pnpm --filter @hzc/desktop exec electron-builder ${{ matrix.flag }} --publish never
+      # start the packaged app: it must launch its server, load the UI and seal the API-key master key
+      - name: Launch test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb)
+          export HZC_SMOKE=1 HZC_SMOKE_OUT="$RUNNER_TEMP/smoke.txt" XDG_CONFIG_HOME="$(mktemp -d)"
+          timeout 120 xvfb-run -a apps/desktop/release/linux-unpacked/haizhu-infinity-canvas --no-sandbox || true
+          cat "$HZC_SMOKE_OUT"
+          grep -q 'window ready, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
+      - name: Launch test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:HZC_SMOKE = '1'; $env:HZC_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.txt'
+          $exe = Get-ChildItem apps/desktop/release/win-unpacked -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall|elevate' } | Select-Object -First 1
+          Write-Host "starting $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -PassThru
+          if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force; Write-Host 'app did not quit within 120 s' }
+          if (Test-Path $env:HZC_SMOKE_OUT) { Get-Content $env:HZC_SMOKE_OUT } else { throw 'no smoke output' }
+          if (-not (Select-String -Path $env:HZC_SMOKE_OUT -Pattern 'window ready, brand="Haizhu Infinity Canvas' -Quiet)) { throw 'the app did not show its UI' }
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}

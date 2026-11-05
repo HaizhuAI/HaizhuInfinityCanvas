@@ -88,3 +88,25 @@ describe('access token', () => {
     await guarded.close()
   })
 })
+
+describe('master key', () => {
+  it('uses an injected key without writing a key file, and explains keys it cannot decrypt', async () => {
+    const { randomBytes } = await import('node:crypto')
+    const { existsSync } = await import('node:fs')
+    const { SecretError } = await import('./secrets')
+    const d = mkdtempSync(join(tmpdir(), 'hzc-key-'))
+    try {
+      const db = join(d, 'hzc.sqlite')
+      const s1 = new Store(db, new SecretBox(join(d, 'master.key'), randomBytes(32).toString('hex')))
+      const p = s1.createProfile({ name: 'x', kind: 'llm', adapter: 'openai-compat', endpoint: 'http://127.0.0.1:9/v1', model: 'm', defaults: {}, apiKey: 'sk-1' })
+      expect(s1.getApiKey(p.id)).toBe('sk-1')
+      s1.close()
+      expect(existsSync(join(d, 'master.key'))).toBe(false)
+      const s2 = new Store(db, new SecretBox(join(d, 'master.key'), randomBytes(32).toString('hex')))
+      expect(() => s2.getApiKey(p.id)).toThrow(SecretError)
+      expect(() => s2.getApiKey(p.id)).toThrow(/重新填写/)
+      s2.close()
+      expect(() => new SecretBox(join(d, 'k'), 'abc')).toThrow(/64 hex/)
+    } finally { rmSync(d, { recursive: true, force: true }) }
+  })
+})

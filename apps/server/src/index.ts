@@ -20,7 +20,10 @@ if (host !== '127.0.0.1' && host !== 'localhost' && !accessToken) {
   process.exit(1)
 }
 
-const store = new Store(join(dataDir, 'hzc.sqlite'), new SecretBox(join(dataDir, 'master.key')))
+// the desktop app hands over the keychain-unsealed master key; keep it out of the environment afterwards
+const masterKey = process.env.HZC_MASTER_KEY || undefined
+delete process.env.HZC_MASTER_KEY
+const store = new Store(join(dataDir, 'hzc.sqlite'), new SecretBox(join(dataDir, 'master.key'), masterKey))
 const webDir = process.env.HZC_WEB_DIR ?? resolve(here, '../../web/dist')
 const assets = new AssetStore(dataDir, store)
 // built-in skills sit next to the bundle (dist/skills) or, in dev, at apps/server/skills

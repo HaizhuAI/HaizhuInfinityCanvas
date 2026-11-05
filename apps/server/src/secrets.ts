@@ -2,18 +2,23 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+/** A stored secret cannot be decrypted (the master key changed). The message is shown to the user. */
+export class SecretError extends Error {}
+
 /**
- * Local encrypted secret store (AES-256-GCM). The master key lives in a 0600 file
- * next to the data dir; ciphertext lives in SQLite. Plaintext never reaches the
- * browser: the server makes all provider calls itself.
- *
- * Desktop builds will replace the key source with Electron safeStorage (beta.7).
+ * Local encrypted secret store (AES-256-GCM). Ciphertext lives in SQLite; plaintext never
+ * reaches the browser (the server makes all provider calls itself). The master key comes from
+ * `keyHex` when given (the desktop app unseals it from the OS keychain via Electron safeStorage
+ * and passes it as HZC_MASTER_KEY), otherwise from a 0600 file in the data dir.
  */
 export class SecretBox {
   private key: Buffer
 
-  constructor(keyPath: string) {
-    if (existsSync(keyPath)) {
+  constructor(keyPath: string, keyHex?: string) {
+    if (keyHex !== undefined) {
+      if (!/^[0-9a-f]{64}$/i.test(keyHex.trim())) throw new Error('HZC_MASTER_KEY must be 64 hex characters (32 bytes)')
+      this.key = Buffer.from(keyHex.trim(), 'hex')
+    } else if (existsSync(keyPath)) {
       this.key = Buffer.from(readFileSync(keyPath, 'utf8').trim(), 'hex')
       if (this.key.length !== 32) throw new Error(`invalid master key at ${keyPath}`)
     } else {
