@@ -45,4 +45,5 @@
 - [ ] v1.0.0-beta.1 发布收尾：CI 在远端跑通、Windows 安装包产出并由你真机验证、打 tag（需你确认）
 - [x] v1.0.0-beta.2 代码部分：执行引擎、openai-compat/ollama、素材库、文本/视觉/图片提示词反推节点、运行界面
 - [x] v1.0.0-beta.3 代码部分：界面重做、图片/视频生成（openai-compat / Replicate / fal）、异步任务持久化与恢复、运行前费用确认
-- [ ] v1.0.0-beta.4：TTS 节点、`SKILL.md` 加载器与内置导演 Skill（创意 → 分镜 → 扇出节点）、`/` 快速添加节点
+- [x] v1.0.0-beta.4 代码部分：TTS 节点、Agent Skills 与内置导演 Skill、分镜展开到画布、`/` 命令面板、沉浸式界面重做（GSAP / Galaxy / Taste Skill）
+- [ ] v1.0.0-beta.5：FFmpeg 集成，视频提示词反推（场景切换抽帧 → 视觉模型 → 镜头表），镜头表可直接展开成生成节点

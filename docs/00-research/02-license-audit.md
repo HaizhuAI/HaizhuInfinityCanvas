@@ -42,6 +42,31 @@
 | Kokoro / CosyVoice / Chatterbox | Apache-2.0 / Apache-2.0 / MIT | 🟢 推荐的内置建议 TTS |
 | IndexTTS-2 / Fish Speech / XTTS v2 | ⚠️ 二手来源称非商用或受限 | ⛔ 不内置推荐；用户自带 API 可用 |
 
+## beta.4 新增
+
+| 项目 | 许可证（实测） | 结论 |
+| --- | --- | --- |
+| GSAP 3.15 | GSAP Standard "No Charge" License（Webflow，2025-04-30 起；**不是 OSI 开源许可**） | 🟡 有条件使用，见下 |
+| uiverse-io/galaxy（Galaxy） | MIT（仓库 LICENSE 实测；作者希望署名） | 🟢 摘取 3 个片段并改写，已在 THIRD_PARTY_NOTICES 署名 |
+| Leonxlnx/taste-skill（Taste Skill） | MIT（仓库 LICENSE 实测） | 🟢 只作为设计准则参考，未复制代码 |
+| Geist / Geist Mono（@fontsource-variable） | OFL-1.1 | 🟢 字体随包分发，保留许可 |
+| yaml | ISC | 🟢 |
+
+### GSAP 的使用边界（必须遵守）
+
+许可证原文（读取自 ScanCode LicenseDB 收录的 `gsap-standard-no-charge-2025` 全文）：
+
+- 允许（Permitted Uses）：在任何网站、Web 应用或数字界面中实现和使用 GSAP。
+- 禁止（Prohibited Uses）：在「允许用户无需写代码即可制作视觉动画」的工具中使用 GSAP，且该工具与 Webflow 的视觉动画制作能力构成竞争。
+- Webflow 可在不遵守条款时终止许可；条款可被单方修改。
+
+我们的规则：
+
+1. GSAP **只**用于本应用自身界面的反馈动效（节点出现、弹窗、成功提示）。唯一引用处是 `apps/web/src/motion.ts`。
+2. **不得**用 GSAP 实现任何面向用户的「动画制作」功能，例如剪辑工坊里的关键帧动画、文字动效模板、转场编辑器。这些功能必须用其他库（如 Motion，MIT）或自研。
+3. 如果将来以开源许可发布源码，GSAP 不随源码重新授权；需要在发布说明里写明它的独立许可。
+4. 若 Webflow 修改条款导致不再适用，只需替换 `motion.ts` 一个文件。
+
 ## 对我们自己许可证的约束
 
 1. 因为没有引入任何 GPL/AGPL 代码，我们日后**可以自由选择**闭源商业、源码可见或 MIT/Apache 开源。
