@@ -1,0 +1,15 @@
+{
+  "name": "haizhu-infinity-canvas",
+  "version": "1.0.0-beta.1",
+  "private": true,
+  "description": "Haizhu Infinity Canvas - creative agent workshop on an infinite canvas",
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @hzc/server --filter @hzc/web dev",
+    "build": "pnpm --filter @hzc/core build && pnpm --filter @hzc/web build && pnpm --filter @hzc/server build",
+    "start": "node apps/server/dist/index.js",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}

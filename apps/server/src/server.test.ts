@@ -1,0 +1,82 @@
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { FastifyInstance } from 'fastify'
+import { buildApp } from './app'
+import { Store } from './db'
+import { SecretBox } from './secrets'
+
+let dir: string
+let store: Store
+let app: FastifyInstance
+
+beforeEach(async () => {
+  dir = mkdtempSync(join(tmpdir(), 'hzc-test-'))
+  store = new Store(':memory:', new SecretBox(join(dir, 'master.key')))
+  app = await buildApp({ store })
+})
+afterEach(async () => { await app.close(); store.close(); rmSync(dir, { recursive: true, force: true }) })
+
+const profile = { name: 'Kling', kind: 'video', adapter: 'replicate', endpoint: 'https://api.replicate.com', model: 'kling', apiKey: 'sk-secret-123' }
+
+describe('profiles API', () => {
+  it('creates a profile and never returns the key', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/profiles', payload: profile })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    expect(body.hasKey).toBe(true)
+    expect(JSON.stringify(body)).not.toContain('sk-secret-123')
+    expect(body.secretRef).toBeUndefined()
+    const list = await app.inject({ url: '/api/profiles' })
+    expect(JSON.stringify(list.json())).not.toContain('sk-secret-123')
+    // server-side can still decrypt
+    expect(store.getApiKey(body.id)).toBe('sk-secret-123')
+  })
+
+  it('stores the key encrypted at rest', async () => {
+    const { id } = (await app.inject({ method: 'POST', url: '/api/profiles', payload: profile })).json()
+    // @ts-expect-error reach into the private db to inspect raw storage
+    const raw = store.db.prepare('SELECT secret FROM profiles WHERE id = ?').get(id).secret as string
+    expect(raw).not.toContain('sk-secret-123')
+  })
+
+  it('keeps the key when updating without apiKey, clears on empty string', async () => {
+    const { id } = (await app.inject({ method: 'POST', url: '/api/profiles', payload: profile })).json()
+    const { apiKey: _k, ...noKey } = profile
+    await app.inject({ method: 'PUT', url: `/api/profiles/${id}`, payload: { ...noKey, name: 'Kling 2' } })
+    expect(store.getApiKey(id)).toBe('sk-secret-123')
+    await app.inject({ method: 'PUT', url: `/api/profiles/${id}`, payload: { ...noKey, apiKey: '' } })
+    expect(store.getApiKey(id)).toBeUndefined()
+  })
+
+  it('validates input and handles 404/delete', async () => {
+    expect((await app.inject({ method: 'POST', url: '/api/profiles', payload: { ...profile, kind: 'nope' } })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PUT', url: '/api/profiles/missing', payload: profile })).statusCode).toBe(404)
+    const { id } = (await app.inject({ method: 'POST', url: '/api/profiles', payload: profile })).json()
+    expect((await app.inject({ method: 'DELETE', url: `/api/profiles/${id}` })).statusCode).toBe(204)
+    expect((await app.inject({ method: 'DELETE', url: `/api/profiles/${id}` })).statusCode).toBe(404)
+  })
+})
+
+describe('projects API', () => {
+  it('round-trips a graph and rejects invalid ones', async () => {
+    const graph = { version: 1, nodes: [{ id: 'n1', type: 'text', position: { x: 1, y: 2 }, data: { text: 'hi' } }], edges: [] }
+    const created = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'demo', graph } })
+    expect(created.statusCode).toBe(201)
+    const { id } = created.json()
+    expect((await app.inject({ url: `/api/projects/${id}` })).json().graph).toEqual(graph)
+    expect((await app.inject({ method: 'PUT', url: `/api/projects/${id}`, payload: { graph: { nope: true } } })).statusCode).toBe(400)
+    expect((await app.inject({ url: '/api/projects' })).json()).toHaveLength(1)
+  })
+})
+
+describe('access token', () => {
+  it('blocks /api without token when configured, allows health', async () => {
+    const guarded = await buildApp({ store, accessToken: 't0k' })
+    expect((await guarded.inject({ url: '/api/profiles' })).statusCode).toBe(401)
+    expect((await guarded.inject({ url: '/api/profiles', headers: { 'x-hzc-token': 't0k' } })).statusCode).toBe(200)
+    expect((await guarded.inject({ url: '/api/health' })).statusCode).toBe(200)
+    await guarded.close()
+  })
+})
