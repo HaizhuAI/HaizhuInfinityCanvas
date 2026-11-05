@@ -112,6 +112,17 @@ export class Store {
       | undefined
   }
 
+  /** Gallery listing: one row per distinct file (newest upload wins), newest first. */
+  listAssets(kind?: 'image' | 'video' | 'audio', limit = 200) {
+    const rows = this.db.prepare(
+      `SELECT id, mime, size, name, created_at FROM assets a
+       WHERE (? IS NULL OR mime LIKE ?)
+         AND created_at = (SELECT MAX(created_at) FROM assets b WHERE b.sha256 = a.sha256)
+       GROUP BY sha256 ORDER BY created_at DESC LIMIT ?`,
+    ).all(kind ?? null, kind ? `${kind}/%` : null, Math.min(Math.max(1, limit), 1000)) as Record<string, string | number>[]
+    return rows.map((r) => ({ id: r.id as string, mime: r.mime as string, size: r.size as number, name: r.name as string, createdAt: r.created_at as string }))
+  }
+
   // ---------- node output cache (latest successful result per node)
   getNodeOutput(projectId: string, nodeId: string) {
     const r = this.db.prepare('SELECT cache_key, outputs, finished_at FROM node_outputs WHERE project_id = ? AND node_id = ?').get(projectId, nodeId) as

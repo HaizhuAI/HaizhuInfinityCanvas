@@ -208,6 +208,16 @@ describe('assets + image prompt reverse', () => {
     expect(outs.find((o: any) => o.nodeId === 'r').outputs.out[0].text).toBe('一只橘猫坐在窗台上，柔和侧光')
   })
 
+  it('lists assets for the gallery: newest first, one entry per file, filter by kind', async () => {
+    await upload(PNG_1x1, 'image/png')
+    await upload(PNG_1x1, 'image/png') // same bytes -> one gallery entry
+    const list = (await app.inject({ url: '/api/assets' })).json()
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ mime: 'image/png', name: '猫.png' })
+    expect((await app.inject({ url: '/api/assets?kind=video' })).json()).toHaveLength(0)
+    expect((await app.inject({ url: '/api/assets?kind=image' })).json()).toHaveLength(1)
+  })
+
   it('errors when an image node has no upload', async () => {
     const p = project({ version: 1, nodes: [{ id: 'i', type: 'image', position: { x: 0, y: 0 }, data: {} }], edges: [] })
     const { last } = await run(p.id)

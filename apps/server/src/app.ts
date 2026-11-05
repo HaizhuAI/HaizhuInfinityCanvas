@@ -103,6 +103,12 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     }
   })
 
+  app.get<{ Querystring: { kind?: string; limit?: string } }>('/api/assets', async (req) => {
+    const k = req.query.kind
+    const kind = k === 'image' || k === 'video' || k === 'audio' ? k : undefined
+    return store.listAssets(kind, Number(req.query.limit ?? 200) || 200)
+  })
+
   app.get<{ Params: { id: string } }>('/api/assets/:id', async (req, reply) => {
     const a = assets.get(req.params.id)
     if (!a) return reply.code(404).send({ error: 'not found' })
