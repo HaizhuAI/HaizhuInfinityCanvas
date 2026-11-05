@@ -70,7 +70,7 @@ function stopServer() {
 async function createWindow() {
   const { origin: o, token } = await startServer()
   mainWindow = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 960, minHeight: 600, title: '海珠无限画布',
+    width: 1440, height: 900, minWidth: 960, minHeight: 600, title: 'Haizhu Infinity Canvas',
     backgroundColor: '#0f1115',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
