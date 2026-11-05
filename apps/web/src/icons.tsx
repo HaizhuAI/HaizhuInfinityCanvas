@@ -22,11 +22,11 @@ export const CATEGORY_COLOR: Record<NodeCategory, string> = {
 }
 
 export const KIND_COLOR: Record<ModelKind, string> = {
-  llm: '#a78bfa', vlm: '#38bdf8', image: '#f472b6', video: '#fb923c', tts: '#34d399',
+  llm: '#fbbf24', vlm: '#38bdf8', image: '#f472b6', video: '#fb923c', tts: '#34d399',
 }
 
 export const PORT_COLOR: Record<PortType, string> = {
-  text: '#60a5fa', image: '#f472b6', video: '#fb923c', audio: '#34d399', storyboard: '#c084fc', any: '#9ca3af',
+  text: '#60a5fa', image: '#f472b6', video: '#fb923c', audio: '#34d399', storyboard: '#facc15', any: '#94a3b8',
 }
 
 export const PORT_LABEL: Record<PortType, string> = {

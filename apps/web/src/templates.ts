@@ -7,6 +7,22 @@ const id = (p: string) => `${p}_${Math.random().toString(36).slice(2, 8)}`
 /** Starter graphs offered on an empty canvas. Model nodes are left unbound on purpose. */
 export const TEMPLATES: Template[] = [
   {
+    id: 'director',
+    name: '创意 → 导演分镜',
+    description: '一句创意交给导演 Skill，拆成可直接生成的分镜，再一键展开成镜头节点',
+    graph: () => {
+      const a = id('txt'), b = id('dir')
+      return {
+        version: 1,
+        nodes: [
+          { id: a, type: 'text', position: { x: 0, y: 40 }, data: { label: '创意', text: '雨夜的霓虹街头，一只机械猫在寻找回家的路，最后在一扇亮着灯的窗前停下。' } },
+          { id: b, type: 'director', position: { x: 380, y: 0 }, data: { params: { skill: 'director-short-film', shots: 6, aspect_ratio: '16:9' } } },
+        ],
+        edges: [{ id: id('e'), source: a, sourceHandle: 'out', target: b, targetHandle: 'in' }],
+      }
+    },
+  },
+  {
     id: 'image-reverse',
     name: '图片 → 提示词反推',
     description: '上传一张图，反推出可复用的生成提示词',

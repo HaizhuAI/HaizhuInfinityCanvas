@@ -1,5 +1,7 @@
 import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, ProjectGraph, RunEvent } from '@hzc/core'
 
+export interface SkillMeta { name: string; description: string; source: 'builtin' | 'user'; label: string; metadata: Record<string, string>; license?: string }
+
 export interface ProjectSummary { id: string; name: string; createdAt: string; updatedAt: string }
 export interface Project extends ProjectSummary { graph: ProjectGraph }
 
@@ -80,6 +82,9 @@ export const api = {
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
   uploadAsset,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
+  listSkills: () => req<SkillMeta[]>('GET', '/api/skills'),
+  importSkill: (content: string) => req<SkillMeta>('POST', '/api/skills', { content }),
+  deleteSkill: (name: string) => req<void>('DELETE', `/api/skills/${encodeURIComponent(name)}`),
   estimate: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<Estimate>('POST', `/api/projects/${projectId}/estimate`, body),
   cancelRun: (runId: string) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/cancel`),
   streamRun,

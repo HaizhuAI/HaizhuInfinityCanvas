@@ -4,7 +4,7 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
 import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
-import { api, type ProjectSummary } from './api'
+import { api, type ProjectSummary, type SkillMeta } from './api'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
 export type CanvasNode = Node<CanvasNodeData>
@@ -35,6 +35,9 @@ interface State {
   /** latest run state per node (live during a run, restored from saved outputs on open) */
   runStates: Record<string, NodeRunState>
   runId: string | null
+  skills: SkillMeta[]
+  /** command palette; `at` = flow position to add at (double-click), else the view centre */
+  palette: { open: boolean; at?: { x: number; y: number } }
   /** a run waiting for the user to confirm paid generation calls */
   pendingRun: { nodeIds?: string[]; force?: boolean; estimate: Estimate } | null
 
@@ -55,6 +58,11 @@ interface State {
   setNodeData: (id: string, patch: Partial<CanvasNodeData>) => void
   setNodeParam: (id: string, key: string, value: unknown) => void
   loadTemplate: (g: ProjectGraph) => void
+  loadSkills: () => Promise<void>
+  openPalette: (at?: { x: number; y: number }) => void
+  closePalette: () => void
+  /** turn a director node's storyboard into per-shot image → video (→ voice) rows; returns new node ids */
+  expandStoryboard: (directorId: string) => string[]
   runNodes: (nodeIds?: string[], force?: boolean, confirmed?: boolean) => Promise<void>
   dismissPendingRun: () => void
   cancelRun: () => Promise<void>
@@ -63,13 +71,46 @@ interface State {
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
+  skills: [], palette: { open: false },
 
   showToast: (m) => { set({ toast: m }); setTimeout(() => get().toast === m && set({ toast: null }), 2500) },
   setSettingsOpen: (o) => set({ settingsOpen: o }),
 
   async loadProfiles() { set({ profiles: await api.listProfiles() }) },
 
+  async loadSkills() { set({ skills: await api.listSkills() }) },
+  openPalette: (at) => set({ palette: { open: true, at } }),
+  closePalette: () => set({ palette: { open: false } }),
+
+  expandStoryboard: (directorId) => {
+    const { nodes, runStates, profiles } = get()
+    const dir = nodes.find((n) => n.id === directorId)
+    const sb = runStates[directorId]?.outputs?.out?.find((v) => v.type === 'storyboard')
+    if (!dir || !sb || sb.type !== 'storyboard') return []
+    const first = (kind: ModelProfilePublic['kind']) => profiles.find((p) => p.kind === kind)
+    const img = first('image'), vid = first('video'), tts = first('tts')
+    const aspect = dir.data.params?.aspect_ratio
+    const ROW = 400, X0 = dir.position.x + 380
+    const newNodes: CanvasNode[] = []
+    const newEdges: Edge[] = []
+    sb.shots.forEach((shot, i) => {
+      const y = dir.position.y + i * ROW
+      const tag = `镜头 ${shot.index}`
+      const imgId = `n_${uid()}`, vidId = `n_${uid()}`
+      newNodes.push({ id: imgId, type: 'image-gen', position: { x: X0, y }, data: { label: `${tag} · 画面`, text: shot.imagePrompt, profileId: img?.id, params: aspect ? { aspect_ratio: aspect } : {} } })
+      newNodes.push({ id: vidId, type: 'video-gen', position: { x: X0 + 380, y }, data: { label: `${tag} · 视频`, text: shot.videoPrompt, profileId: vid?.id, params: { ...(aspect ? { aspect_ratio: aspect } : {}) } } })
+      newEdges.push({ id: `e_${uid()}`, source: imgId, sourceHandle: 'out', target: vidId, targetHandle: 'first' })
+      if (shot.dialogue) {
+        const ttsId = `n_${uid()}`
+        newNodes.push({ id: ttsId, type: 'tts', position: { x: X0 + 760, y }, data: { label: `${tag} · 配音`, text: shot.dialogue, profileId: tts?.id, params: {} } })
+      }
+    })
+    set((s) => ({ nodes: [...s.nodes, ...newNodes], edges: [...s.edges, ...newEdges], saveState: 'dirty' }))
+    return newNodes.map((n) => n.id)
+  },
+
   async init() {
+    void get().loadSkills().catch(() => undefined)
     await get().loadProfiles()
     const projects = await api.listProjects()
     set({ projects })

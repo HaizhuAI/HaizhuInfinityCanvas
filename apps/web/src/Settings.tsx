@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import { Boxes, Cpu, Info, KeyRound, Pencil, Plus, Trash, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Boxes, Clapperboard, Cpu, FileUp, Info, KeyRound, Pencil, Plus, Sparkles, Trash, X } from 'lucide-react'
 import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
 import { api, getToken, setToken } from './api'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
+import { enterOverlay, motionEnabled, setMotionEnabled } from './motion'
 import { useStore } from './store'
 
-type Tab = 'profiles' | 'access' | 'about'
+type Tab = 'profiles' | 'skills' | 'appearance' | 'access' | 'about'
 type FormState = Omit<ModelProfileInput, 'defaults' | 'cost'> & { id?: string; defaultsText: string; costAmount: string; costCurrency: string }
 
 /** Quick-fill presets: OpenAI-compatible endpoints published by each provider. Model IDs are left to the user. */
@@ -197,12 +198,105 @@ function AccessPane() {
   )
 }
 
+const SKILL_TEMPLATE = `---
+name: my-director
+description: 我的导演风格。说明它做什么、什么时候用。
+metadata:
+  hzc-kind: director
+  hzc-label: 我的导演
+---
+
+# 我的导演
+
+在这里写给模型的导演指令：镜头结构、景别与运镜偏好、角色一致性要求、提示词写法……
+`
+
+function SkillsPane() {
+  const { skills, loadSkills, showToast } = useStore()
+  const [importing, setImporting] = useState(false)
+  const [text, setText] = useState(SKILL_TEMPLATE)
+  const [err, setErr] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function save() {
+    setErr('')
+    try {
+      const s = await api.importSkill(text)
+      await loadSkills()
+      showToast(`已导入 Skill「${s.label}」`)
+      setImporting(false); setText(SKILL_TEMPLATE)
+    } catch (e) { setErr((e as Error).message) }
+  }
+
+  async function remove(name: string) {
+    if (!confirm(`删除 Skill「${name}」？使用它的导演节点会提示找不到 Skill。`)) return
+    try { await api.deleteSkill(name); await loadSkills() } catch (e) { showToast((e as Error).message) }
+  }
+
+  if (importing) return (
+    <div className="form import-box">
+      <div>
+        <h3>导入 Skill</h3>
+        <div className="muted">粘贴一个 SKILL.md（Agent Skills 开放格式），或选择文件。metadata 里写 <code>hzc-kind: director</code> 会让它出现在导演节点的 Skill 列表最前面。</div>
+      </div>
+      <input ref={fileRef} type="file" accept=".md,text/markdown,text/plain" hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()) }} />
+      <div><button className="btn" onClick={() => fileRef.current?.click()}><FileUp />选择 SKILL.md 文件</button></div>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} data-testid="skill-text" />
+      {err && <div className="form-err" role="alert">{err}</div>}
+      <div className="form-actions">
+        <button className="btn primary" onClick={() => void save()} data-testid="skill-save">导入</button>
+        <button className="btn" onClick={() => { setImporting(false); setErr('') }}>取消</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      <h3>导演 Skill</h3>
+      <p className="muted">Skill 是给模型的一套专业指令（Agent Skills 开放格式）。导演节点会用它把创意拆成分镜。只使用其中的文字指令，不会执行任何脚本。</p>
+      <div className="pcard-list">
+        {skills.map((s) => (
+          <div className="pcard" key={s.name} data-testid={`skill-${s.name}`}>
+            <span className="chip-ico" style={{ '--c': 'var(--c-tool)' } as React.CSSProperties}><Clapperboard /></span>
+            <div className="txt">
+              <div className="nm">{s.label} <span className="muted skill-src">{s.name}</span></div>
+              <div className="ds" title={s.description}>{s.description}</div>
+            </div>
+            <span className={`tag${s.source === 'builtin' ? ' ok' : ''}`}>{s.source === 'builtin' ? '内置' : '我的'}</span>
+            {s.source === 'user' && <button className="btn sm icon ghost" title="删除" aria-label={`删除 ${s.name}`} onClick={() => void remove(s.name)}><Trash /></button>}
+          </div>
+        ))}
+      </div>
+      <button className="btn primary" onClick={() => setImporting(true)} data-testid="import-skill"><Plus />导入 Skill</button>
+    </>
+  )
+}
+
+function AppearancePane() {
+  const [on, setOn] = useState(motionEnabled())
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  return (
+    <div className="form">
+      <div>
+        <h3>外观与动效</h3>
+        <div className="muted">深色界面配合星空背景；浅色模式跟随系统设置。</div>
+      </div>
+      <label className="switch">
+        <input type="checkbox" checked={on} disabled={reduced} onChange={(e) => { setMotionEnabled(e.target.checked); setOn(motionEnabled()) }} data-testid="motion-switch" />
+        <span className="track"><span className="knob" /></span>
+        <span>界面动效与星空漂移</span>
+      </label>
+      <div className="hint"><Info />{reduced ? '系统开启了「减少动态效果」，动效已自动关闭。' : '关闭后保留静态星空与全部功能，适合低配电脑或长时间工作。'}</div>
+    </div>
+  )
+}
+
 function AboutPane() {
   return (
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向创作类智能体的无限画布。当前版本 v1.0.0-beta.3。</div>
+        <div className="muted">面向创作类智能体的无限画布。当前版本 v1.0.0-beta.4。</div>
       </div>
       <div className="hint"><Info /><span>项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。</span></div>
     </div>
@@ -212,14 +306,19 @@ function AboutPane() {
 export function Settings() {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const [tab, setTab] = useState<Tab>('profiles')
+  const backRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { enterOverlay(panelRef.current, backRef.current) }, [])
   const TABS: { id: Tab; label: string; Icon: typeof Cpu }[] = [
     { id: 'profiles', label: '模型档案', Icon: Cpu },
+    { id: 'skills', label: '导演 Skill', Icon: Clapperboard },
+    { id: 'appearance', label: '外观与动效', Icon: Sparkles },
     { id: 'access', label: '访问口令', Icon: KeyRound },
     { id: 'about', label: '关于', Icon: Boxes },
   ]
   return (
-    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false) }}>
-      <div className="modal" role="dialog" aria-label="设置">
+    <div className="modal-back" ref={backRef} onMouseDown={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false) }}>
+      <div className="modal" ref={panelRef} role="dialog" aria-label="设置">
         <div className="modal-head">
           <h2>设置</h2>
           <button className="btn icon ghost" onClick={() => setSettingsOpen(false)} aria-label="关闭"><X /></button>
@@ -233,6 +332,8 @@ export function Settings() {
           <div className="pane">
             {tab === 'profiles' && <ProfilesPane />}
             {tab === 'access' && <AccessPane />}
+            {tab === 'skills' && <SkillsPane />}
+            {tab === 'appearance' && <AppearancePane />}
             {tab === 'about' && <AboutPane />}
           </div>
         </div>
