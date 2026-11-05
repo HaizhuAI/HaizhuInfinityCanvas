@@ -11,6 +11,9 @@ export interface GraphNode {
     profileId?: string
     params?: Record<string, unknown>
     text?: string
+    /** media input nodes: uploaded asset */
+    assetId?: string
+    mime?: string
   }
 }
 
