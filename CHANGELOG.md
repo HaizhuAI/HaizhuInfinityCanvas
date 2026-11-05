@@ -33,6 +33,7 @@
 - 桌面版（Linux，xvfb）：无钥匙串时使用密钥文件；有钥匙串时迁移（密钥指纹与原文件一致）、再次启动解封成功、封存文件损坏时明确报错退出。打包后的 Linux 应用启动测试通过。
 - GitHub Actions：commit 9e33366 与 5468d57 的 CI 与安装包流水线（Linux AppImage + deb、Windows 包、Docker 及冒烟测试）全部通过。
 - commit 544f597 的安装包流水线 run 42106568796：**打包后的应用在 Windows 与 Linux 上都成功启动**并显示界面；Windows 上 API Key 密钥已由系统钥匙串（DPAPI）封存（日志：`master key: keychain`）。
+- commit 99ef464 的安装包流水线 run 42107442579：Windows **安装包与便携版两个文件都已产出**（`…-win-x64-setup.exe`、`…-win-x64-portable.exe`）、Linux AppImage + deb、Docker 镜像冒烟测试、两个平台的启动测试全部通过；最新提交 ea483df 的 CI run 42107535846 通过（类型检查、89 个单测、五套 E2E）。
 
 ### Not verified yet
 - Windows 安装包在真机上的安装与日常使用（CI 只验证能启动并显示界面）；Windows 钥匙串（DPAPI）只在 CI 启动测试中运行过。
