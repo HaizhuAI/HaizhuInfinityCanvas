@@ -1,21 +1,105 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow } from '@xyflow/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import { Check, CircleCheck, CircleStop, FolderOpen, CloudCheck, Infinity as InfinityIcon, LayoutTemplate, LoaderCircle, Play, Plus, Settings as SettingsIcon, Sparkles, TriangleExclamationPoint } from 'lucide-react'
+import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { Sidebar, DND_MIME } from './Sidebar'
 import { Settings } from './Settings'
+import { CATEGORY_COLOR, PORT_COLOR } from './icons'
+import { TEMPLATES } from './templates'
 import { useStore } from './store'
+
+const APP_VERSION = 'v1.0.0-beta.3'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
 )
 
-const SAVE_LABEL = { idle: '', dirty: '未保存…', saving: '保存中…', saved: '已保存', error: '保存失败' } as const
+/** One control for the current canvas: inline rename + a menu to switch or create canvases. */
+function ProjectMenu() {
+  const { projects, projectId, projectName, openProject, newProject, renameProject } = useStore()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  return (
+    <div className="project" ref={ref}>
+      <button className="btn ghost icon" onClick={() => setOpen((o) => !o)} aria-label="切换画布" aria-expanded={open} title="切换或新建画布" data-testid="project-menu">
+        <FolderOpen />
+      </button>
+      <input className="pname" value={projectName} onChange={(e) => renameProject(e.target.value)} aria-label="画布名称" title="点击重命名" />
+      {open && (
+        <div className="menu" role="menu">
+          <div className="menu-label">我的画布</div>
+          {projects.map((p) => (
+            <button key={p.id} role="menuitem" className={`menu-item${p.id === projectId ? ' on' : ''}`}
+              onClick={() => { setOpen(false); if (p.id !== projectId) void openProject(p.id) }}>
+              <span className="grow">{p.id === projectId ? projectName : p.name}</span>
+              {p.id === projectId && <Check />}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus />新建画布</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SaveIndicator() {
+  const state = useStore((s) => s.saveState)
+  const label = { idle: '', dirty: '未保存', saving: '保存中…', saved: '已保存', error: '保存失败' }[state]
+  return (
+    <span className={`save ${state}`} data-testid="save-state">
+      {state === 'saving' && <LoaderCircle className="spin" />}
+      {state === 'saved' && <CloudCheck />}
+      {state === 'error' && <TriangleExclamationPoint />}
+      {label}
+    </span>
+  )
+}
+
+function EmptyState() {
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const loadTemplate = useStore((s) => s.loadTemplate)
+  const hasProfiles = useStore((s) => s.profiles.length > 0)
+  const { fitView } = useReactFlow()
+  const applyTemplate = (g: Parameters<typeof loadTemplate>[0]) => {
+    loadTemplate(g)
+    // let React Flow measure the new nodes before fitting
+    requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ maxZoom: 1, padding: 0.25 })))
+  }
+  return (
+    <div className="canvas-empty">
+      <div className="empty-card">
+        <div className="badge-ico"><Sparkles /></div>
+        <h2>开始你的创作画布</h2>
+        <p>把模型当作智能体，拖进画布、连线，就能组成一条创作流水线。</p>
+        <ol>
+          <li><span>在「设置 → 模型档案」添加你的模型（文本 / 视觉 / 图片 / 视频 / 语音）{hasProfiles && <CircleCheck style={{ width: 14, height: 14, color: 'var(--ok)', marginLeft: 6, verticalAlign: -2 }} />}</span></li>
+          <li><span>从左侧把模型图标或节点拖到画布（也可以单击添加）</span></li>
+          <li><span>从输出端口拖线到输入端口，点「运行」</span></li>
+        </ol>
+        <div className="actions">
+          {!hasProfiles && <button className="btn primary" onClick={() => setSettingsOpen(true)}><Plus />添加模型档案</button>}
+          {TEMPLATES.map((t) => (
+            <button key={t.id} className="btn" onClick={() => applyTemplate(t.graph())} title={t.description} data-testid={`template-${t.id}`}><LayoutTemplate />{t.name}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function Canvas() {
   const s = useStore()
   const { screenToFlowPosition } = useReactFlow()
-  // The canvas is remounted per project (see CanvasForProject). Fit the view on open only if the
+  // The canvas is remounted per project (see ProjectWorkspace). Fit the view on open only if the
   // project already has nodes — otherwise React Flow would zoom onto the first node the user drops.
   const [fitOnOpen] = useState(() => useStore.getState().nodes.length > 0)
 
@@ -27,29 +111,50 @@ function Canvas() {
     s.addNode(type, screenToFlowPosition({ x: e.clientX, y: e.clientY }), profileId)
   }, [s, screenToFlowPosition])
 
+  // colour each edge by the data type of its source port; animate it while its target runs
+  const edges = useMemo<Edge[]>(() => {
+    const types = new Map(s.nodes.map((n) => [n.id, n.type ?? '']))
+    return s.edges.map((e) => {
+      const def = NODE_TYPE_MAP[types.get(e.source) ?? '']
+      const port = def?.outputs.find((p) => p.id === (e.sourceHandle ?? 'out'))
+      const stroke = port ? PORT_COLOR[port.type] : undefined
+      return { ...e, animated: s.runStates[e.target]?.status === 'running', style: stroke ? { stroke, strokeOpacity: 0.85 } : undefined }
+    })
+  }, [s.edges, s.nodes, s.runStates])
+
   return (
     <div className="canvas" onDrop={onDrop} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}>
       <ReactFlow
-        nodes={s.nodes} edges={s.edges} nodeTypes={nodeTypes}
+        nodes={s.nodes} edges={edges} nodeTypes={nodeTypes}
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
         fitView={fitOnOpen} fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
-        deleteKeyCode={['Backspace', 'Delete']} minZoom={0.1} maxZoom={2} colorMode="dark"
-        proOptions={{ hideAttribution: true }}
+        deleteKeyCode={['Backspace', 'Delete']} minZoom={0.1} maxZoom={2}
+        colorMode="system" proOptions={{ hideAttribution: true }}
       >
-        <Background gap={24} />
-        <Controls />
-        <MiniMap pannable zoomable />
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} />
+        <Controls showInteractive={false} />
+        {s.nodes.length > 0 && (
+          <MiniMap pannable zoomable nodeBorderRadius={6}
+            nodeColor={(n) => { const d = NODE_TYPE_MAP[n.type ?? '']; return d ? CATEGORY_COLOR[d.category] : '#555' }} />
+        )}
       </ReactFlow>
-      {s.nodes.length === 0 && <div className="canvas-empty">把左侧的模型图标或节点拖到这里开始创作</div>}
+      {s.nodes.length === 0 && <EmptyState />}
     </div>
   )
 }
 
-/** Fresh React Flow instance (and viewport) per opened project. */
-function CanvasForProject() {
+/** Fresh React Flow instance (and viewport) per opened project; the sidebar shares it for click-to-add. */
+function ProjectWorkspace() {
   const projectId = useStore((s) => s.projectId)
-  return <ReactFlowProvider key={projectId ?? 'none'}><Canvas /></ReactFlowProvider>
+  return (
+    <ReactFlowProvider key={projectId ?? 'none'}>
+      <div className="main">
+        <Sidebar />
+        <Canvas />
+      </div>
+    </ReactFlowProvider>
+  )
 }
 
 export function App() {
@@ -67,25 +172,23 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <strong className="brand">海珠无限画布 <em>v1.0.0-beta.2</em></strong>
-        <select value={s.projectId ?? ''} onChange={(e) => void s.openProject(e.target.value)} aria-label="切换画布">
-          {s.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <input className="pname" value={s.projectName} onChange={(e) => s.renameProject(e.target.value)} aria-label="画布名称" />
-        <button onClick={() => void s.newProject()}>＋ 新建画布</button>
-        <span className={`save ${s.saveState}`} data-testid="save-state">{SAVE_LABEL[s.saveState]}</span>
+        <div className="brand">
+          <span className="logo"><InfinityIcon /></span>
+          <span className="brand-name">Haizhu Infinity Canvas</span>
+          <span className="ver">{APP_VERSION}</span>
+        </div>
+        <span className="divider" />
+        <ProjectMenu />
         <span className="spacer" />
+        <SaveIndicator />
         {s.runId
-          ? <button className="danger" onClick={() => void s.cancelRun()} data-testid="stop-run">■ 停止</button>
-          : <button className="primary" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all">▶ 运行全部</button>}
-        <button onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">⚙ 设置</button>
+          ? <button className="btn danger" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
+          : <button className="btn primary" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}
+        <button className="btn icon ghost" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings" title="设置" aria-label="设置"><SettingsIcon /></button>
       </header>
-      <div className="main">
-        <Sidebar />
-        <CanvasForProject />
-      </div>
+      <ProjectWorkspace />
       {s.settingsOpen && <Settings />}
-      {s.toast && <div className="toast">{s.toast}</div>}
+      {s.toast && <div className="toast" role="status"><Sparkles />{s.toast}</div>}
     </div>
   )
 }

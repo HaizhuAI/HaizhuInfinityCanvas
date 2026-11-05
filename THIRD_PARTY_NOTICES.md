@@ -12,6 +12,7 @@
 | React / Vite | MIT | WebUI | beta.1 |
 | Fastify | MIT | 本地服务 | beta.1 |
 | Electron | MIT | 桌面壳 | beta.1 |
+| lucide-react | ISC | 界面图标（随包打包，离线可用） | beta.3 |
 | FFmpeg（独立可执行文件） | LGPL-2.1+（视编译选项） | 抽帧/合成 | beta.5 |
 
 ## B. 摘取代码登记

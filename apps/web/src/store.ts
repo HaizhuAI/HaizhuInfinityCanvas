@@ -52,6 +52,7 @@ interface State {
   addNode: (type: string, position: { x: number; y: number }, profileId?: string) => void
   setNodeData: (id: string, patch: Partial<CanvasNodeData>) => void
   setNodeParam: (id: string, key: string, value: unknown) => void
+  loadTemplate: (g: ProjectGraph) => void
   runNodes: (nodeIds?: string[], force?: boolean) => Promise<void>
   cancelRun: () => Promise<void>
 }
@@ -138,6 +139,11 @@ export const useStore = create<State>((set, get) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [key]: value } } } : n)),
       saveState: 'dirty',
     })),
+
+  loadTemplate: (g) => {
+    const { nodes, edges } = fromGraph(g)
+    set((s) => ({ nodes: [...s.nodes, ...nodes], edges: [...s.edges, ...edges], saveState: 'dirty' }))
+  },
 
   async runNodes(nodeIds, force) {
     const { projectId } = get()
