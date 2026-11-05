@@ -424,6 +424,18 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .menu-item.on { color: var(--text); font-weight: 560; }
 .menu-item svg { width: 14px; height: 14px; }
 .menu-item .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-item small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 1px; }
+
+/* downloadable non-media result (editor project package) */
+.file-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface-2); color: var(--text); text-decoration: none; transition: border-color var(--t), background var(--t); }
+.file-card:hover { border-color: var(--accent-line); background: var(--surface-3); }
+.file-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.file-card > svg { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.file-card > svg:first-child { color: var(--accent); }
+.file-card .grow { flex: 1; min-width: 0; }
+.file-card strong { display: block; font-size: 12.5px; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-card small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
+.nbody .file-card { margin: 8px 10px 10px; }
 .menu-item.on svg { color: var(--accent-hi); }
 .menu-sep { height: 1px; background: var(--line); margin: 6px 2px; }
 

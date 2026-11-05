@@ -116,7 +116,7 @@ export class Store {
   listAssets(kind?: 'image' | 'video' | 'audio', limit = 200) {
     const rows = this.db.prepare(
       `SELECT id, mime, size, name, created_at FROM assets a
-       WHERE (? IS NULL OR mime LIKE ?)
+       WHERE (mime LIKE 'image/%' OR mime LIKE 'video/%' OR mime LIKE 'audio/%') AND (? IS NULL OR mime LIKE ?)
          AND created_at = (SELECT MAX(created_at) FROM assets b WHERE b.sha256 = a.sha256)
        GROUP BY sha256 ORDER BY created_at DESC LIMIT ?`,
     ).all(kind ?? null, kind ? `${kind}/%` : null, Math.min(Math.max(1, limit), 1000)) as Record<string, string | number>[]
@@ -133,6 +133,13 @@ export class Store {
 
   setNodeOutput(projectId: string, nodeId: string, cacheKey: string, outputs: unknown) {
     this.db.prepare('INSERT OR REPLACE INTO node_outputs VALUES (?,?,?,?,?)').run(projectId, nodeId, cacheKey, JSON.stringify(outputs), new Date().toISOString())
+  }
+
+  /** Results with their cache keys, for project bundles. */
+  listNodeOutputsForBundle(projectId: string) {
+    return (this.db.prepare('SELECT node_id, cache_key, outputs, finished_at FROM node_outputs WHERE project_id = ?').all(projectId) as Record<string, string>[]).map((r) => ({
+      nodeId: r.node_id!, cacheKey: r.cache_key!, outputs: JSON.parse(r.outputs!) as unknown, finishedAt: r.finished_at!,
+    }))
   }
 
   listNodeOutputs(projectId: string) {

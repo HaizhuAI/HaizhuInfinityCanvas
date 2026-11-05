@@ -36,6 +36,24 @@ export function assetUrl(id: string) {
   return `/api/assets/${encodeURIComponent(id)}${t ? `?t=${encodeURIComponent(t)}` : ''}`
 }
 
+/** Download link for a project bundle (.hzc); a plain link lets the browser stream it to disk. */
+export function bundleUrl(projectId: string) {
+  const t = getToken()
+  return `/api/projects/${encodeURIComponent(projectId)}/bundle${t ? `?t=${encodeURIComponent(t)}` : ''}`
+}
+
+export interface BundleImport { project: Project; assets: number; missing: number; results: number }
+
+async function importBundle(file: File): Promise<BundleImport> {
+  const res = await fetch('/api/projects/import', { method: 'POST', headers: { 'content-type': 'application/zip', ...authHeaders() }, body: file })
+  if (!res.ok) {
+    let msg = res.statusText
+    try { msg = ((await res.json()) as { error?: string }).error ?? msg } catch { /* ignore */ }
+    throw new Error(msg)
+  }
+  return res.json()
+}
+
 async function uploadAsset(file: File): Promise<{ id: string; mime: string; size: number }> {
   const res = await fetch('/api/assets', {
     method: 'POST',
@@ -83,6 +101,7 @@ export const api = {
   saveProject: (id: string, patch: { name?: string; graph?: ProjectGraph }) => req<Project>('PUT', `/api/projects/${id}`, patch),
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
   uploadAsset,
+  importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
   system: (refresh = false) => req<{ version: string; node: string; platform: string; ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string } }>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),

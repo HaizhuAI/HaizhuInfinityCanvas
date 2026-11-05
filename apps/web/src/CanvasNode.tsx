@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Expand, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
 import { NODE_TYPE_MAP, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { ASPECT_CSS, CATEGORY_COLOR, KIND_LABEL, NODE_ICON, PORT_COLOR, PORT_LABEL } from './icons'
@@ -33,7 +33,21 @@ export function StatusPill({ status, error }: { status: NodeStatus; error?: stri
   )
 }
 
-function MediaView({ v, name }: { v: Extract<PortValue, { assetId: string }>; name?: string }) {
+type MediaValue = Extract<PortValue, { type: 'image' | 'video' | 'audio' }>
+type FileValue = Extract<PortValue, { type: 'file' }>
+
+/** A downloadable result that is not media (e.g. an editor project package). */
+export function FileCard({ v, hint }: { v: FileValue; hint?: string }) {
+  return (
+    <a className="file-card nodrag" href={assetUrl(v.assetId)} download={v.name ?? 'download.zip'} data-testid="out-file">
+      <FileArchive aria-hidden="true" />
+      <span className="grow"><strong>{v.name ?? '文件'}</strong><small>{hint ?? (v.mime === 'application/zip' ? 'ZIP 压缩包' : v.mime)}</small></span>
+      <Download aria-hidden="true" />
+    </a>
+  )
+}
+
+function MediaView({ v, name }: { v: MediaValue; name?: string }) {
   const openLightbox = useStore((s) => s.openLightbox)
   const url = assetUrl(v.assetId)
   if (v.type === 'audio') return <div className="nmedia audio"><audio className="nodrag" src={url} controls preload="metadata" data-testid="out-audio" /></div>
@@ -79,12 +93,13 @@ export function ShotList({ title, shots }: { title?: string; shots: Shot[] }) {
 }
 
 export function Values({ vals }: { vals: PortValue[] }) {
-  const media = vals.filter((v): v is Extract<PortValue, { assetId: string }> => 'assetId' in v)
+  const media = vals.filter((v): v is MediaValue => v.type === 'image' || v.type === 'video' || v.type === 'audio')
   return (
     <>
       {vals.filter((v) => v.type === 'text').map((v, i) => <TextOut key={`t${i}`} text={(v as { text: string }).text} />)}
       {vals.filter((v) => v.type === 'storyboard').map((v, i) => <ShotList key={`s${i}`} title={(v as { title?: string }).title} shots={(v as { shots: Shot[] }).shots} />)}
       {media.map((v, i) => <MediaView key={`m${i}`} v={v} />)}
+      {vals.filter((v): v is FileValue => v.type === 'file').map((v, i) => <FileCard key={`f${i}`} v={v} />)}
     </>
   )
 }
@@ -204,7 +219,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
   const shown = def.category === 'input' ? undefined : type === 'preview' ? runState?.outputs?.in : runState?.outputs?.out
   const hasStoryboard = (type === 'director' || type === 'video-reverse') && !!shown?.some((v) => v.type === 'storyboard')
   const genKind = type === 'image-gen' ? 'image' : type === 'video-gen' || type === 'export' ? 'video' : undefined
-  const media = shown?.filter((v) => 'assetId' in v) ?? []
+  const media = shown?.filter((v): v is MediaValue => v.type === 'image' || v.type === 'video' || v.type === 'audio') ?? []
 
   function expand() {
     const ids = expandStoryboard(id)
@@ -233,7 +248,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
         <div className="nbody">
           {def.modelKind && <ModelChip id={id} kind={def.modelKind} profileId={data.profileId} label={data.label} defLabel={def.label} />}
 
-          {genKind && type !== 'export' && (media.length ? <div className={media.length > 1 ? 'nmedia multi' : undefined}>{media.map((v, i) => <MediaView key={i} v={v as Extract<PortValue, { assetId: string }>} name={data.label} />)}</div>
+          {genKind && type !== 'export' && (media.length ? <div className={media.length > 1 ? 'nmedia multi' : undefined}>{media.map((v, i) => <MediaView key={i} v={v} name={data.label} />)}</div>
             : <Frame aspect={params.aspect_ratio as string | undefined} kind={genKind} running={isRunning} progress={runState?.progress} />)}
 
           {type === 'text' && <textarea className="nodrag nowheel" placeholder="写下剧本、创意或提示词…" value={data.text ?? ''} onChange={(e) => useStore.getState().setNodeData(id, { text: e.target.value })} />}

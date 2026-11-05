@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ProjectGraph, RunEvent } from '@hzc/core'
 import { buildApp } from './app'
@@ -13,9 +13,13 @@ import { Engine } from './engine'
 import { detectScenes, ffmpegInfo, probe, segmentsFromCuts } from './media'
 import { SecretBox } from './secrets'
 import { SkillStore } from './skills'
+import { readZip } from './zip'
+import { buildMlt } from './exporter'
 
 const BUILTIN = fileURLToPath(new URL('../skills', import.meta.url))
-const HAS_FFMPEG = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true } catch { return false } })()
+const has = (cmd: string) => { try { execFileSync(cmd, ['-version'], { stdio: 'ignore' }); return true } catch { return false } }
+const HAS_FFMPEG = has('ffmpeg')
+const HAS_MELT = HAS_FFMPEG && has('melt')
 
 describe('segmentsFromCuts (pure)', () => {
   it('turns cuts into segments, drops slivers, merges down to maxShots', () => {
@@ -146,6 +150,21 @@ describe.skipIf(!HAS_FFMPEG)('FFmpeg + video prompt reverse', () => {
   })
 })
 
+describe('buildMlt (pure)', () => {
+  it('puts overlapping voices on separate audio tracks and mixes every track', () => {
+    const mlt = buildMlt({
+      width: 1920, height: 1080, fps: 30, total: 4, keepAudio: 'mix', srt: '',
+      clips: [{ file: 'a.mp4', start: 0, duration: 2 }, { file: 'b.mp4', start: 2, duration: 2 }],
+      voices: [{ file: 'v1.wav', start: 0, duration: 2.5 }, { file: 'v2.wav', start: 2, duration: 1 }, { file: 'v3.wav', start: 3, duration: 5 }],
+    }, { clips: ['clips/a.mp4', 'clips/b.mp4'], voices: ['voice/1.wav', 'voice/2.wav', 'voice/3.wav'] }, 'T')
+    expect(mlt).toContain('display_aspect_num="16" display_aspect_den="9" frame_rate_num="30"')
+    expect(mlt.match(/<playlist id="audio\d"/g)).toHaveLength(2)              // v2 overlaps v1 -> second track
+    expect(mlt).toContain('<blank length="15"/>\n    <entry producer="voice2" in="0" out="29"/>') // v3 after v1 on A1, cut at the film end
+    expect(mlt.match(/mlt_service">mix</g)).toHaveLength(3)
+    expect(mlt).not.toContain('hide="audio"')
+  })
+})
+
 describe('buildSrt (pure)', () => {
   it('aligns one line per clip, else spreads lines evenly', async () => {
     const { buildSrt } = await import('./exporter')
@@ -253,6 +272,54 @@ describe.skipIf(!HAS_FFMPEG)('export node (FFmpeg)', () => {
     }
     expect(loud(0, 0.9)).toBeLessThan(-60)       // clip 1: silent (no voice, original audio dropped)
     expect(loud(1.05, 0.6)).toBeGreaterThan(-40) // clip 2 starts at 1 s: the voice plays there
+  })
+
+  it('packages the same cut as an MLT (Shotcut) project that renders the same film', async () => {
+    const red = put('red.mp4', 'video/mp4'), blue = put('blue.mp4', 'video/mp4'), v2 = put('v2.wav', 'audio/wav')
+    const { last } = await run({
+      version: 1,
+      nodes: [
+        { id: 'r', type: 'video', position: { x: 0, y: 0 }, data: { assetId: red.id, mime: 'video/mp4' } },
+        { id: 'b', type: 'video', position: { x: 0, y: 400 }, data: { assetId: blue.id, mime: 'video/mp4' } },
+        { id: 'a', type: 'audio', position: { x: 300, y: 410 }, data: { assetId: v2.id, mime: 'audio/wav' } },
+        { id: 's', type: 'text', position: { x: 300, y: 800 }, data: { text: '\n第二句台词' } },
+        { id: 'x', type: 'export', position: { x: 700, y: 0 }, data: { label: '测试 & 成片', params: { keepAudio: 'drop', size: '640x360', fps: 25, editProject: true } } },
+      ],
+      edges: [
+        { id: 'e1', source: 'r', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e2', source: 'b', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e3', source: 'a', sourceHandle: 'out', target: 'x', targetHandle: 'audio' },
+        { id: 'e4', source: 's', sourceHandle: 'out', target: 'x', targetHandle: 'subs' },
+      ],
+    })
+    expect(last.get('x').error).toBeUndefined()
+    const pkg = last.get('x').outputs.project[0]
+    expect(pkg).toMatchObject({ type: 'file', mime: 'application/zip' })
+    const entries = readZip(readFileSync(assets.get(pkg.assetId)!.file))
+    expect(entries.map((e) => e.name).sort()).toEqual(['README.txt', 'clips/shot-01.mp4', 'clips/shot-02.mp4', 'project.mlt', 'subtitles.srt', 'voice/voice-01.wav'].map((n) => `haizhu-edit/${n}`).sort())
+    const mlt = entries.find((e) => e.name.endsWith('project.mlt'))!.data.toString()
+    expect(mlt).toContain('title="测试 &amp; 成片"')
+    expect(mlt).toMatch(/<entry producer="clip0" in="0" out="2[45]"\/>/)  // 1 s at 25 fps
+    expect(mlt).toMatch(/<blank length="2[56]"\/>/)                       // the voice waits for clip 2
+    expect(mlt).toContain('<track producer="video1" hide="audio"/>')     // original audio dropped
+    if (!HAS_MELT) return
+    const out = mkdtempSync(join(tmpdir(), 'hzc-mlt-'))
+    try {
+      for (const e of entries) { const f = join(out, e.name); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, e.data) }
+      const film = join(out, 'melt.mp4')
+      const r = spawnSync('melt', ['-quiet', 'project.mlt', '-consumer', `avformat:${film}`, 'vcodec=libx264', 'acodec=aac'], { cwd: join(out, 'haizhu-edit'), encoding: 'utf8', timeout: 120_000 })
+      expect(r.status, r.stderr).toBe(0)
+      const meta = probeJson(film)
+      expect(Number(meta.format.duration)).toBeCloseTo(3, 0)
+      expect(meta.streams.find((s: any) => s.codec_type === 'video')).toMatchObject({ width: 640, height: 360 })
+      const [r0, , b0] = pixel(film, 0.4)
+      expect(r0).toBeGreaterThan(150); expect(b0).toBeLessThan(80)
+      const [r1, , b1] = pixel(film, 2.2)
+      expect(b1).toBeGreaterThan(150); expect(r1).toBeLessThan(80)
+      const loud = (ss: number, t: number) => Number(/mean_volume: (-?[\d.]+) dB/.exec(spawnSync('ffmpeg', ['-hide_banner', '-ss', String(ss), '-t', String(t), '-i', film, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' }).stderr)?.[1])
+      expect(loud(0, 0.9)).toBeLessThan(-60)
+      expect(loud(1.1, 0.6)).toBeGreaterThan(-40)
+    } finally { rmSync(out, { recursive: true, force: true }) }
   })
 
   it('needs at least one clip', async () => {

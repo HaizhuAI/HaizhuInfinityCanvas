@@ -1,11 +1,11 @@
 import { useReactFlow } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
-import { Download, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, TriangleExclamationPoint } from 'lucide-react'
+import { Download, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
 import {
   ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS, type PortValue,
 } from '@hzc/core'
 import { assetUrl } from './api'
-import { RUNNABLE, StatusPill, Values } from './CanvasNode'
+import { FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
 import { CATEGORY_COLOR, KIND_LABEL, NODE_ICON } from './icons'
 import { useStore, type CanvasNode } from './store'
 
@@ -144,6 +144,12 @@ function Params({ node }: { node: CanvasNode }) {
           </label>
           <div className="field"><span>帧率</span><Seg label="帧率" value={Number(p.fps ?? 30)} options={[[24, '24'], [25, '25'], [30, '30'], [60, '60']]} onChange={(v) => set('fps', v)} /></div>
           <div className="field"><span>原视频声音</span><Seg label="原视频声音" value={String(p.keepAudio ?? 'mix')} options={[['mix', '与配音混合'], ['drop', '去掉']]} onChange={(v) => set('keepAudio', v)} /></div>
+          <label className="switch">
+            <input type="checkbox" checked={p.editProject === true} onChange={(e) => set('editProject', e.target.checked || undefined)} data-testid="export-edit-project" />
+            <span className="track"><span className="knob" /></span>
+            <span>同时生成剪辑工程</span>
+          </label>
+          <div className="hint">用开源剪辑软件 Shotcut 打开，在时间线上精修：片段、配音位置与成片一致，附字幕 SRT。会额外占用一份片段大小的空间。</div>
         </>
       )
     case 'vlm':
@@ -156,7 +162,7 @@ function Params({ node }: { node: CanvasNode }) {
 }
 
 function Downloads({ vals, name }: { vals: PortValue[]; name: string }) {
-  const media = vals.filter((v): v is Extract<PortValue, { assetId: string }> => 'assetId' in v)
+  const media = vals.filter((v): v is Extract<PortValue, { type: 'image' | 'video' | 'audio' }> => v.type === 'image' || v.type === 'video' || v.type === 'audio')
   if (!media.length) return null
   return (
     <div className="insp-actions">
@@ -165,6 +171,14 @@ function Downloads({ vals, name }: { vals: PortValue[]; name: string }) {
       ))}
     </div>
   )
+}
+
+function downloadText(text: string, name: string) {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000)
 }
 
 const fmtTime = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString() : '—')
@@ -205,6 +219,10 @@ export function Inspector({ onClose }: { onClose: () => void }) {
   const shown = def.category === 'input' ? undefined : node.type === 'preview' ? runState?.outputs?.in : runState?.outputs?.out
   const profile = node.data.profileId ? profiles.find((p) => p.id === node.data.profileId) : undefined
   const hasStoryboard = (node.type === 'director' || node.type === 'video-reverse') && !!shown?.some((v) => v.type === 'storyboard')
+  // the Export node also delivers subtitles and (optionally) an editor project
+  const srt = node.type === 'export' ? runState?.outputs?.srt?.find((v) => v.type === 'text') : undefined
+  const pkg = node.type === 'export' ? runState?.outputs?.project?.find((v) => v.type === 'file') : undefined
+  const baseName = node.data.label ?? def.label
 
   return (
     <aside className="inspector" aria-label="属性面板" data-testid="inspector">
@@ -268,7 +286,17 @@ export function Inspector({ onClose }: { onClose: () => void }) {
           <section className="insp-sec">
             <h3>结果</h3>
             <Values vals={shown} />
-            <Downloads vals={shown} name={node.data.label ?? def.label} />
+            <Downloads vals={shown} name={baseName} />
+          </section>
+        )}
+
+        {(srt || pkg) && (
+          <section className="insp-sec">
+            <h3>交付文件</h3>
+            {pkg?.type === 'file' && <FileCard v={pkg} hint="剪辑工程 · 用 Shotcut 打开 project.mlt" />}
+            {srt?.type === 'text' && (
+              <div className="insp-actions"><button className="btn sm" onClick={() => downloadText(srt.text, `${baseName}.srt`)} data-testid="download-srt"><Subtitles />下载字幕 SRT</button></div>
+            )}
           </section>
         )}
 

@@ -9,6 +9,8 @@ export const MIME_EXT: Record<string, string> = {
   'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
   'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'weba',
   'audio/flac': 'flac', 'audio/aac': 'aac', 'audio/opus': 'opus', 'audio/mp4': 'm4a',
+  // generated downloads only (editor packages); never accepted by the upload route
+  'application/zip': 'zip',
 }
 
 /** Non-standard media types some servers send, mapped to the registered type. */
@@ -26,7 +28,27 @@ export class AssetStore {
   }
 
   /** Throws on unsupported mime or content that does not match the declared image type. */
-  put(bytes: Buffer, mime: string, name = 'upload') {
+  put(bytes: Buffer, mime: string, name = 'upload', id: string = randomUUID()) {
+    const { sha256, mime: m } = this.writeFile(bytes, mime)
+    this.store.insertAsset({ id, sha256, mime: m, size: bytes.length, name: name.slice(0, 200) })
+    return { id, sha256, mime: m, size: bytes.length }
+  }
+
+  /**
+   * Import an asset from a project bundle, keeping its id so graphs, results and cache keys stay
+   * valid. The id is reused when it is free or already names this exact file; otherwise
+   * (an id collision with different bytes) a fresh id is returned.
+   */
+  adopt(id: string, bytes: Buffer, mime: string, name: string): string {
+    const existing = UUID.test(id) ? this.store.getAsset(id) : undefined
+    if (existing) {
+      const { sha256 } = this.writeFile(bytes, mime)
+      return existing.sha256 === sha256 && existing.mime === (MIME_ALIAS[mime] ?? mime) ? id : this.put(bytes, mime, name).id
+    }
+    return this.put(bytes, mime, name, UUID.test(id) ? id : randomUUID()).id
+  }
+
+  private writeFile(bytes: Buffer, mime: string) {
     mime = MIME_ALIAS[mime] ?? mime
     const ext = MIME_EXT[mime]
     if (!ext) throw new Error(`unsupported media type: ${mime}`)
@@ -34,9 +56,7 @@ export class AssetStore {
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const file = join(this.dir, `${sha256}.${ext}`)
     if (!existsSync(file)) writeFileSync(file, bytes)
-    const id = randomUUID()
-    this.store.insertAsset({ id, sha256, mime, size: bytes.length, name: name.slice(0, 200) })
-    return { id, sha256, mime, size: bytes.length }
+    return { sha256, mime }
   }
 
   /** Validates the id format before touching the filesystem (no path traversal). */

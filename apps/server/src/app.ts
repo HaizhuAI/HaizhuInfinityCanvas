@@ -1,12 +1,15 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { createReadStream, existsSync } from 'node:fs'
+import { Readable } from 'node:stream'
 import { validateProfileInput, type ProjectGraph } from '@hzc/core'
 import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
 import { SkillError, type SkillStore } from './skills'
 import { ffmpegInfo } from './media'
+import { BundleError, importBundle, isGraph, planBundle } from './bundle'
+import { ZIP_MAX, ZipError, zipChunks } from './zip'
 
 export const APP_VERSION = '1.0.0-rc.1'
 
@@ -19,7 +22,8 @@ export interface AppOptions {
   webDir?: string
   /**
    * Optional access token for WebUI deployments, sent as the `x-hzc-token` header.
-   * Only `GET /api/assets/:id` additionally accepts `?t=` because <img>/<video> tags cannot send headers.
+   * Only `GET /api/assets/:id` and `GET /api/projects/:id/bundle` additionally accept `?t=`, because
+   * <img>/<video> tags and plain download links cannot send headers.
    */
   accessToken?: string
 }
@@ -30,9 +34,9 @@ function publicProfile<T extends { secretRef: string }>(p: T): Omit<T, 'secretRe
   return rest
 }
 
-function isGraph(g: unknown): g is ProjectGraph {
-  return typeof g === 'object' && g !== null && (g as ProjectGraph).version === 1 && Array.isArray((g as ProjectGraph).nodes) && Array.isArray((g as ProjectGraph).edges)
-}
+/** project bundles are read into memory; keep well under what a desktop machine can hold */
+export const BUNDLE_LIMIT = 2 * 1024 ** 3
+const TOKEN_IN_QUERY = /^\/api\/(assets\/[^/?]+|projects\/[^/?]+\/bundle)(\?|$)/
 
 export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   const { store, assets, engine, skills } = opts
@@ -42,7 +46,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     app.addHook('onRequest', async (req, reply) => {
       if (!req.url.startsWith('/api/') || req.url === '/api/health') return
       if (req.headers['x-hzc-token'] === opts.accessToken) return
-      if (req.method === 'GET' && req.url.startsWith('/api/assets/') && (req.query as { t?: string })?.t === opts.accessToken) return
+      if (req.method === 'GET' && TOKEN_IN_QUERY.test(req.url) && (req.query as { t?: string })?.t === opts.accessToken) return
       return reply.code(401).send({ error: 'unauthorized' })
     })
   }
@@ -95,11 +99,39 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) =>
     store.deleteProject(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' }))
 
+  // ---- portable project bundle (.hzc = zip: project.json + referenced assets), streamed one file at a time
+  app.get<{ Params: { id: string } }>('/api/projects/:id/bundle', async (req, reply) => {
+    const b = planBundle(store, assets, req.params.id, APP_VERSION)
+    if (!b) return reply.code(404).send({ error: 'not found' })
+    if (b.size > ZIP_MAX - 64 * 1024 * 1024) return reply.code(413).send({ error: '这个画布引用的素材超过 4 GB，无法打包成一个文件' })
+    reply.header('content-type', 'application/zip')
+    // no filename here: the page names the download (<a download="画布名.hzc">). Chromium drops a
+    // UTF-8 filename* and lets an ASCII filename override the page's name, so neither is sent.
+    reply.header('content-disposition', 'attachment')
+    reply.header('x-content-type-options', 'nosniff')
+    reply.header('cache-control', 'no-store')
+    return reply.send(Readable.from(zipChunks(b.entries())))
+  })
+
+  app.addContentTypeParser(['application/zip', 'application/x-zip-compressed'], { parseAs: 'buffer', bodyLimit: BUNDLE_LIMIT }, (_req, body, done) => done(null, body))
+
+  app.post('/api/projects/import', { bodyLimit: BUNDLE_LIMIT }, async (req, reply) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return reply.code(400).send({ error: '请上传 .hzc 项目包' })
+    try {
+      return reply.code(201).send(importBundle(store, assets, req.body))
+    } catch (e) {
+      if (e instanceof ZipError) return reply.code(400).send({ error: `项目包无法读取：${e.message}` })
+      if (e instanceof BundleError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
+  })
+
   // ---- assets: raw body upload (Content-Type = media type, X-File-Name = URI-encoded name)
   app.addContentTypeParser(/^(image|video|audio)\//, { parseAs: 'buffer', bodyLimit: 512 * 1024 * 1024 }, (_req, body, done) => done(null, body))
 
   app.post('/api/assets', { bodyLimit: 512 * 1024 * 1024 }, async (req, reply) => {
     const mime = String(req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase()
+    if (!/^(image|video|audio)\//.test(mime)) return reply.code(415).send({ error: `unsupported media type: ${mime}` })
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) return reply.code(400).send({ error: 'empty or unsupported upload' })
     let name = 'upload'
     try { name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'upload')) } catch { /* keep default */ }
@@ -122,7 +154,8 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     reply.header('content-type', a.mime)
     reply.header('cache-control', 'private, max-age=31536000, immutable')
     reply.header('x-content-type-options', 'nosniff')
-    reply.header('content-disposition', 'inline')
+    // media plays inline; anything else (editor packages) is only ever a download
+    reply.header('content-disposition', /^(image|video|audio)\//.test(a.mime) ? 'inline' : `attachment; filename="${a.id}.${a.mime === 'application/zip' ? 'zip' : 'bin'}"`)
     return reply.send(createReadStream(a.file))
   })
 

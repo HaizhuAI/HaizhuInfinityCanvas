@@ -1,8 +1,9 @@
 /**
  * Port (handle) data types. Connections are only allowed between compatible types.
  * `storyboard` is the JSON shot list produced by director skills / video reverse.
+ * `file` is a downloadable result that is not media (e.g. an editor project package).
  */
-export const PORT_TYPES = ['text', 'image', 'video', 'audio', 'storyboard', 'any'] as const
+export const PORT_TYPES = ['text', 'image', 'video', 'audio', 'storyboard', 'file', 'any'] as const
 export type PortType = (typeof PORT_TYPES)[number]
 
 export interface PortSpec {

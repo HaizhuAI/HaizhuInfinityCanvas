@@ -9,7 +9,7 @@ import type { SkillStore } from './skills'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { detectScenes, extractFrame, MediaError, probe, segmentsFromCuts, withTemp } from './media'
-import { exportFilm } from './exporter'
+import { editorPackage, exportFilm } from './exporter'
 import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
 
 export class NodeError extends Error {}
@@ -330,7 +330,15 @@ export const HANDLERS: Record<string, Handler> = {
         onProgress: (pct) => ctx.job.report(`合成中 ${pct}%`),
       })
       const a = ctx.assets.put(r.bytes, 'video/mp4', `成片-${r.size}.mp4`)
-      return { out: [{ type: 'video', assetId: a.id, mime: a.mime }], ...(r.srt ? { srt: [{ type: 'text', text: r.srt }] } : {}) }
+      const out: NodeOutputs = { out: [{ type: 'video', assetId: a.id, mime: a.mime }], ...(r.srt ? { srt: [{ type: 'text', text: r.srt }] } : {}) }
+      if (p.editProject === true) {
+        // the same cut as an MLT project (Shotcut) with its media, for fine editing on a timeline
+        ctx.job.report('打包剪辑工程…')
+        const title = String(ctx.node.data.label || '成片').slice(0, 80)
+        const pkg = ctx.assets.put(editorPackage(r.timeline, title), 'application/zip', `剪辑工程-${title}.zip`)
+        out.project = [{ type: 'file', assetId: pkg.id, mime: pkg.mime, name: `${title}-剪辑工程.zip` }]
+      }
+      return out
     } catch (e) {
       if (e instanceof MediaError) throw new NodeError(e.message)
       throw e

@@ -28,9 +28,9 @@ export const KIND_COLOR: Record<ModelKind, string> = {
 export const ASPECT_CSS: Record<string, string> = { '1:1': '1 / 1', '16:9': '16 / 9', '9:16': '9 / 16', '4:3': '4 / 3', '3:4': '3 / 4', '21:9': '21 / 9' }
 
 export const PORT_COLOR: Record<PortType, string> = {
-  text: '#60a5fa', image: '#f472b6', video: '#fb923c', audio: '#34d399', storyboard: '#facc15', any: '#94a3b8',
+  text: '#60a5fa', image: '#f472b6', video: '#fb923c', audio: '#34d399', storyboard: '#facc15', file: '#22d3ee', any: '#94a3b8',
 }
 
 export const PORT_LABEL: Record<PortType, string> = {
-  text: '文本', image: '图片', video: '视频', audio: '音频', storyboard: '分镜', any: '任意',
+  text: '文本', image: '图片', video: '视频', audio: '音频', storyboard: '分镜', file: '文件', any: '任意',
 }

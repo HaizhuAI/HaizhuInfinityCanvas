@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
@@ -17,7 +17,7 @@ import { TEMPLATES } from './templates'
 import { inspectorPref, setInspectorPref } from './theme'
 import { useAddNode } from './useAddNode'
 import { useStore } from './store'
-import { api } from './api'
+import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
 export const APP_VERSION = 'v1.0.0-rc.1'
@@ -84,7 +84,7 @@ function ProjectMenu() {
   return (
     <div className="project" ref={ref}>
       <input className="pname" value={projectName} onChange={(e) => renameProject(e.target.value)} aria-label="画布名称" title="点击重命名" />
-      <input ref={fileRef} type="file" accept=".json,application/json" hidden data-testid="import-file" onChange={(e) => { const f = e.target.files?.[0]; setOpen(false); if (f) void importCanvas(f); e.target.value = '' }} />
+      <input ref={fileRef} type="file" accept=".hzc,.zip,.json,application/json,application/zip" hidden data-testid="import-file" onChange={(e) => { const f = e.target.files?.[0]; setOpen(false); if (f) void importCanvas(f); e.target.value = '' }} />
       <button className="btn ghost xs icon" onClick={() => setOpen((o) => !o)} aria-label="切换或新建画布" aria-expanded={open} data-testid="project-menu"><ChevronDown /></button>
       {open && (
         <div className="menu" role="menu" ref={menuRef}>
@@ -96,8 +96,11 @@ function ProjectMenu() {
           ))}
           <div className="menu-sep" />
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus aria-hidden="true" />新建画布</button>
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); exportCanvas() }} data-testid="export-canvas"><Download aria-hidden="true" />导出画布文件（.json）</button>
-          <button role="menuitem" className="menu-item" onClick={() => fileRef.current?.click()} data-testid="import-canvas"><FileUp aria-hidden="true" />导入画布文件…</button>
+          <div className="menu-sep" />
+          <div className="menu-label">备份与分享</div>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void exportBundle() }} data-testid="export-bundle"><Package aria-hidden="true" /><span className="grow">导出项目包<small>.hzc · 含素材与生成结果</small></span></button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); exportCanvas() }} data-testid="export-canvas"><Download aria-hidden="true" /><span className="grow">仅导出画布结构<small>.json · 不含素材，适合当模板</small></span></button>
+          <button role="menuitem" className="menu-item" onClick={() => fileRef.current?.click()} data-testid="import-canvas"><FileUp aria-hidden="true" />导入项目包或画布文件…</button>
         </div>
       )}
     </div>
@@ -140,9 +143,33 @@ function exportCanvas() {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000)
 }
 
+/** Saves first (the server bundles the saved graph), then lets the browser download the .hzc. */
+async function exportBundle() {
+  const s = useStore.getState()
+  if (!s.projectId) return
+  await s.save()
+  if (useStore.getState().saveState === 'error') return
+  const a = document.createElement('a')
+  a.href = bundleUrl(s.projectId)
+  a.download = `${s.projectName || 'canvas'}.hzc`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 async function importCanvas(file: File) {
   const s = useStore.getState()
   try {
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+    if (head[0] === 0x50 && head[1] === 0x4b) { // "PK": a project bundle
+      s.showToast('正在导入项目包…')
+      const r = await api.importBundle(file)
+      useStore.setState({ projects: await api.listProjects() })
+      await s.openProject(r.project.id)
+      void s.loadAssets()
+      s.showToast(`已导入：${r.assets} 个素材、${r.results} 个生成结果${r.missing ? `；${r.missing} 个文件无法导入` : ''}`)
+      return
+    }
     const j = JSON.parse(await file.text()) as { format?: string; name?: string; graph?: ProjectGraph }
     if (j.format !== 'haizhu-canvas' || j.graph?.version !== 1 || !Array.isArray(j.graph.nodes) || !Array.isArray(j.graph.edges)) throw new Error('不是 Haizhu 画布文件')
     const p = await api.createProject(`${j.name ?? '导入的画布'}（导入）`, j.graph)

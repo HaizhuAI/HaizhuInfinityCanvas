@@ -9,6 +9,7 @@ export type PortValue =
   | { type: 'video'; assetId: string; mime: string }
   | { type: 'audio'; assetId: string; mime: string }
   | { type: 'storyboard'; title?: string; shots: Shot[] }
+  | { type: 'file'; assetId: string; mime: string; name?: string }
 
 /** Outputs of one node, keyed by output port id. */
 export type NodeOutputs = Record<string, PortValue[]>
