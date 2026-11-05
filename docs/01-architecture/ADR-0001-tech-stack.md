@@ -16,7 +16,7 @@
 | 画布底座 | **@xyflow/react（React Flow，MIT）** | tldraw（生产需 License Key，⛔）；Excalidraw（非节点图模型）；Konva/自研（工作量大） |
 | 前端 | React 18/19 + Vite + TypeScript + Zustand + Tailwind | Next.js（SSR 对桌面打包/本地服务无益，增加复杂度） |
 | 本地服务 | **Node.js + Fastify**（REST + WebSocket/SSE 推送任务进度） | Next API routes（与桌面壳耦合差） |
-| 存储 | SQLite（better-sqlite3）存工程/任务/元数据 + 文件系统存素材；项目可导出为 `.hzc`（zip: project.json + assets） | JSON 单文件（并发/大工程差）；Postgres/Supabase（违背 local-first） |
+| 存储 | SQLite（**Node 内置 `node:sqlite`**，免原生编译；beta.1 实装）存工程/任务/元数据 + 文件系统存素材；项目可导出为 `.hzc`（zip: project.json + assets） | JSON 单文件（并发/大工程差）；Postgres/Supabase（违背 local-first） |
 | 任务队列 | 进程内持久化队列（SQLite 表 + 轮询 worker），异步 provider 任务可恢复 | Redis/BullMQ（增加外部依赖，桌面版不友好） |
 | 桌面壳 | **Electron**（主进程启动同一个 Fastify 服务，窗口加载 WebUI） | Tauri（见下） |
 | 打包 | electron-builder：Win → NSIS 安装包 + portable；Linux → AppImage + deb；WebUI → Docker 镜像 + 纯 Node 启动 | — |
@@ -108,6 +108,13 @@ interface ModelProfile {
 - 服务仅监听回环（桌面）；WebUI 部署启用访问口令。
 - 日志默认脱敏；工程导出默认不含密钥。
 - 外部 URL/文件读取做 SSRF 与路径穿越防护（尤其 custom-http adapter 与资产接口）。
+
+### D8：SQLite 用 Node 内置 `node:sqlite`（对原方案 better-sqlite3 的修订）
+
+- 好处：无需原生模块编译，Win/Linux/Docker/Electron 打包时没有 ABI 重编译问题。
+- 代价：`node:sqlite` 在 Node 22 仍标记 *experimental*（运行时会打印 ExperimentalWarning）；Electron 内置的 Node 版本需 ≥ 22.13 才可用。
+- 实现注意：tsup/esbuild 会把 `node:sqlite` 剥成 `sqlite` 导致运行时崩溃（已在 beta.1 实测踩到），因此用 `createRequire` 在运行时加载。
+- 复审：若 Electron 版本的 Node 不满足或 API 变动，退回 better-sqlite3（数据访问都封装在 `Store` 内，替换成本低）。
 
 ## 借鉴与魔改策略（回应「不必从零开始」）
 

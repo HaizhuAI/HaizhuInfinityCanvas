@@ -1,10 +1,15 @@
-import { DatabaseSync } from 'node:sqlite'
+import { createRequire } from 'node:module'
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ModelProfile, ModelProfileInput, ProjectGraph } from '@hzc/core'
 import { EMPTY_GRAPH } from '@hzc/core'
 import type { SecretBox } from './secrets'
+
+// Loaded at runtime via require so bundlers (tsup/esbuild) cannot strip the `node:` prefix,
+// which would turn the import into the non-existent "sqlite" package.
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')
 
 export interface ProjectRow {
   id: string
@@ -15,7 +20,7 @@ export interface ProjectRow {
 }
 
 export class Store {
-  private db: DatabaseSync
+  private db: DatabaseSyncType
 
   constructor(path: string, private secrets: SecretBox) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
