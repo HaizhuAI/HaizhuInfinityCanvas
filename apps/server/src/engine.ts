@@ -1,0 +1,171 @@
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  ancestorsOf, collectInputs, topoOrder,
+  type NodeOutputs, type NodeRunState, type ProjectGraph, type RunEvent,
+} from '@hzc/core'
+import type { AssetStore } from './assets'
+import type { Store } from './db'
+import { handlerFor, NodeError, type HandlerCtx } from './handlers'
+import { ProviderError } from './providers'
+
+type Listener = (e: RunEvent) => void
+
+interface Run {
+  id: string
+  projectId: string
+  events: RunEvent[]
+  listeners: Set<Listener>
+  ctrl: AbortController
+  finished: boolean
+}
+
+export interface StartOptions {
+  /** run these nodes (and their ancestors); default: whole graph */
+  nodeIds?: string[]
+  /** ignore the cache for the target nodes */
+  force?: boolean
+}
+
+/** Node types that never call a provider — always recomputed, never "cached" in the UI sense. */
+const TRIVIAL = new Set(['text', 'image', 'video', 'audio', 'preview'])
+
+export class Engine {
+  private runs = new Map<string, Run>()
+  /** one active run per project: starting a new one cancels the previous */
+  private active = new Map<string, string>()
+
+  constructor(
+    private store: Store,
+    private assets: AssetStore,
+    private chatAdapter?: HandlerCtx['chatAdapter'],
+  ) {}
+
+  start(projectId: string, graph: ProjectGraph, opts: StartOptions = {}): string {
+    const prev = this.active.get(projectId)
+    if (prev) this.cancel(prev)
+    const run: Run = { id: randomUUID(), projectId, events: [], listeners: new Set(), ctrl: new AbortController(), finished: false }
+    this.runs.set(run.id, run)
+    this.active.set(projectId, run.id)
+    queueMicrotask(() => void this.execute(run, graph, opts))
+    return run.id
+  }
+
+  cancel(runId: string): boolean {
+    const r = this.runs.get(runId)
+    if (!r || r.finished) return false
+    r.ctrl.abort()
+    return true
+  }
+
+  /** Replays past events, then streams new ones. Returns an unsubscribe function. */
+  subscribe(runId: string, fn: Listener): (() => void) | undefined {
+    const r = this.runs.get(runId)
+    if (!r) return undefined
+    for (const e of r.events) fn(e)
+    if (r.finished) return () => {}
+    r.listeners.add(fn)
+    return () => r.listeners.delete(fn)
+  }
+
+  isFinished(runId: string) { return this.runs.get(runId)?.finished ?? true }
+
+  /** resolves when the run finishes (tests / CLI) */
+  wait(runId: string): Promise<RunEvent[]> {
+    return new Promise((resolve) => {
+      const r = this.runs.get(runId)
+      if (!r) return resolve([])
+      if (r.finished) return resolve(r.events)
+      const un = this.subscribe(runId, (e) => { if (e.kind === 'run-end') { un?.(); resolve(r.events) } })
+    })
+  }
+
+  private emit(run: Run, e: RunEvent) {
+    run.events.push(e)
+    for (const l of run.listeners) l(e)
+  }
+
+  private setNode(run: Run, nodeId: string, state: NodeRunState) {
+    this.emit(run, { kind: 'node', runId: run.id, nodeId, state })
+  }
+
+  private cacheKey(graph: ProjectGraph, nodeId: string, inputs: unknown): string {
+    const n = graph.nodes.find((x) => x.id === nodeId)!
+    const p = n.data.profileId ? this.store.getProfile(n.data.profileId) : undefined
+    const material = {
+      type: n.type,
+      data: { text: n.data.text, params: n.data.params, assetId: n.data.assetId, profileId: n.data.profileId },
+      profile: p ? { adapter: p.adapter, endpoint: p.endpoint, model: p.model, defaults: p.defaults, updatedAt: p.updatedAt } : null,
+      inputs,
+    }
+    return createHash('sha256').update(JSON.stringify(material)).digest('hex')
+  }
+
+  private async execute(run: Run, graph: ProjectGraph, opts: StartOptions) {
+    const targets = opts.nodeIds?.length ? new Set(opts.nodeIds) : undefined
+    let order: string[]
+    try {
+      order = topoOrder(graph, targets ? ancestorsOf(graph, [...targets]) : undefined)
+    } catch (e) {
+      this.emit(run, { kind: 'run-start', runId: run.id, nodeIds: [] })
+      return this.finish(run, 'error')
+    }
+    this.emit(run, { kind: 'run-start', runId: run.id, nodeIds: order })
+    for (const id of order) this.setNode(run, id, { status: 'queued' })
+
+    const outputs = new Map<string, NodeOutputs>()
+    const failed = new Set<string>()
+    let anyError = false
+
+    for (const nodeId of order) {
+      const node = graph.nodes.find((n) => n.id === nodeId)!
+      if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); continue }
+
+      const upstreamFailed = graph.edges.some((e) => e.target === nodeId && failed.has(e.source))
+      if (upstreamFailed) {
+        failed.add(nodeId)
+        this.setNode(run, nodeId, { status: 'skipped', error: '上游节点未成功' })
+        continue
+      }
+
+      const inputs = collectInputs(graph.edges, nodeId, outputs)
+      const key = this.cacheKey(graph, nodeId, inputs)
+      const force = opts.force && (!targets || targets.has(nodeId))
+      const cached = this.store.getNodeOutput(run.projectId, nodeId)
+      if (!TRIVIAL.has(node.type) && !force && cached?.cacheKey === key) {
+        outputs.set(nodeId, cached.outputs)
+        this.setNode(run, nodeId, { status: 'cached', outputs: cached.outputs, finishedAt: cached.finishedAt })
+        continue
+      }
+
+      const startedAt = new Date().toISOString()
+      this.setNode(run, nodeId, { status: 'running', startedAt })
+      try {
+        const profile = node.data.profileId ? this.store.getProfile(node.data.profileId) : undefined
+        const out = await handlerFor(node.type)({
+          node, inputs, profile,
+          apiKey: profile ? this.store.getApiKey(profile.id) : undefined,
+          assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter,
+        })
+        outputs.set(nodeId, out)
+        this.store.setNodeOutput(run.projectId, nodeId, key, out)
+        this.setNode(run, nodeId, { status: 'done', outputs: out, startedAt, finishedAt: new Date().toISOString() })
+      } catch (e) {
+        failed.add(nodeId)
+        if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); continue }
+        anyError = true
+        const known = e instanceof NodeError || e instanceof ProviderError
+        this.setNode(run, nodeId, { status: 'error', error: known ? (e as Error).message : `内部错误：${(e as Error).message}`, startedAt, finishedAt: new Date().toISOString() })
+      }
+    }
+    this.finish(run, run.ctrl.signal.aborted ? 'cancelled' : anyError ? 'error' : 'done')
+  }
+
+  private finish(run: Run, status: 'done' | 'error' | 'cancelled') {
+    this.emit(run, { kind: 'run-end', runId: run.id, status })
+    run.finished = true
+    run.listeners.clear()
+    if (this.active.get(run.projectId) === run.id) this.active.delete(run.projectId)
+    // keep finished runs briefly so late subscribers can replay, then drop them
+    setTimeout(() => this.runs.delete(run.id), 10 * 60_000).unref?.()
+  }
+}

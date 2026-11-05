@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app'
 import { Store } from './db'
 import { SecretBox } from './secrets'
+import { AssetStore } from './assets'
+import { Engine } from './engine'
 
 let dir: string
 let store: Store
@@ -14,7 +16,8 @@ let app: FastifyInstance
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'hzc-test-'))
   store = new Store(':memory:', new SecretBox(join(dir, 'master.key')))
-  app = await buildApp({ store })
+  const assets = new AssetStore(dir, store)
+  app = await buildApp({ store, assets, engine: new Engine(store, assets) })
 })
 afterEach(async () => { await app.close(); store.close(); rmSync(dir, { recursive: true, force: true }) })
 
@@ -73,7 +76,8 @@ describe('projects API', () => {
 
 describe('access token', () => {
   it('blocks /api without token when configured, allows health', async () => {
-    const guarded = await buildApp({ store, accessToken: 't0k' })
+    const assets = new AssetStore(dir, store)
+    const guarded = await buildApp({ store, assets, engine: new Engine(store, assets), accessToken: 't0k' })
     expect((await guarded.inject({ url: '/api/profiles' })).statusCode).toBe(401)
     expect((await guarded.inject({ url: '/api/profiles', headers: { 'x-hzc-token': 't0k' } })).statusCode).toBe(200)
     expect((await guarded.inject({ url: '/api/health' })).statusCode).toBe(200)

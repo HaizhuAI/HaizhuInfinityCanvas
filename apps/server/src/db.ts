@@ -36,7 +36,45 @@ export class Store {
         id TEXT PRIMARY KEY, name TEXT NOT NULL, graph TEXT NOT NULL,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS assets (
+        id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL,
+        name TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS node_outputs (
+        project_id TEXT NOT NULL, node_id TEXT NOT NULL, cache_key TEXT NOT NULL,
+        outputs TEXT NOT NULL, finished_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, node_id)
+      );
     `)
+  }
+
+  // ---------- assets (file bytes live on disk; see assets.ts)
+  insertAsset(a: { id: string; sha256: string; mime: string; size: number; name: string }) {
+    this.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?)').run(a.id, a.sha256, a.mime, a.size, a.name, new Date().toISOString())
+  }
+
+  getAsset(id: string) {
+    return this.db.prepare('SELECT id, sha256, mime, size, name FROM assets WHERE id = ?').get(id) as
+      | { id: string; sha256: string; mime: string; size: number; name: string }
+      | undefined
+  }
+
+  // ---------- node output cache (latest successful result per node)
+  getNodeOutput(projectId: string, nodeId: string) {
+    const r = this.db.prepare('SELECT cache_key, outputs, finished_at FROM node_outputs WHERE project_id = ? AND node_id = ?').get(projectId, nodeId) as
+      | { cache_key: string; outputs: string; finished_at: string }
+      | undefined
+    return r ? { cacheKey: r.cache_key, outputs: JSON.parse(r.outputs), finishedAt: r.finished_at } : undefined
+  }
+
+  setNodeOutput(projectId: string, nodeId: string, cacheKey: string, outputs: unknown) {
+    this.db.prepare('INSERT OR REPLACE INTO node_outputs VALUES (?,?,?,?,?)').run(projectId, nodeId, cacheKey, JSON.stringify(outputs), new Date().toISOString())
+  }
+
+  listNodeOutputs(projectId: string) {
+    return (this.db.prepare('SELECT node_id, outputs, finished_at FROM node_outputs WHERE project_id = ?').all(projectId) as Record<string, string>[]).map((r) => ({
+      nodeId: r.node_id!, outputs: JSON.parse(r.outputs!), finishedAt: r.finished_at!,
+    }))
   }
 
   // ---------- profiles (secrets never leave this class in plaintext except via getApiKey)
