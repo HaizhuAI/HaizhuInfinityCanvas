@@ -28,15 +28,18 @@ jobs:
       - run: pnpm build
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - name: E2E (fresh data dir, bundled server)
+      - name: E2E (each suite on a fresh data dir, bundled server)
         run: |
-          export HZC_DATA_DIR="$(mktemp -d)" PORT=8788
-          node apps/server/dist/index.mjs &
-          for i in $(seq 1 30); do curl -sf localhost:8788/api/health && break; sleep 1; done
-          HZC_E2E_OUT="$RUNNER_TEMP" node e2e/smoke.cjs
+          for suite in smoke run-flow; do
+            export HZC_DATA_DIR="$(mktemp -d)" PORT=8788
+            node apps/server/dist/index.mjs & SERVER=$!
+            for i in $(seq 1 30); do curl -sf localhost:8788/api/health >/dev/null && break; sleep 1; done
+            HZC_E2E_OUT="$RUNNER_TEMP" node "e2e/$suite.cjs"
+            kill $SERVER; wait $SERVER 2>/dev/null || true
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: e2e-screenshot
-          path: ${{ runner.temp }}/canvas-beta1.png
+          name: e2e-screenshots
+          path: ${{ runner.temp }}/canvas-*.png
           if-no-files-found: ignore
