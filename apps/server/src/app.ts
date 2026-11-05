@@ -6,7 +6,7 @@ import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
 
-export const APP_VERSION = '1.0.0-beta.1'
+export const APP_VERSION = '1.0.0-beta.2'
 
 export interface AppOptions {
   store: Store

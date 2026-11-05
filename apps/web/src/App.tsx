@@ -67,7 +67,7 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <strong className="brand">海珠无限画布 <em>v1.0.0-beta</em></strong>
+        <strong className="brand">海珠无限画布 <em>v1.0.0-beta.2</em></strong>
         <select value={s.projectId ?? ''} onChange={(e) => void s.openProject(e.target.value)} aria-label="切换画布">
           {s.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>

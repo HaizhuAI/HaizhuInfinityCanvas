@@ -43,4 +43,5 @@
 - [x] Phase 0：调研、许可证审计、可行性、技术选型（本目录 + `docs/00-research`、`docs/01-architecture`）
 - [x] v1.0.0-beta.1 代码部分：脚手架、WebUI 画布与拖拽、模型档案、Electron 壳、Linux 包、Docker/CI 配置（详见 CHANGELOG 的 Verified / Not verified）
 - [ ] v1.0.0-beta.1 发布收尾：CI 在远端跑通、Windows 安装包产出并由你真机验证、打 tag（需你确认）
-- [ ] v1.0.0-beta.2：DAG 执行引擎 + LLM/VLM 节点 + 图片提示词反推
+- [x] v1.0.0-beta.2 代码部分：执行引擎、openai-compat/ollama、素材库、文本/视觉/图片提示词反推节点、运行界面
+- [ ] v1.0.0-beta.3：图片生成 / 视频生成节点、异步任务队列（持久化/恢复）、Replicate / fal / WaveSpeed 适配器、运行前成本预估
