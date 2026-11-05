@@ -24,8 +24,10 @@
 ### Verified
 - 47 个单元/集成测试（core 16、server 31；生成相关 13 个，连本地 mock 的 OpenAI 图片 / Replicate / fal / CDN 服务）。
 - 三套 Playwright E2E 全部通过。
+- GitHub Actions（commit 646b7e2）：CI run 42066046247 通过（类型检查、单测、三套 E2E）；安装包 run 42066046267 通过：Windows NSIS + portable、Linux AppImage + deb、Docker 镜像及冒烟测试。
 
 ### Not verified yet
+- Windows 安装包在真机上的安装与运行。
 - 未连接真实的 Replicate / fal / OpenAI 图片服务；各模型的输入字段名差异较大，首次接入某个模型时可能需要用 `_fields` 或「高级参数」调整。
 
 ## [1.0.0-beta.2] — 2026-11-05（代码完成，未打 tag）
