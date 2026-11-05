@@ -29,8 +29,10 @@
 ### Verified
 - 68 个单元/集成测试（core 19、server 49）；四套 Playwright E2E 全部通过。
 - 截图检查：1440 / 1024 宽度，深色与浅色模式。
+- GitHub Actions（commit ffb801f）：CI run 42093685791 通过（类型检查、单测、四套 E2E）；安装包 run 42093685799 通过：Windows NSIS + portable、Linux AppImage + deb、Docker 镜像及冒烟测试。
 
 ### Not verified yet
+- Windows 安装包在真机上的安装与运行。
 - 未连接真实的 LLM / TTS 服务商；导演 Skill 的分镜质量取决于所用文本模型，需用你的模型实测。
 - 低端显卡上毛玻璃与星空的性能（可在设置里关闭动效）。
 
