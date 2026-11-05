@@ -302,3 +302,19 @@ select { appearance: none; padding-right: 28px; cursor: pointer;
 /* secondary run button inside nodes: the top-bar "run all" stays the one primary action */
 .node-foot .run svg { color: var(--accent); }
 .node-foot .run:hover:not(:disabled) { border-color: var(--accent); }
+
+.progress { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #60a5fa; background: rgba(96, 165, 250, .08); border: 1px solid rgba(96, 165, 250, .25); border-radius: 8px; padding: 6px 9px; }
+.progress svg { width: 13px; height: 13px; flex: none; }
+textarea.mono { font: 12px/1.55 var(--mono); }
+/* confirm dialog */
+.confirm { width: min(520px, 100%); height: auto; max-height: calc(100vh - 32px); }
+.confirm .pane { padding: 18px 20px; }
+.est-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.est-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.est-row .txt { flex: 1; min-width: 0; }
+.est-row .nm { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.est-row .ds { font-size: 11.5px; color: var(--muted); }
+.est-row .price { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.est-total { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 2px 0; border-top: 1px solid var(--border); font-weight: 600; }
+.est-total .num { font-size: 18px; font-variant-numeric: tabular-nums; }
+.confirm .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--border); }

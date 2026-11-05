@@ -46,9 +46,9 @@ const OUT = process.env.HZC_E2E_OUT || process.cwd()
   const nodeCount = await page.locator('.react-flow__node').count()
   assert.equal(nodeCount, 4)
   assert.equal(await page.locator('.canvas-empty').count(), 0)
-  console.log('3 dragged 4 nodes onto canvas; video-gen bound to profile:', await page.locator('[data-testid="node-video-gen"] select').inputValue() === '' ? 'NOT bound' : 'bound')
+  console.log('3 dragged 4 nodes onto canvas; video-gen bound to profile:', await page.locator('[data-testid="node-video-gen"] select[aria-label="模型档案"]').inputValue() === '' ? 'NOT bound' : 'bound')
   // dropping a profile icon must pre-bind the node to that profile
-  assert.notEqual(await page.locator('[data-testid="node-video-gen"] select').inputValue(), '')
+  assert.notEqual(await page.locator('[data-testid="node-video-gen"] select[aria-label="模型档案"]').inputValue(), '')
 
   // --- connections
   const handle = (nodeType, id, kind) =>

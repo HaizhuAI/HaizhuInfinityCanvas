@@ -2,7 +2,7 @@
 
 > 面向「创作类智能体」的无限画布创作工坊。把你预先配置好的**视频模型、图片模型、视觉分析模型、文本模型、TTS 语音模型、导演 Skill** 做成图标，拖进画布、连线成"智能体团队"，一键跑出分镜、图片、视频、配音，并导出成片。
 
-- 当前版本：**v1.0.0-beta.2**（开发中，尚未打 tag；构建产物见 GitHub Actions）
+- 当前版本：**v1.0.0-beta.3**（开发中，尚未打 tag；构建产物见 GitHub Actions）
 - 源码状态：**公开仓库（源码可见）**，但尚未授予开源许可，保留所有权利（见 [LICENSE](./LICENSE)）
 - 目标平台：WebUI（浏览器/Docker）· Windows 桌面版 · Linux 桌面版
 
@@ -25,7 +25,7 @@
 | [docs/01-architecture/ADR-0001-tech-stack.md](./docs/01-architecture/ADR-0001-tech-stack.md) | 技术选型决策记录 |
 | [docs/02-roadmap/roadmap.md](./docs/02-roadmap/roadmap.md) | 版本规划与里程碑 |
 | [docs/02-roadmap/build-matrix.md](./docs/02-roadmap/build-matrix.md) | Win / Linux / WebUI 构建计划 |
-| [docs/03-guide/model-profiles.md](./docs/03-guide/model-profiles.md) | 使用指南：如何配置模型档案、图片提示词反推 |
+| [docs/03-guide/model-profiles.md](./docs/03-guide/model-profiles.md) | 使用指南：配置模型档案、图片提示词反推、图片/视频生成、费用预估 |
 | [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) | 第三方依赖与借鉴来源登记 |
 | [CHANGELOG.md](./CHANGELOG.md) | 变更记录 |
 

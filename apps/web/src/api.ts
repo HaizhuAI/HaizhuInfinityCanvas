@@ -1,4 +1,4 @@
-import type { ModelProfileInput, ModelProfilePublic, NodeOutputs, ProjectGraph, RunEvent } from '@hzc/core'
+import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, ProjectGraph, RunEvent } from '@hzc/core'
 
 export interface ProjectSummary { id: string; name: string; createdAt: string; updatedAt: string }
 export interface Project extends ProjectSummary { graph: ProjectGraph }
@@ -80,6 +80,7 @@ export const api = {
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
   uploadAsset,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
+  estimate: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<Estimate>('POST', `/api/projects/${projectId}/estimate`, body),
   cancelRun: (runId: string) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/cancel`),
   streamRun,
   outputs: (projectId: string) => req<{ nodeId: string; outputs: NodeOutputs; finishedAt: string }[]>('GET', `/api/projects/${projectId}/outputs`),

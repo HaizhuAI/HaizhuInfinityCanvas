@@ -3,7 +3,7 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, checkConnection, type GraphEdge, type GraphNode, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
+import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
 import { api, type ProjectSummary } from './api'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
@@ -35,6 +35,8 @@ interface State {
   /** latest run state per node (live during a run, restored from saved outputs on open) */
   runStates: Record<string, NodeRunState>
   runId: string | null
+  /** a run waiting for the user to confirm paid generation calls */
+  pendingRun: { nodeIds?: string[]; force?: boolean; estimate: Estimate } | null
 
   init: () => Promise<void>
   loadProfiles: () => Promise<void>
@@ -53,13 +55,14 @@ interface State {
   setNodeData: (id: string, patch: Partial<CanvasNodeData>) => void
   setNodeParam: (id: string, key: string, value: unknown) => void
   loadTemplate: (g: ProjectGraph) => void
-  runNodes: (nodeIds?: string[], force?: boolean) => Promise<void>
+  runNodes: (nodeIds?: string[], force?: boolean, confirmed?: boolean) => Promise<void>
+  dismissPendingRun: () => void
   cancelRun: () => Promise<void>
 }
 
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
-  saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null,
+  saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
 
   showToast: (m) => { set({ toast: m }); setTimeout(() => get().toast === m && set({ toast: null }), 2500) },
   setSettingsOpen: (o) => set({ settingsOpen: o }),
@@ -145,12 +148,21 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ nodes: [...s.nodes, ...nodes], edges: [...s.edges, ...edges], saveState: 'dirty' }))
   },
 
-  async runNodes(nodeIds, force) {
+  dismissPendingRun: () => set({ pendingRun: null }),
+
+  async runNodes(nodeIds, force, confirmed) {
     const { projectId } = get()
     if (!projectId) return
+    set({ pendingRun: null })
     await get().save() // the server runs the saved graph
     if (get().saveState === 'error') return
     try {
+      if (!confirmed) {
+        // ask before anything that generates media or has a configured price
+        const estimate = await api.estimate(projectId, { nodeIds, force })
+        const paid = estimate.items.some((i) => !i.cached && (i.generative || (i.cost?.amount ?? 0) > 0))
+        if (paid) { set({ pendingRun: { nodeIds, force, estimate } }); return }
+      }
       const { runId } = await api.run(projectId, { nodeIds, force })
       set({ runId })
       await api.streamRun(runId, (e) => {

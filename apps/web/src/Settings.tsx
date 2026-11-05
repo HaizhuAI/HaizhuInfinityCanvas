@@ -6,7 +6,7 @@ import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
 import { useStore } from './store'
 
 type Tab = 'profiles' | 'access' | 'about'
-type FormState = Omit<ModelProfileInput, 'defaults'> & { id?: string; defaultsText: string }
+type FormState = Omit<ModelProfileInput, 'defaults' | 'cost'> & { id?: string; defaultsText: string; costAmount: string; costCurrency: string }
 
 /** Quick-fill presets: OpenAI-compatible endpoints published by each provider. Model IDs are left to the user. */
 const PRESETS: { id: string; label: string; adapter: AdapterId; endpoint: string; kinds: ModelKind[] }[] = [
@@ -17,9 +17,12 @@ const PRESETS: { id: string; label: string; adapter: AdapterId; endpoint: string
   { id: 'openrouter', label: 'OpenRouter', adapter: 'openai-compat', endpoint: 'https://openrouter.ai/api/v1', kinds: ['llm', 'vlm'] },
   { id: 'ollama', label: 'Ollama（本地）', adapter: 'ollama', endpoint: 'http://127.0.0.1:11434', kinds: ['llm', 'vlm'] },
   { id: 'lmstudio', label: 'LM Studio（本地）', adapter: 'openai-compat', endpoint: 'http://127.0.0.1:1234/v1', kinds: ['llm', 'vlm'] },
+  { id: 'openai-img', label: 'OpenAI 图片', adapter: 'openai-compat', endpoint: 'https://api.openai.com/v1', kinds: ['image'] },
+  { id: 'replicate', label: 'Replicate', adapter: 'replicate', endpoint: 'https://api.replicate.com/v1', kinds: ['image', 'video'] },
+  { id: 'fal', label: 'fal.ai', adapter: 'fal', endpoint: 'https://queue.fal.run', kinds: ['image', 'video'] },
 ]
 
-const blank = (): FormState => ({ name: '', kind: 'llm', adapter: 'openai-compat', endpoint: '', model: '', apiKey: '', defaultsText: '{}' })
+const blank = (): FormState => ({ name: '', kind: 'llm', adapter: 'openai-compat', endpoint: '', model: '', apiKey: '', defaultsText: '{}', costAmount: '', costCurrency: 'CNY' })
 
 function ProfileForm({ initial, onDone }: { initial: FormState; onDone: () => void }) {
   const { loadProfiles, showToast } = useStore()
@@ -35,8 +38,14 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: () => vo
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error()
       defaults = parsed as Record<string, unknown>
     } catch { setErr('默认参数必须是 JSON 对象，例如 {"temperature": 0.7}'); return }
-    const { id, defaultsText: _d, ...rest } = form
-    const input: ModelProfileInput = { ...rest, defaults }
+    let cost: ModelProfileInput['cost'] = null
+    if (form.costAmount.trim()) {
+      const amount = Number(form.costAmount)
+      if (!Number.isFinite(amount) || amount < 0) { setErr('单次费用必须是不小于 0 的数字'); return }
+      cost = { amount, currency: form.costCurrency }
+    }
+    const { id, defaultsText: _d, costAmount: _a, costCurrency: _c, ...rest } = form
+    const input: ModelProfileInput = { ...rest, defaults, cost }
     if (!id && !input.apiKey) delete input.apiKey // create without key
     try {
       if (id) await api.updateProfile(id, input)
@@ -101,9 +110,24 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: () => vo
           placeholder={form.id ? '留空 = 保持不变' : '本地模型可留空'} data-testid="pf-key" />
         <span className="help">加密保存在本机服务端，不会再回传到浏览器。</span>
       </label>
+      <div className="row2">
+        <label className="field"><span>单次调用费用（可选）</span>
+          <input inputMode="decimal" value={form.costAmount} onChange={(e) => set({ costAmount: e.target.value })} placeholder="如 0.3" data-testid="pf-cost" />
+        </label>
+        <label className="field"><span>币种</span>
+          <select value={form.costCurrency} onChange={(e) => set({ costCurrency: e.target.value })}>
+            <option value="CNY">人民币 CNY</option><option value="USD">美元 USD</option>
+          </select>
+        </label>
+      </div>
+      <span className="help" style={{ marginTop: -8 }}>用于运行前的费用预估，按你在服务商处的实际价格填写；不填则只提示调用次数。</span>
       <label className="field"><span>默认参数（JSON，可选）</span>
         <textarea value={form.defaultsText} onChange={(e) => set({ defaultsText: e.target.value })} spellCheck={false} data-testid="pf-defaults" />
-        <span className="help">会合并进每次请求，例如 {'{"temperature": 0.7, "max_tokens": 1024}'}。model / messages / stream 不可覆盖。</span>
+        <span className="help">
+          会合并进每次请求，例如 {'{"temperature": 0.7}'}。以 _ 开头的键是适配器配置、不会发给服务商：
+          {' '}<code>_fields</code> 映射输入字段名（如 {'{"_fields": {"image": "input_image", "first": "start_image"}}'}），
+          {' '}<code>_timeoutSec</code> 设置最长等待秒数。
+        </span>
       </label>
 
       {err && <div className="form-err" role="alert">{err}</div>}
@@ -138,11 +162,11 @@ function ProfilesPane() {
               <span className="chip-ico" style={{ '--c': KIND_COLOR[p.kind] } as React.CSSProperties}><Icon /></span>
               <div className="txt">
                 <div className="nm">{p.name}</div>
-                <div className="ds">{KIND_LABEL[p.kind]} · {p.adapter} · {p.model}</div>
+                <div className="ds">{KIND_LABEL[p.kind]} · {p.adapter} · {p.model}{p.cost ? ` · ${p.cost.currency === 'CNY' ? '¥' : p.cost.currency === 'USD' ? '$' : p.cost.currency + ' '}${p.cost.amount}/次` : ''}</div>
               </div>
               <span className={`tag${p.hasKey ? ' ok' : ''}`} data-testid="pcard-key">{p.hasKey ? '已设置 Key' : '无 Key'}</span>
               <button className="btn sm icon ghost" title="编辑" aria-label={`编辑 ${p.name}`}
-                onClick={() => setForm({ id: p.id, name: p.name, kind: p.kind, adapter: p.adapter, endpoint: p.endpoint, model: p.model, apiKey: undefined, defaultsText: JSON.stringify(p.defaults ?? {}, null, 2) })}><Pencil /></button>
+                onClick={() => setForm({ id: p.id, name: p.name, kind: p.kind, adapter: p.adapter, endpoint: p.endpoint, model: p.model, apiKey: undefined, defaultsText: JSON.stringify(p.defaults ?? {}, null, 2), costAmount: p.cost ? String(p.cost.amount) : '', costCurrency: p.cost?.currency ?? 'CNY' })}><Pencil /></button>
               <button className="btn sm icon ghost" title="删除" aria-label={`删除 ${p.name}`} onClick={() => void remove(p)}><Trash /></button>
             </div>
           )

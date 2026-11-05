@@ -4,7 +4,7 @@ import {
   Ban, Check, ChevronRight, CircleCheck, CircleExclamationPoint, Clock, Copy, Info, LoaderCircle, Play, RefreshCw, TriangleExclamationPoint, Upload,
 } from 'lucide-react'
 import {
-  NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL,
+  ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS,
   type NodeStatus, type PortValue,
 } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -88,6 +88,45 @@ function MediaInput({ id, kind, assetId, mime }: { id: string; kind: 'image' | '
   )
 }
 
+function GenControls({ id, type, text, params }: { id: string; type: 'image-gen' | 'video-gen'; text?: string; params: Record<string, unknown> }) {
+  const setNodeData = useStore((s) => s.setNodeData)
+  const setNodeParam = useStore((s) => s.setNodeParam)
+  const hasPromptEdge = useStore((s) => s.edges.some((e) => e.target === id && e.targetHandle === 'prompt'))
+  const extra = typeof params.extra === 'string' ? params.extra : params.extra ? JSON.stringify(params.extra) : ''
+  let extraOk = true
+  if (extra.trim()) { try { const v = JSON.parse(extra); extraOk = typeof v === 'object' && v !== null && !Array.isArray(v) } catch { extraOk = false } }
+  return (
+    <div className="node-section">
+      {hasPromptEdge
+        ? <div className="hint"><Info />提示词来自上游连线</div>
+        : <textarea className="nodrag nowheel" placeholder={type === 'video-gen' ? '描述画面、主体动作与运镜…' : '描述你想生成的画面…'}
+            value={text ?? ''} onChange={(e) => setNodeData(id, { text: e.target.value })} data-testid="gen-prompt" />}
+      <div className="grid2">
+        <label className="field"><span>画面比例</span>
+          <select className="nodrag" value={String(params.aspect_ratio ?? '')} onChange={(e) => setNodeParam(id, 'aspect_ratio', e.target.value || undefined)} data-testid="gen-aspect">
+            <option value="">模型默认</option>
+            {ASPECT_RATIOS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+        {type === 'video-gen' && (
+          <label className="field"><span>时长</span>
+            <select className="nodrag" value={String(params.duration ?? '')} onChange={(e) => setNodeParam(id, 'duration', e.target.value ? Number(e.target.value) : undefined)}>
+              <option value="">模型默认</option>
+              {VIDEO_DURATIONS.map((d) => <option key={d} value={d}>{d} 秒</option>)}
+            </select>
+          </label>
+        )}
+      </div>
+      <details className="adv nodrag">
+        <summary><ChevronRight />高级参数（JSON，按模型文档填写）</summary>
+        <textarea className="nodrag nowheel mono" spellCheck={false} placeholder={'{"seed": 42}'} value={extra}
+          onChange={(e) => setNodeParam(id, 'extra', e.target.value)} />
+        {!extraOk && <div className="warn"><TriangleExclamationPoint />不是合法的 JSON 对象</div>}
+      </details>
+    </div>
+  )
+}
+
 export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
   const def = NODE_TYPE_MAP[type ?? '']
   const profiles = useStore((s) => s.profiles)
@@ -167,6 +206,8 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
         </div>
       )}
 
+      {(type === 'image-gen' || type === 'video-gen') && <GenControls id={id} type={type} text={data.text} params={params} />}
+
       {(type === 'vlm' || type === 'llm' || type === 'image-reverse') && (
         <div className="node-section">
           <details className="adv nodrag">
@@ -178,6 +219,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
         </div>
       )}
 
+      {status === 'running' && runState?.progress && <div className="node-section"><div className="progress" data-testid="node-progress"><LoaderCircle className="spin" />{runState.progress}</div></div>}
       {runState?.error && <div className="node-section"><div className="err" data-testid="node-error">{runState.error}</div></div>}
       {shown && shown.length > 0 && <div className="node-section outputs"><Values vals={shown} /></div>}
 

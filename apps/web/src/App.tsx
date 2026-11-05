@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Check, CircleCheck, CircleStop, FolderOpen, CloudCheck, Infinity as InfinityIcon, LayoutTemplate, LoaderCircle, Play, Plus, Settings as SettingsIcon, Sparkles, TriangleExclamationPoint } from 'lucide-react'
+import { Check, CircleCheck, CircleStop, FolderOpen, Info, X, CloudCheck, Infinity as InfinityIcon, LayoutTemplate, LoaderCircle, Play, Plus, Settings as SettingsIcon, Sparkles, TriangleExclamationPoint } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { Sidebar, DND_MIME } from './Sidebar'
@@ -47,6 +47,50 @@ function ProjectMenu() {
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus />新建画布</button>
         </div>
       )}
+    </div>
+  )
+}
+
+const fmt = (n: number, cur: string) => `${cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : cur + ' '}${n.toFixed(n < 1 ? 3 : 2).replace(/0+$/, '').replace(/\.$/, '')}`
+
+/** Shown before any run that generates media or has a priced provider call. */
+function ConfirmRun() {
+  const pending = useStore((s) => s.pendingRun)
+  const runNodes = useStore((s) => s.runNodes)
+  const dismiss = useStore((s) => s.dismissPendingRun)
+  if (!pending) return null
+  const { estimate } = pending
+  const calls = estimate.items.filter((i) => !i.cached)
+  const reused = estimate.items.length - calls.length
+  const totals = Object.entries(estimate.totals)
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) dismiss() }}>
+      <div className="modal confirm" role="dialog" aria-label="确认运行">
+        <div className="modal-head"><h2>确认运行</h2><button className="btn icon ghost" onClick={dismiss} aria-label="关闭"><X /></button></div>
+        <div className="pane">
+          <div className="muted">本次将调用 {calls.length} 次模型服务{reused > 0 ? `，另有 ${reused} 个节点复用已有结果（不再计费）` : ''}。</div>
+          <div className="est-list">
+            {calls.map((i) => (
+              <div className="est-row" key={i.nodeId}>
+                <div className="txt">
+                  <div className="nm">{i.label}</div>
+                  <div className="ds">{i.profileName ?? '未绑定模型'}{i.generative ? ' · 生成类调用' : ''}</div>
+                </div>
+                <span className="price">{i.cost ? fmt(i.cost.amount, i.cost.currency) : '未设置单价'}</span>
+              </div>
+            ))}
+          </div>
+          <div className="est-total">
+            <span>预估费用</span>
+            <span className="num" data-testid="estimate-total">{totals.length ? totals.map(([c, n]) => fmt(n, c)).join(' + ') : '—'}</span>
+          </div>
+          {estimate.unpriced > 0 && <div className="hint" style={{ marginTop: 8 }}><Info />{estimate.unpriced} 次调用未设置单价，可在「设置 → 模型档案」为模型填写每次调用的费用。</div>}
+        </div>
+        <div className="foot">
+          <button className="btn" onClick={dismiss} data-testid="confirm-cancel">取消</button>
+          <button className="btn primary" onClick={() => void runNodes(pending.nodeIds, pending.force, true)} data-testid="confirm-run"><Play />确认运行</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -188,6 +232,7 @@ export function App() {
       </header>
       <ProjectWorkspace />
       {s.settingsOpen && <Settings />}
+      <ConfirmRun />
       {s.toast && <div className="toast" role="status"><Sparkles />{s.toast}</div>}
     </div>
   )

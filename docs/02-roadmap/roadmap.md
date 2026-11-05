@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | **v1.0.0-beta.1** | Foundation 地基 | monorepo 脚手架；WebUI 可运行：无限画布、侧边栏**模型图标/节点面板可拖入画布**、类型化端口连线校验、工程保存/加载（SQLite+JSON）、「模型档案」设置页（增删改，密钥加密存储）；Fastify 服务骨架；Electron 壳可启动；Docker/CI 三端构建流水线骨架 |
 | v1.0.0-beta.2 | Brain 大脑 | DAG 执行引擎（缓存/取消/进度推送）；Text/LLM 节点、VLM 视觉分析节点（OpenAI 兼容 + Ollama）；**图片提示词反推**节点（内置可编辑模板） |
-| v1.0.0-beta.3 | Hands 双手 | 图片生成、视频生成节点；异步任务队列（持久化/恢复/取消）；provider：OpenAI 兼容、Replicate、fal、WaveSpeed；资产库；运行前成本预估；同提示词多模型 A/B |
+| v1.0.0-beta.3 | Hands 双手 | 图片生成、视频生成节点；异步任务队列（持久化/恢复/取消）；provider：OpenAI 兼容、Replicate、fal；运行前成本预估；界面重做（WaveSpeed 与多模型 A/B 顺延到后续 beta） |
 | v1.0.0-beta.4 | Voice & Director 声音与导演 | TTS 节点（OpenAI 兼容 / 本地 Kokoro·CosyVoice 服务）；`SKILL.md` 加载器；内置**导演 Skill**（剧本/创意→分镜 JSON）；`storyboard` 扇出到图片/视频/TTS 节点；`/` 斜杠命令与 Spotlight 加节点 |
 | v1.0.0-beta.5 | Reverse 反推 | FFmpeg 集成；**视频提示词反推**（场景检测抽帧→VLM→镜头表）；一键把镜头表送入生成节点 |
 | v1.0.0-beta.6 | Studio 工坊 | 导出成片节点（concat+配音+字幕）；**剪辑工坊（OpenReel）集成验证**；画布素材↔时间轴互通；工程导出/导入 `.hzc` |
@@ -44,4 +44,5 @@
 - [x] v1.0.0-beta.1 代码部分：脚手架、WebUI 画布与拖拽、模型档案、Electron 壳、Linux 包、Docker/CI 配置（详见 CHANGELOG 的 Verified / Not verified）
 - [ ] v1.0.0-beta.1 发布收尾：CI 在远端跑通、Windows 安装包产出并由你真机验证、打 tag（需你确认）
 - [x] v1.0.0-beta.2 代码部分：执行引擎、openai-compat/ollama、素材库、文本/视觉/图片提示词反推节点、运行界面
-- [ ] v1.0.0-beta.3：图片生成 / 视频生成节点、异步任务队列（持久化/恢复）、Replicate / fal / WaveSpeed 适配器、运行前成本预估
+- [x] v1.0.0-beta.3 代码部分：界面重做、图片/视频生成（openai-compat / Replicate / fal）、异步任务持久化与恢复、运行前费用确认
+- [ ] v1.0.0-beta.4：TTS 节点、`SKILL.md` 加载器与内置导演 Skill（创意 → 分镜 → 扇出节点）、`/` 快速添加节点
