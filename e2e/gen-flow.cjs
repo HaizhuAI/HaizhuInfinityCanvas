@@ -42,11 +42,15 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await api('POST', '/api/profiles', { name: 'Kling 视频', kind: 'video', adapter: 'fal', endpoint: `${M}/fal`, model: 'fal-ai/video', apiKey: 'fal-key', cost: { amount: 2, currency: 'CNY' } })
 
   const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 1600, height: 920 } })
+  const page = await browser.newPage({ viewport: { width: 1840, height: 1000 } })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })
   await page.goto(BASE + '/')
+
+  // select a node (opens it in the inspector) by clicking its title
+  const pick = async (t, nth = 0) => { await page.locator(`[data-testid="node-${t}"] .ntitle`).nth(nth).click(); await page.waitForSelector('[data-testid="inspector"]') }
+  const insp = (tid) => `[data-testid="inspector"] [data-testid="${tid}"]`
   await page.waitForSelector('[data-testid="save-state"]:has-text("已保存")')
 
   await page.dragAndDrop('[data-testid="palette-text"]', '.react-flow__pane', { targetPosition: { x: 30, y: 40 } })
@@ -55,7 +59,8 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await page.dragAndDrop('[data-testid="palette-preview"]', '.react-flow__pane', { targetPosition: { x: 1080, y: 520 } })
   assert.equal(await page.locator('.react-flow__node').count(), 4)
   await page.fill('[data-testid="node-text"] textarea', '雨夜霓虹街头的机械猫，电影感')
-  await page.selectOption('[data-testid="node-video-gen"] [data-testid="gen-aspect"]', '16:9')
+  await pick('video-gen')
+  await page.selectOption(insp('gen-aspect'), '16:9')
 
   const handle = (t, id, kind) => page.locator(`.react-flow__node:has([data-testid="node-${t}"]) .react-flow__handle[data-handleid="${id}"].${kind}`).first()
   async function connect(a, b) {

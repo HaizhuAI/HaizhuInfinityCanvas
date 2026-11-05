@@ -14,6 +14,9 @@ export interface Shot {
   imagePrompt: string
   /** ready-to-use image-to-video prompt (motion + camera) */
   videoPrompt: string
+  /** video reverse: the frame this shot was read from, and where it starts in the source (s) */
+  keyframe?: { assetId: string; mime: string }
+  start?: number
 }
 
 export interface Storyboard { title?: string; shots: Shot[] }

@@ -42,11 +42,15 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await api('POST', '/api/profiles', { name: '配音', kind: 'tts', adapter: 'openai-compat', endpoint: M, model: 'tts-1' })
 
   const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' })
+  const page = await browser.newPage({ viewport: { width: 1840, height: 1000 }, colorScheme: 'dark' })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })
   await page.goto(BASE + '/')
+
+  // select a node (opens it in the inspector) by clicking its title
+  const pick = async (t, nth = 0) => { await page.locator(`[data-testid="node-${t}"] .ntitle`).nth(nth).click(); await page.waitForSelector('[data-testid="inspector"]') }
+  const insp = (tid) => `[data-testid="inspector"] [data-testid="${tid}"]`
   await page.waitForSelector('[data-testid="save-state"]:has-text("已保存")')
   await page.screenshot({ path: OUT + '/ui4-empty.png' })
 
@@ -54,7 +58,8 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await page.click('[data-testid="template-director"]')
   await page.waitForSelector('[data-testid="node-director"]')
   await page.selectOption('[data-testid="node-director"] select[aria-label="模型档案"]', llm.id)
-  await page.selectOption('[data-testid="director-shots"]', '3')
+  await pick('director')
+  await page.selectOption(insp('director-shots'), '3')
   await page.locator('[data-testid="node-director"] [data-testid="run-node"]').click()
   await page.waitForSelector('[data-testid="node-director"] [data-testid="shot-list"]', { timeout: 15000 })
   assert.equal(await page.locator('[data-testid="node-director"] .shot').count(), 3)
@@ -88,11 +93,12 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await page.screenshot({ path: OUT + '/ui4-palette.png' })
   await page.keyboard.press('Enter')
   await page.waitForFunction((n) => document.querySelectorAll('.react-flow__node').length === n, before + 8)
-  assert.equal(await page.locator('[data-testid="director-skill"]').last().inputValue(), 'director-product-ad')
+  await pick('director', 1)
+  assert.equal(await page.locator(insp('director-skill')).inputValue(), 'director-product-ad')
   console.log('3 "/" palette: search "产品广告" + Enter adds a director bound to the product-ad skill')
 
   // double-click on empty canvas opens the palette at that point
-  await page.locator('.react-flow__controls-fitview').click()
+  await page.locator('[data-testid="fit-view"]').click()
   await page.waitForTimeout(300)
   const pane = await page.locator('.react-flow__pane').boundingBox()
   await page.mouse.dblclick(pane.x + pane.width - 60, pane.y + 30)
@@ -111,12 +117,16 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await page.waitForSelector('[data-testid="skill-long-take"]')
   await page.screenshot({ path: OUT + '/ui4-skills.png' })
   await page.click('.tab:has-text("外观与动效")')
-  await page.locator('.switch').click()
+  await page.locator('.switch:has([data-testid="motion-switch"])').click()
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('motion-off')), true)
-  await page.locator('.switch').click()
+  await page.locator('.switch:has([data-testid="motion-switch"])').click()
+  await page.click('[data-testid="theme-light"]')
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light')
+  await page.click('[data-testid="theme-dark"]')
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('motion-off')), false)
   await page.click('[aria-label="关闭"]')
-  const opts = await page.locator('[data-testid="director-skill"]').first().locator('option').allTextContents()
+  await pick('director')
+  const opts = await page.locator(insp('director-skill')).locator('option').allTextContents()
   assert.ok(opts.includes('长镜头导演'), 'imported skill offered in director nodes')
   console.log('5 settings: built-in skills listed, SKILL.md imported and offered in director nodes; motion switch toggles')
 

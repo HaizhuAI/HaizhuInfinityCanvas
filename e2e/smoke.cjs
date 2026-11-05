@@ -7,7 +7,7 @@ const OUT = process.env.HZC_E2E_OUT || process.cwd()
 
 ;(async () => {
   const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } })
+  const page = await browser.newPage({ viewport: { width: 1840, height: 1000 } })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })
@@ -15,6 +15,10 @@ const OUT = process.env.HZC_E2E_OUT || process.cwd()
   page.on('response', async (r) => { if (r.url().includes('/api/')) { try { apiBodies.push(await r.text()) } catch {} } })
 
   await page.goto(BASE + '/')
+
+  // select a node (opens it in the inspector) by clicking its title
+  const pick = async (t, nth = 0) => { await page.locator(`[data-testid="node-${t}"] .ntitle`).nth(nth).click(); await page.waitForSelector('[data-testid="inspector"]') }
+  const insp = (tid) => `[data-testid="inspector"] [data-testid="${tid}"]`
   await page.waitForSelector('.react-flow')
   await page.waitForSelector('[data-testid="save-state"]:has-text("已保存")')
   console.log('1 loaded, empty canvas hint visible:', await page.locator('.canvas-empty').isVisible())

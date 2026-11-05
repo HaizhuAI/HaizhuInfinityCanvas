@@ -1,6 +1,6 @@
 import type { ProjectGraph } from '@hzc/core'
 
-export interface Template { id: string; name: string; description: string; graph: () => ProjectGraph }
+export interface Template { id: string; name: string; description: string; /** node types shown as the card's pipeline */ flow: string[]; graph: () => ProjectGraph }
 
 const id = (p: string) => `${p}_${Math.random().toString(36).slice(2, 8)}`
 
@@ -10,6 +10,7 @@ export const TEMPLATES: Template[] = [
     id: 'director',
     name: '创意 → 导演分镜',
     description: '一句创意交给导演 Skill，拆成可直接生成的分镜，再一键展开成镜头节点',
+    flow: ['text', 'director', 'image-gen', 'video-gen'],
     graph: () => {
       const a = id('txt'), b = id('dir')
       return {
@@ -26,6 +27,7 @@ export const TEMPLATES: Template[] = [
     id: 'image-reverse',
     name: '图片 → 提示词反推',
     description: '上传一张图，反推出可复用的生成提示词',
+    flow: ['image', 'image-reverse', 'preview'],
     graph: () => {
       const a = id('img'), b = id('rev'), c = id('pre')
       return {
@@ -46,6 +48,7 @@ export const TEMPLATES: Template[] = [
     id: 'script',
     name: '创意 → 文本模型润色',
     description: '写下一句创意，让文本模型扩写成短片脚本',
+    flow: ['text', 'llm', 'preview'],
     graph: () => {
       const a = id('txt'), b = id('llm'), c = id('pre')
       return {

@@ -4,7 +4,7 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
 import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
-import { api, type ProjectSummary, type SkillMeta } from './api'
+import { api, type AssetMeta, type ProjectSummary, type SkillMeta } from './api'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
 export type CanvasNode = Node<CanvasNodeData>
@@ -36,6 +36,10 @@ interface State {
   runStates: Record<string, NodeRunState>
   runId: string | null
   skills: SkillMeta[]
+  assets: AssetMeta[]
+  /** left panel shown next to the rail; null = collapsed */
+  leftPanel: 'library' | 'assets' | null
+  lightbox: { assetId: string; mime: string; name?: string } | null
   /** command palette; `at` = flow position to add at (double-click), else the view centre */
   palette: { open: boolean; at?: { x: number; y: number } }
   /** a run waiting for the user to confirm paid generation calls */
@@ -54,11 +58,16 @@ interface State {
   onEdgesChange: (c: EdgeChange[]) => void
   isValidConnection: (c: Connection | Edge) => boolean
   onConnect: (c: Connection) => void
-  addNode: (type: string, position: { x: number; y: number }, profileId?: string) => void
+  addNode: (type: string, position: { x: number; y: number }, profileId?: string, data?: Partial<CanvasNodeData>) => string | undefined
   setNodeData: (id: string, patch: Partial<CanvasNodeData>) => void
   setNodeParam: (id: string, key: string, value: unknown) => void
   loadTemplate: (g: ProjectGraph) => void
   loadSkills: () => Promise<void>
+  loadAssets: () => Promise<void>
+  setLeftPanel: (p: State['leftPanel']) => void
+  openLightbox: (a: State['lightbox']) => void
+  /** select exactly this node (used by the inspector and keyboard flows) */
+  selectNode: (id: string | null) => void
   openPalette: (at?: { x: number; y: number }) => void
   closePalette: () => void
   /** turn a director node's storyboard into per-shot image → video (→ voice) rows; returns new node ids */
@@ -71,7 +80,7 @@ interface State {
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
-  skills: [], palette: { open: false },
+  skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null,
 
   showToast: (m) => { set({ toast: m }); setTimeout(() => get().toast === m && set({ toast: null }), 2500) },
   setSettingsOpen: (o) => set({ settingsOpen: o }),
@@ -79,6 +88,10 @@ export const useStore = create<State>((set, get) => ({
   async loadProfiles() { set({ profiles: await api.listProfiles() }) },
 
   async loadSkills() { set({ skills: await api.listSkills() }) },
+  async loadAssets() { set({ assets: await api.listAssets() }) },
+  setLeftPanel: (p) => set({ leftPanel: p }),
+  openLightbox: (a) => set({ lightbox: a }),
+  selectNode: (id) => set((s) => ({ nodes: s.nodes.map((n) => (!!n.selected === (n.id === id) ? n : { ...n, selected: n.id === id })) })),
   openPalette: (at) => set({ palette: { open: true, at } }),
   closePalette: () => set({ palette: { open: false } }),
 
@@ -90,7 +103,7 @@ export const useStore = create<State>((set, get) => ({
     const first = (kind: ModelProfilePublic['kind']) => profiles.find((p) => p.kind === kind)
     const img = first('image'), vid = first('video'), tts = first('tts')
     const aspect = dir.data.params?.aspect_ratio
-    const ROW = 400, X0 = dir.position.x + 380
+    const ROW = 480, X0 = dir.position.x + 400
     const newNodes: CanvasNode[] = []
     const newEdges: Edge[] = []
     sb.shots.forEach((shot, i) => {
@@ -98,11 +111,11 @@ export const useStore = create<State>((set, get) => ({
       const tag = `镜头 ${shot.index}`
       const imgId = `n_${uid()}`, vidId = `n_${uid()}`
       newNodes.push({ id: imgId, type: 'image-gen', position: { x: X0, y }, data: { label: `${tag} · 画面`, text: shot.imagePrompt, profileId: img?.id, params: aspect ? { aspect_ratio: aspect } : {} } })
-      newNodes.push({ id: vidId, type: 'video-gen', position: { x: X0 + 380, y }, data: { label: `${tag} · 视频`, text: shot.videoPrompt, profileId: vid?.id, params: { ...(aspect ? { aspect_ratio: aspect } : {}) } } })
+      newNodes.push({ id: vidId, type: 'video-gen', position: { x: X0 + 400, y }, data: { label: `${tag} · 视频`, text: shot.videoPrompt, profileId: vid?.id, params: { ...(aspect ? { aspect_ratio: aspect } : {}) } } })
       newEdges.push({ id: `e_${uid()}`, source: imgId, sourceHandle: 'out', target: vidId, targetHandle: 'first' })
       if (shot.dialogue) {
         const ttsId = `n_${uid()}`
-        newNodes.push({ id: ttsId, type: 'tts', position: { x: X0 + 760, y }, data: { label: `${tag} · 配音`, text: shot.dialogue, profileId: tts?.id, params: {} } })
+        newNodes.push({ id: ttsId, type: 'tts', position: { x: X0 + 800, y }, data: { label: `${tag} · 配音`, text: shot.dialogue, profileId: tts?.id, params: {} } })
       }
     })
     set((s) => ({ nodes: [...s.nodes, ...newNodes], edges: [...s.edges, ...newEdges], saveState: 'dirty' }))
@@ -111,6 +124,7 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     void get().loadSkills().catch(() => undefined)
+    void get().loadAssets().catch(() => undefined)
     await get().loadProfiles()
     const projects = await api.listProjects()
     set({ projects })
@@ -167,15 +181,16 @@ export const useStore = create<State>((set, get) => ({
 
   onConnect: (c) => set((s) => ({ edges: addEdge({ ...c, id: `e_${uid()}` }, s.edges), saveState: 'dirty' })),
 
-  addNode: (type, position, profileId) => {
+  addNode: (type, position, profileId, data) => {
     const def = NODE_TYPE_MAP[type]
-    if (!def) return
+    if (!def) return undefined
     const profile = profileId ? get().profiles.find((p) => p.id === profileId) : undefined
     const node: CanvasNode = {
       id: `n_${uid()}`, type, position,
-      data: { label: profile?.name ?? def.label, profileId, text: '' },
+      data: { label: profile?.name ?? def.label, profileId, text: '', ...data },
     }
     set((s) => ({ nodes: [...s.nodes, node], saveState: 'dirty' }))
+    return node.id
   },
 
   setNodeParam: (id, key, value) =>

@@ -58,6 +58,8 @@ export function Starfield() {
 
     function start() {
       cancelAnimationFrame(raf)
+      // only draw when the optional ambient ground is switched on (dark theme)
+      if (!document.documentElement.classList.contains('ambient')) return
       if (motionEnabled() && !document.hidden) raf = requestAnimationFrame(loop)
       else draw(0)
     }
@@ -67,6 +69,7 @@ export function Starfield() {
     window.addEventListener('resize', onResize)
     document.addEventListener('visibilitychange', start)
     window.addEventListener('hzc:motion', start)
+    window.addEventListener('hzc:theme', start)
     const onPan = () => { if (!motionEnabled()) draw(0) }
     window.addEventListener('hzc:pan', onPan)
     return () => {
@@ -75,6 +78,7 @@ export function Starfield() {
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', start)
       window.removeEventListener('hzc:motion', start)
+      window.removeEventListener('hzc:theme', start)
     }
   }, [])
 

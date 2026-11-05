@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
+import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Check, CircleCheck, CircleStop, CloudCheck, FolderOpen, Infinity as InfinityIcon, Info, LayoutTemplate, LoaderCircle, Play, Plus, Settings as SettingsIcon, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
+import { FloatingToolbar, Lightbox, Rail } from './Chrome'
 import { CommandPalette } from './CommandPalette'
-import { Sidebar, DND_MIME } from './Sidebar'
+import { DND_MIME, readDrag } from './dnd'
+import { CATEGORY_COLOR, NODE_ICON, PORT_COLOR } from './icons'
+import { Inspector } from './Inspector'
+import { Assets, Library } from './LeftPanel'
+import { enterMenu, enterOverlay, enterToast } from './motion'
 import { Settings } from './Settings'
 import { Starfield } from './Starfield'
-import { CATEGORY_COLOR, PORT_COLOR } from './icons'
-import { enterMenu, enterOverlay, enterToast } from './motion'
 import { TEMPLATES } from './templates'
+import { inspectorPref, setInspectorPref } from './theme'
 import { useAddNode } from './useAddNode'
 import { useStore } from './store'
 
-export const APP_VERSION = 'v1.0.0-beta.4'
+export const APP_VERSION = 'v1.0.0-beta.5'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -44,19 +48,13 @@ function ConfirmRun() {
           <div className="est-list">
             {calls.map((i) => (
               <div className="est-row" key={i.nodeId}>
-                <div className="txt">
-                  <div className="nm">{i.label}</div>
-                  <div className="ds">{i.profileName ?? '未绑定模型'}{i.generative ? ' · 生成类调用' : ''}</div>
-                </div>
+                <div className="txt"><div className="nm">{i.label}</div><div className="ds">{i.profileName ?? '未绑定模型'}{i.generative ? ' · 生成类调用' : ''}</div></div>
                 <span className="price">{i.cost ? fmt(i.cost.amount, i.cost.currency) : '未设置单价'}</span>
               </div>
             ))}
           </div>
-          <div className="est-total">
-            <span>预估费用</span>
-            <span className="num" data-testid="estimate-total">{totals.length ? totals.map(([c, n]) => fmt(n, c)).join(' + ') : '—'}</span>
-          </div>
-          {estimate.unpriced > 0 && <div className="hint" style={{ marginTop: 8 }}><Info />{estimate.unpriced} 次调用未设置单价，可在「设置 → 模型档案」为模型填写每次调用的费用。</div>}
+          <div className="est-total"><span>预估费用</span><span className="num" data-testid="estimate-total">{totals.length ? totals.map(([c, n]) => fmt(n, c)).join(' + ') : '—'}</span></div>
+          {estimate.unpriced > 0 && <div className="hint" style={{ marginTop: 8 }}><Info aria-hidden="true" />{estimate.unpriced} 次调用未设置单价，可在「设置 → 模型档案」为模型填写每次调用的费用。</div>}
         </div>
         <div className="foot">
           <button className="btn" onClick={dismiss} data-testid="confirm-cancel">取消</button>
@@ -67,7 +65,7 @@ function ConfirmRun() {
   )
 }
 
-/** One control for the current canvas: inline rename + a menu to switch or create canvases. */
+/** Centre of the top bar: the canvas name (inline rename) with a menu to switch or create canvases. */
 function ProjectMenu() {
   const { projects, projectId, projectName, openProject, newProject, renameProject } = useStore()
   const [open, setOpen] = useState(false)
@@ -82,22 +80,18 @@ function ProjectMenu() {
   }, [open])
   return (
     <div className="project" ref={ref}>
-      <button className="btn ghost icon" onClick={() => setOpen((o) => !o)} aria-label="切换画布" aria-expanded={open} title="切换或新建画布" data-testid="project-menu">
-        <FolderOpen />
-      </button>
       <input className="pname" value={projectName} onChange={(e) => renameProject(e.target.value)} aria-label="画布名称" title="点击重命名" />
+      <button className="btn ghost xs icon" onClick={() => setOpen((o) => !o)} aria-label="切换或新建画布" aria-expanded={open} data-testid="project-menu"><ChevronDown /></button>
       {open && (
         <div className="menu" role="menu" ref={menuRef}>
           <div className="menu-label">我的画布</div>
           {projects.map((p) => (
-            <button key={p.id} role="menuitem" className={`menu-item${p.id === projectId ? ' on' : ''}`}
-              onClick={() => { setOpen(false); if (p.id !== projectId) void openProject(p.id) }}>
-              <span className="grow">{p.id === projectId ? projectName : p.name}</span>
-              {p.id === projectId && <Check />}
+            <button key={p.id} role="menuitem" className={`menu-item${p.id === projectId ? ' on' : ''}`} onClick={() => { setOpen(false); if (p.id !== projectId) void openProject(p.id) }}>
+              <span className="grow">{p.id === projectId ? projectName : p.name}</span>{p.id === projectId && <Check aria-hidden="true" />}
             </button>
           ))}
           <div className="menu-sep" />
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus />新建画布</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus aria-hidden="true" />新建画布</button>
         </div>
       )}
     </div>
@@ -108,10 +102,10 @@ function SaveIndicator() {
   const state = useStore((s) => s.saveState)
   const label = { idle: '', dirty: '未保存', saving: '保存中…', saved: '已保存', error: '保存失败' }[state]
   return (
-    <span className={`save ${state}`} data-testid="save-state">
-      {state === 'saving' && <LoaderCircle className="spin" />}
-      {state === 'saved' && <CloudCheck />}
-      {state === 'error' && <TriangleExclamationPoint />}
+    <span className={`save ${state}`} data-testid="save-state" role="status">
+      {state === 'saving' && <LoaderCircle className="spin" aria-hidden="true" />}
+      {state === 'saved' && <CloudCheck aria-hidden="true" />}
+      {state === 'error' && <TriangleExclamationPoint aria-hidden="true" />}
       {label}
     </span>
   )
@@ -125,20 +119,33 @@ function EmptyState() {
   return (
     <div className="canvas-empty">
       <div className="empty-card">
-        <div className="badge-ico"><Sparkles /></div>
-        <h2>把模型组成你的创作团队</h2>
-        <p>每个模型都是一个智能体。拖进画布、连线，就是一条从创意到成片的流水线。</p>
-        <ol>
-          <li><span>在「设置 → 模型档案」添加你的模型：文本、视觉、图片、视频、语音{hasProfiles && <CircleCheck style={{ width: 14, height: 14, color: 'var(--ok)', marginLeft: 6, verticalAlign: -2 }} />}</span></li>
-          <li><span>从左侧拖入模型或节点；或在画布上按 <kbd>/</kbd>、双击空白处快速添加</span></li>
-          <li><span>从输出端口连线到输入端口，点「运行全部」</span></li>
-        </ol>
-        <div className="actions">
-          {!hasProfiles && <button className="btn primary" onClick={() => setSettingsOpen(true)}><Plus />添加模型档案</button>}
+        <div className="eyebrow">Haizhu Infinity Canvas</div>
+        <h2>从一个想法，到一部成片。</h2>
+        <p>把你的模型当作创作团队：导演拆分镜，画师出图，摄影成片，配音收尾。挑一个起点：</p>
+        <div className="tpl-grid">
           {TEMPLATES.map((t) => (
-            <button key={t.id} className="btn" onClick={() => addTemplate(t.graph())} title={t.description} data-testid={`template-${t.id}`}><LayoutTemplate />{t.name}</button>
+            <button key={t.id} className="tpl" onClick={() => addTemplate(t.graph())} data-testid={`template-${t.id}`}>
+              <span className="flow" aria-hidden="true">
+                {t.flow.map((type, i) => {
+                  const Icon = NODE_ICON[type]!
+                  const d = NODE_TYPE_MAP[type]!
+                  return (
+                    <span key={i} style={{ display: 'contents' }}>
+                      {i > 0 && <ArrowRight />}
+                      <span className="chip-ico sm" style={{ '--c': CATEGORY_COLOR[d.category] } as React.CSSProperties}><Icon /></span>
+                    </span>
+                  )
+                })}
+              </span>
+              <span className="nm">{t.name}</span>
+              <span className="ds">{t.description}</span>
+            </button>
           ))}
-          <button className="btn ghost" onClick={() => openPalette()}>全部节点 <kbd>/</kbd></button>
+        </div>
+        <div className="empty-actions">
+          {!hasProfiles && <button className="btn primary" onClick={() => setSettingsOpen(true)}><Plus />接入第一个模型</button>}
+          <button className="btn" onClick={() => openPalette()}><Sparkles />浏览全部节点 <kbd>/</kbd></button>
+          <span>或从左侧拖入 · 双击空白处添加</span>
         </div>
       </div>
     </div>
@@ -148,33 +155,31 @@ function EmptyState() {
 function Canvas() {
   const s = useStore()
   const { screenToFlowPosition } = useReactFlow()
-  // The canvas is remounted per project (see ProjectWorkspace). Fit the view on open only if the
-  // project already has nodes — otherwise React Flow would zoom onto the first node the user drops.
   const [fitOnOpen] = useState(() => useStore.getState().nodes.length > 0)
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    const raw = e.dataTransfer.getData(DND_MIME)
-    if (!raw) return
-    const { type, profileId } = JSON.parse(raw) as { type: string; profileId?: string }
-    s.addNode(type, screenToFlowPosition({ x: e.clientX, y: e.clientY }), profileId)
+    const p = readDrag(e)
+    if (!p) return
+    const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+    if ('assetId' in p) s.addNode(p.type, pos, undefined, { assetId: p.assetId, mime: p.mime, label: p.name })
+    else s.addNode(p.type, pos, p.profileId)
   }, [s, screenToFlowPosition])
 
-  // colour each edge by the data type of its source port; animate it while its target runs
+  // colour each edge by its source port's data type; animate it while its target runs
   const edges = useMemo<Edge[]>(() => {
     const types = new Map(s.nodes.map((n) => [n.id, n.type ?? '']))
     return s.edges.map((e) => {
       const def = NODE_TYPE_MAP[types.get(e.source) ?? '']
       const port = def?.outputs.find((p) => p.id === (e.sourceHandle ?? 'out'))
       const stroke = port ? PORT_COLOR[port.type] : undefined
-      return { ...e, animated: s.runStates[e.target]?.status === 'running', style: stroke ? { stroke, strokeOpacity: 0.85 } : undefined }
+      return { ...e, animated: s.runStates[e.target]?.status === 'running', style: stroke ? { stroke, strokeOpacity: 0.8 } : undefined }
     })
   }, [s.edges, s.nodes, s.runStates])
 
   return (
-    <div className="canvas" onDrop={onDrop} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+    <div className="canvas" onDrop={onDrop} onDragOver={(e) => { if (e.dataTransfer.types.includes(DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
       onDoubleClick={(e) => {
-        // double-click on empty canvas: quick-add at that point
         if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return
         s.openPalette(screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }))
       }}>
@@ -183,36 +188,41 @@ function Canvas() {
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
         onMove={(_, vp) => {
-          // the star ground drifts slightly with panning (parallax)
           const r = document.documentElement.style
           r.setProperty('--pan-x', String(vp.x)); r.setProperty('--pan-y', String(vp.y))
           window.dispatchEvent(new Event('hzc:pan'))
         }}
-        fitView={fitOnOpen} fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
-        zoomOnDoubleClick={false}
+        fitView={fitOnOpen} fitViewOptions={{ maxZoom: 1, minZoom: 0.6, padding: 0.12 }}
+        zoomOnDoubleClick={false} onlyRenderVisibleElements={s.nodes.length > 60}
         deleteKeyCode={['Backspace', 'Delete']} minZoom={0.1} maxZoom={2}
         colorMode="system" proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
-        <Controls showInteractive={false} />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.3} />
         {s.nodes.length > 0 && (
-          <MiniMap pannable zoomable nodeBorderRadius={6}
+          <MiniMap pannable zoomable nodeBorderRadius={8} style={{ width: 168, height: 112 }}
             nodeColor={(n) => { const d = NODE_TYPE_MAP[n.type ?? '']; return d ? CATEGORY_COLOR[d.category] : '#555' }} />
         )}
       </ReactFlow>
+      {s.nodes.length > 0 && <FloatingToolbar />}
       {s.nodes.length === 0 && <EmptyState />}
     </div>
   )
 }
 
-/** Fresh React Flow instance (and viewport) per opened project; sidebar and palette share it. */
-function ProjectWorkspace() {
+/** Fresh React Flow instance (and viewport) per opened project; panels and palette share it. */
+function ProjectWorkspace({ inspector, setInspector }: { inspector: boolean; setInspector: (v: boolean) => void }) {
   const projectId = useStore((s) => s.projectId)
+  const leftPanel = useStore((s) => s.leftPanel)
   return (
     <ReactFlowProvider key={projectId ?? 'none'}>
-      <div className="main">
-        <Sidebar />
+      <div className="workspace" style={{ gridTemplateColumns: `52px ${leftPanel ? 'auto' : '0'} 1fr ${inspector ? 'auto' : '0'}` }}>
+        <Rail />
+        <div style={{ display: 'contents' }}>
+          {leftPanel && <aside className="lpanel" aria-label={leftPanel === 'assets' ? '素材库' : '组件库'}>{leftPanel === 'assets' ? <Assets /> : <Library />}</aside>}
+          {!leftPanel && <span />}
+        </div>
         <Canvas />
+        {inspector ? <Inspector onClose={() => setInspector(false)} /> : <span />}
       </div>
       <CommandPalette />
     </ReactFlowProvider>
@@ -224,22 +234,22 @@ function Toast() {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (toast) enterToast(ref.current) }, [toast])
   if (!toast) return null
-  return <div className="toast" role="status" ref={ref}><Sparkles />{toast}</div>
+  return <div className="toast" role="status" ref={ref}><Sparkles aria-hidden="true" />{toast}</div>
 }
 
 export function App() {
   const s = useStore()
+  const [inspector, setInspectorState] = useState(inspectorPref())
+  const setInspector = (v: boolean) => { setInspectorState(v); setInspectorPref(v) }
 
   useEffect(() => { void s.init().catch((e) => s.showToast(`连接服务失败：${(e as Error).message}`)) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // debounced autosave
   useEffect(() => {
     if (s.saveState !== 'dirty') return
     const t = setTimeout(() => void s.save(), 800)
     return () => clearTimeout(t)
   }, [s.saveState, s.nodes, s.edges, s.projectName]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // "/" opens quick-add anywhere except while typing
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
@@ -258,23 +268,27 @@ export function App() {
       <Starfield />
       <div className="app">
         <header className="topbar">
-          <div className="brand">
-            <span className="logo"><InfinityIcon /></span>
-            <span className="brand-name">Haizhu Infinity Canvas</span>
-            <span className="ver">{APP_VERSION}</span>
+          <div className="tb-left">
+            <div className="brand">
+              <span className="logo" aria-hidden="true"><InfinityIcon /></span>
+              <span className="brand-name">Haizhu <span>Infinity Canvas</span></span>
+              <span className="ver">{APP_VERSION}</span>
+            </div>
           </div>
-          <span className="divider" />
           <ProjectMenu />
-          <span className="spacer" />
-          <SaveIndicator />
-          {s.runId
-            ? <button className="btn danger running" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
-            : <button className="btn primary" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}
-          <button className="btn icon ghost" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings" title="设置" aria-label="设置"><SettingsIcon /></button>
+          <div className="tb-right">
+            <SaveIndicator />
+            {s.runId
+              ? <button className="btn danger running sm" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
+              : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}
+            <button className="btn ghost sm icon" onClick={() => setInspector(!inspector)} aria-label={inspector ? '收起属性面板' : '打开属性面板'} aria-pressed={inspector} data-testid="toggle-inspector"><PanelRightOpen /></button>
+            <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
+          </div>
         </header>
-        <ProjectWorkspace />
+        <ProjectWorkspace inspector={inspector} setInspector={setInspector} />
         {s.settingsOpen && <Settings />}
         <ConfirmRun />
+        <Lightbox />
         <Toast />
       </div>
     </>

@@ -1,0 +1,285 @@
+import { useReactFlow } from '@xyflow/react'
+import { useShallow } from 'zustand/react/shallow'
+import { Download, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, TriangleExclamationPoint } from 'lucide-react'
+import {
+  ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS, type PortValue,
+} from '@hzc/core'
+import { assetUrl } from './api'
+import { RUNNABLE, StatusPill, Values } from './CanvasNode'
+import { CATEGORY_COLOR, KIND_LABEL, NODE_ICON } from './icons'
+import { useStore, type CanvasNode } from './store'
+
+const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5]
+/** node types that have a parameters section */
+const HAS_PARAMS = new Set(['image-gen', 'video-gen', 'tts', 'director', 'image-reverse', 'video-reverse', 'export', 'vlm', 'llm'])
+const EXPORT_SIZES: [string, string][] = [['', '跟随第一个片段'], ['1920x1080', '1080p 横屏 16:9'], ['1080x1920', '1080p 竖屏 9:16'], ['1080x1080', '1080 方形 1:1'], ['1280x720', '720p 横屏']]
+
+function Seg<T extends string | number>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="seg2" role="radiogroup" aria-label={label}>
+      {options.map(([v, l]) => <button key={String(v)} role="radio" aria-checked={value === v} className={value === v ? 'on' : ''} onClick={() => onChange(v)}>{l}</button>)}
+    </div>
+  )
+}
+
+function JsonField({ id, value }: { id: string; value: unknown }) {
+  const setNodeParam = useStore((s) => s.setNodeParam)
+  const text = typeof value === 'string' ? value : value ? JSON.stringify(value) : ''
+  let ok = true
+  if (text.trim()) { try { const v = JSON.parse(text); ok = typeof v === 'object' && v !== null && !Array.isArray(v) } catch { ok = false } }
+  return (
+    <label className="field"><span>高级参数（JSON，按模型文档填写）</span>
+      <textarea className="mono" spellCheck={false} placeholder={'{"seed": 42}'} value={text} onChange={(e) => setNodeParam(id, 'extra', e.target.value)} aria-invalid={!ok} />
+      {!ok && <span className="warn"><TriangleExclamationPoint aria-hidden="true" />不是合法的 JSON 对象</span>}
+    </label>
+  )
+}
+
+/** Per-node-type parameters. Everything that is not the creative content itself lives here. */
+function Params({ node }: { node: CanvasNode }) {
+  const setNodeParam = useStore((s) => s.setNodeParam)
+  const skills = useStore((s) => s.skills)
+  const p = node.data.params ?? {}
+  const set = (k: string, v: unknown) => setNodeParam(node.id, k, v)
+  const aspectSelect = (testid?: string, none = '模型默认') => (
+    <label className="field"><span>画面比例</span>
+      <select value={String(p.aspect_ratio ?? '')} onChange={(e) => set('aspect_ratio', e.target.value || undefined)} data-testid={testid}>
+        <option value="">{none}</option>
+        {ASPECT_RATIOS.map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+    </label>
+  )
+
+  switch (node.type) {
+    case 'image-gen':
+      return <>{aspectSelect('gen-aspect')}<JsonField id={node.id} value={p.extra} /></>
+    case 'video-gen':
+      return (
+        <>
+          <div className="grid2">
+            {aspectSelect('gen-aspect')}
+            <label className="field"><span>时长</span>
+              <select value={String(p.duration ?? '')} onChange={(e) => set('duration', e.target.value ? Number(e.target.value) : undefined)}>
+                <option value="">模型默认</option>
+                {VIDEO_DURATIONS.map((d) => <option key={d} value={d}>{d} 秒</option>)}
+              </select>
+            </label>
+          </div>
+          <JsonField id={node.id} value={p.extra} />
+        </>
+      )
+    case 'tts':
+      return (
+        <div className="grid2">
+          <label className="field"><span>音色</span><input value={String(p.voice ?? '')} placeholder="如 alloy" onChange={(e) => set('voice', e.target.value || undefined)} data-testid="tts-voice" /></label>
+          <label className="field"><span>语速</span>
+            <select value={String(p.speed ?? '')} onChange={(e) => set('speed', e.target.value ? Number(e.target.value) : undefined)}>
+              <option value="">默认</option>{SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+            </select>
+          </label>
+        </div>
+      )
+    case 'director': {
+      const directors = skills.filter((s) => s.metadata?.['hzc-kind'] === 'director')
+      const others = skills.filter((s) => s.metadata?.['hzc-kind'] !== 'director')
+      return (
+        <>
+          <label className="field"><span>导演 Skill</span>
+            <select value={String(p.skill ?? 'director-short-film')} onChange={(e) => set('skill', e.target.value)} data-testid="director-skill">
+              {directors.map((s) => <option key={s.name} value={s.name}>{s.label}</option>)}
+              {others.length > 0 && <optgroup label="其他 Skill">{others.map((s) => <option key={s.name} value={s.name}>{s.label}</option>)}</optgroup>}
+              {skills.length === 0 && <option value="director-short-film">短片导演</option>}
+            </select>
+          </label>
+          <div className="grid2">
+            <label className="field"><span>镜头数</span>
+              <select value={String(p.shots ?? 6)} onChange={(e) => set('shots', Number(e.target.value))} data-testid="director-shots">
+                {[3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n} 个</option>)}
+              </select>
+            </label>
+            {aspectSelect(undefined, '不指定')}
+          </div>
+          <label className="field"><span>视觉风格</span><input value={String(p.style ?? '')} placeholder="如：胶片电影感、王家卫色调" onChange={(e) => set('style', e.target.value || undefined)} /></label>
+          <div className="field"><span>提示词语言</span><Seg label="提示词语言" value={String(p.lang ?? 'zh')} options={[['zh', '中文'], ['en', 'English']]} onChange={(v) => set('lang', v)} /></div>
+        </>
+      )
+    }
+    case 'image-reverse':
+      return (
+        <>
+          <label className="field"><span>目标风格</span>
+            <select value={String(p.style ?? 'general')} onChange={(e) => set('style', e.target.value)} data-testid="reverse-style">
+              {REVERSE_STYLES.map((s) => <option key={s} value={s}>{REVERSE_STYLE_LABEL[s]}</option>)}
+            </select>
+          </label>
+          <div className="field"><span>输出语言</span><Seg label="输出语言" value={String(p.lang ?? 'zh')} options={REVERSE_LANGS.map((l) => [l, l === 'zh' ? '中文' : 'English'])} onChange={(v) => set('lang', v)} /></div>
+          <label className="field"><span>自定义指令（留空用内置模板）</span><textarea value={String(p.instruction ?? '')} onChange={(e) => set('instruction', e.target.value)} /></label>
+        </>
+      )
+    case 'video-reverse':
+      return (
+        <>
+          <div className="grid2">
+            <label className="field"><span>最多镜头</span>
+              <select value={String(p.maxShots ?? 8)} onChange={(e) => set('maxShots', Number(e.target.value))} data-testid="vr-max">
+                {[4, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n} 个</option>)}
+              </select>
+            </label>
+            <label className="field"><span>切镜灵敏度</span>
+              <select value={String(p.threshold ?? 0.3)} onChange={(e) => set('threshold', Number(e.target.value))}>
+                <option value={0.2}>高（更多镜头）</option><option value={0.3}>标准</option><option value={0.45}>低（更少镜头）</option>
+              </select>
+            </label>
+          </div>
+          <div className="field"><span>提示词语言</span><Seg label="提示词语言" value={String(p.lang ?? 'zh')} options={[['zh', '中文'], ['en', 'English']]} onChange={(v) => set('lang', v)} /></div>
+        </>
+      )
+    case 'export':
+      return (
+        <>
+          <label className="field"><span>输出尺寸</span>
+            <select value={String(p.size ?? '')} onChange={(e) => set('size', e.target.value || undefined)} data-testid="export-size">
+              {EXPORT_SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <div className="field"><span>帧率</span><Seg label="帧率" value={Number(p.fps ?? 30)} options={[[24, '24'], [25, '25'], [30, '30'], [60, '60']]} onChange={(v) => set('fps', v)} /></div>
+          <div className="field"><span>原视频声音</span><Seg label="原视频声音" value={String(p.keepAudio ?? 'mix')} options={[['mix', '与配音混合'], ['drop', '去掉']]} onChange={(v) => set('keepAudio', v)} /></div>
+        </>
+      )
+    case 'vlm':
+      return <label className="field"><span>指令（留空用默认描述指令）</span><textarea value={String(p.instruction ?? '')} onChange={(e) => set('instruction', e.target.value)} /></label>
+    case 'llm':
+      return <label className="field"><span>系统提示（可选）</span><textarea value={String(p.system ?? '')} placeholder="例如：你是一位擅长短视频的电影编剧…" onChange={(e) => set('system', e.target.value)} /></label>
+    default:
+      return null
+  }
+}
+
+function Downloads({ vals, name }: { vals: PortValue[]; name: string }) {
+  const media = vals.filter((v): v is Extract<PortValue, { assetId: string }> => 'assetId' in v)
+  if (!media.length) return null
+  return (
+    <div className="insp-actions">
+      {media.map((m, i) => (
+        <a key={m.assetId + i} className="btn sm" href={assetUrl(m.assetId)} download={`${name}${media.length > 1 ? `-${i + 1}` : ''}.${m.mime.split('/')[1]?.replace('mpeg', 'mp3') ?? 'bin'}`} data-testid="download-output"><Download />下载{media.length > 1 ? ` ${i + 1}` : ''}</a>
+      ))}
+    </div>
+  )
+}
+
+const fmtTime = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString() : '—')
+
+export function Inspector({ onClose }: { onClose: () => void }) {
+  // shallow-compared id list: a fresh array per read would loop forever under zustand v5
+  const selectedIds = useStore(useShallow((s) => s.nodes.filter((n) => n.selected).map((n) => n.id)))
+  const node = useStore((s) => (selectedIds.length === 1 ? s.nodes.find((n) => n.id === selectedIds[0]) : undefined))
+  const selected = selectedIds
+  const runState = useStore((s) => (node ? s.runStates[node.id] : undefined))
+  const running = useStore((s) => s.runId !== null)
+  const runNodes = useStore((s) => s.runNodes)
+  const setNodeData = useStore((s) => s.setNodeData)
+  const expandStoryboard = useStore((s) => s.expandStoryboard)
+  const profiles = useStore((s) => s.profiles)
+  const nodeCount = useStore((s) => s.nodes.length)
+  const { fitView } = useReactFlow()
+
+  if (!node) {
+    return (
+      <aside className="inspector" aria-label="属性面板">
+        <div className="insp-head"><div className="ttl"><strong>属性</strong></div><button className="btn ghost sm icon" onClick={onClose} aria-label="收起属性面板"><PanelRightClose /></button></div>
+        <div className="insp-empty">
+          <div>
+            <MousePointerClick aria-hidden="true" />
+            <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{selected.length > 1 ? `已选中 ${selected.length} 个节点` : '选择一个节点'}</div>
+            <div>{selected.length > 1 ? '一次只能编辑一个节点的属性。' : `点选画布上的节点，在这里调整模型、参数并查看结果。画布上共有 ${nodeCount} 个节点。`}</div>
+            <div className="hint" style={{ justifyContent: 'center', marginTop: 14 }}><kbd>/</kbd> 快速添加 · <kbd>Delete</kbd> 删除</div>
+          </div>
+        </div>
+      </aside>
+    )
+  }
+
+  const def = NODE_TYPE_MAP[node.type ?? '']!
+  const Icon = NODE_ICON[def.type]!
+  const status = runState?.status ?? 'idle'
+  const shown = def.category === 'input' ? undefined : node.type === 'preview' ? runState?.outputs?.in : runState?.outputs?.out
+  const profile = node.data.profileId ? profiles.find((p) => p.id === node.data.profileId) : undefined
+  const hasStoryboard = (node.type === 'director' || node.type === 'video-reverse') && !!shown?.some((v) => v.type === 'storyboard')
+
+  return (
+    <aside className="inspector" aria-label="属性面板" data-testid="inspector">
+      <div className="insp-head">
+        <span className="chip-ico" style={{ '--c': CATEGORY_COLOR[def.category] } as React.CSSProperties} aria-hidden="true"><Icon /></span>
+        <div className="ttl">
+          <input value={node.data.label ?? def.label} onChange={(e) => setNodeData(node.id, { label: e.target.value })} aria-label="节点名称" />
+          <div className="kind">{def.label} · {def.description}</div>
+        </div>
+        <button className="btn ghost sm icon" onClick={onClose} aria-label="收起属性面板"><PanelRightClose /></button>
+      </div>
+      <div className="insp-body">
+        {def.modelKind && (
+          <section className="insp-sec">
+            <h3>模型</h3>
+            <label className="field"><span>{KIND_LABEL[def.modelKind]}档案</span>
+              <select value={node.data.profileId ?? ''} aria-label="属性面板模型档案" onChange={(e) => {
+                const p = profiles.find((x) => x.id === e.target.value)
+                setNodeData(node.id, { profileId: e.target.value || undefined, label: node.data.label === def.label || profiles.some((q) => q.name === node.data.label) ? p?.name ?? def.label : node.data.label })
+              }}>
+                <option value="">未选择</option>
+                {profiles.filter((p) => p.kind === def.modelKind).map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}
+              </select>
+            </label>
+            {profile && <dl className="meta-list"><dt>适配器</dt><dd>{profile.adapter}</dd><dt>模型</dt><dd>{profile.model}</dd>{profile.cost && <><dt>单价</dt><dd>{profile.cost.amount} {profile.cost.currency}/次</dd></>}</dl>}
+          </section>
+        )}
+
+        {HAS_PARAMS.has(def.type) && (
+          <section className="insp-sec"><h3>参数</h3><Params node={node} /></section>
+        )}
+
+        {RUNNABLE.has(def.type) && (
+          <section className="insp-sec">
+            <h3>运行</h3>
+            <div className="insp-actions">
+              <button className="btn primary sm" disabled={running} onClick={() => void runNodes([node.id])} data-testid="insp-run"><Play />运行</button>
+              {(status === 'done' || status === 'cached') && node.type !== 'preview' && (
+                <button className="btn sm" disabled={running} onClick={() => void runNodes([node.id], true)} title="忽略缓存，重新调用模型"><RefreshCw />重新生成</button>
+              )}
+            </div>
+            {hasStoryboard && (
+              <button className="btn sm block" disabled={running} onClick={() => {
+                const ids = expandStoryboard(node.id)
+                if (ids.length) requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ nodes: [{ id: node.id }, ...ids.map((x) => ({ id: x }))], padding: 0.15, maxZoom: 1, duration: 450 })))
+              }}><LayoutGrid />展开到画布</button>
+            )}
+            {status !== 'idle' && (
+              <dl className="meta-list">
+                <dt>状态</dt><dd><StatusPill status={status} error={runState?.error} /></dd>
+                <dt>开始</dt><dd>{fmtTime(runState?.startedAt)}</dd>
+                <dt>完成</dt><dd>{fmtTime(runState?.finishedAt)}</dd>
+              </dl>
+            )}
+            {runState?.progress && status === 'running' && <div className="progress">{runState.progress}</div>}
+            {runState?.error && <div className="err">{runState.error}</div>}
+          </section>
+        )}
+
+        {shown && shown.length > 0 && (
+          <section className="insp-sec">
+            <h3>结果</h3>
+            <Values vals={shown} />
+            <Downloads vals={shown} name={node.data.label ?? def.label} />
+          </section>
+        )}
+
+        {def.category === 'input' && node.data.assetId && node.data.mime && (
+          <section className="insp-sec">
+            <h3>素材</h3>
+            <dl className="meta-list"><dt>文件</dt><dd>{node.data.label}</dd><dt>类型</dt><dd>{node.data.mime}</dd></dl>
+            <Downloads vals={[{ type: node.type as 'image', assetId: node.data.assetId, mime: node.data.mime }]} name={node.data.label ?? def.label} />
+          </section>
+        )}
+      </div>
+    </aside>
+  )
+}

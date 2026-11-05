@@ -4,6 +4,7 @@ import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfil
 import { api, getToken, setToken } from './api'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
 import { enterOverlay, motionEnabled, setMotionEnabled } from './motion'
+import { ambientOn, setAmbient, setThemePref, themePref, type ThemePref } from './theme'
 import { useStore } from './store'
 
 type Tab = 'profiles' | 'skills' | 'appearance' | 'access' | 'about'
@@ -274,19 +275,33 @@ function SkillsPane() {
 
 function AppearancePane() {
   const [on, setOn] = useState(motionEnabled())
+  const [theme, setTheme] = useState<ThemePref>(themePref())
+  const [amb, setAmb] = useState(ambientOn())
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   return (
     <div className="form">
       <div>
         <h3>外观与动效</h3>
-        <div className="muted">深色界面配合星空背景；浅色模式跟随系统设置。</div>
+        <div className="muted">默认是中性深灰的工作室界面：背景不偏色，让你的图片和视频色彩如实呈现。</div>
+      </div>
+      <div className="field"><span>主题</span>
+        <div className="seg2" role="radiogroup" aria-label="主题" style={{ maxWidth: 320 }}>
+          {([['system', '跟随系统'], ['dark', '深色'], ['light', '浅色']] as [ThemePref, string][]).map(([v, l]) => (
+            <button key={v} role="radio" aria-checked={theme === v} className={theme === v ? 'on' : ''} onClick={() => { setThemePref(v); setTheme(v) }} data-testid={`theme-${v}`}>{l}</button>
+          ))}
+        </div>
       </div>
       <label className="switch">
         <input type="checkbox" checked={on} disabled={reduced} onChange={(e) => { setMotionEnabled(e.target.checked); setOn(motionEnabled()) }} data-testid="motion-switch" />
         <span className="track"><span className="knob" /></span>
-        <span>界面动效与星空漂移</span>
+        <span>界面动效</span>
       </label>
-      <div className="hint"><Info />{reduced ? '系统开启了「减少动态效果」，动效已自动关闭。' : '关闭后保留静态星空与全部功能，适合低配电脑或长时间工作。'}</div>
+      <label className="switch">
+        <input type="checkbox" checked={amb} onChange={(e) => { setAmbient(e.target.checked); setAmb(e.target.checked) }} data-testid="ambient-switch" />
+        <span className="track"><span className="knob" /></span>
+        <span>氛围星空背景（仅深色主题）</span>
+      </label>
+      <div className="hint"><Info aria-hidden="true" />{reduced ? '系统开启了「减少动态效果」，动效已自动关闭。' : '评估画面色彩时建议关闭氛围背景。'}</div>
     </div>
   )
 }
@@ -296,7 +311,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向创作类智能体的无限画布。当前版本 v1.0.0-beta.4。</div>
+        <div className="muted">面向创作类智能体的无限画布。当前版本 v1.0.0-beta.5。</div>
       </div>
       <div className="hint"><Info /><span>项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。</span></div>
     </div>

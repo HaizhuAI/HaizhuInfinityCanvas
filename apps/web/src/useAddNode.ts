@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import type { ProjectGraph } from '@hzc/core'
-import { useStore } from './store'
+import { useStore, type CanvasNodeData } from './store'
 
 export type AddPayload = { type: string; profileId?: string }
 
@@ -36,9 +36,8 @@ export function useAddNode() {
     return p
   }, [screenToFlowPosition, getNodes])
 
-  const addAt = useCallback((p: AddPayload, target?: { x: number; y: number }) => {
-    addNode(p.type, freeSpot(target), p.profileId)
-  }, [addNode, freeSpot])
+  const addAt = useCallback((p: AddPayload, target?: { x: number; y: number }, data?: Partial<CanvasNodeData>) =>
+    addNode(p.type, freeSpot(target), p.profileId, data), [addNode, freeSpot])
 
   const addTemplate = useCallback((g: ProjectGraph) => {
     loadTemplate(g)

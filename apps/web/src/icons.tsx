@@ -25,6 +25,8 @@ export const KIND_COLOR: Record<ModelKind, string> = {
   llm: '#fbbf24', vlm: '#38bdf8', image: '#f472b6', video: '#fb923c', tts: '#34d399',
 }
 
+export const ASPECT_CSS: Record<string, string> = { '1:1': '1 / 1', '16:9': '16 / 9', '9:16': '9 / 16', '4:3': '4 / 3', '3:4': '3 / 4', '21:9': '21 / 9' }
+
 export const PORT_COLOR: Record<PortType, string> = {
   text: '#60a5fa', image: '#f472b6', video: '#fb923c', audio: '#34d399', storyboard: '#facc15', any: '#94a3b8',
 }

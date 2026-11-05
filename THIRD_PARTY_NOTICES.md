@@ -15,6 +15,7 @@
 | lucide-react | ISC | 界面图标（随包打包，离线可用） | beta.3 |
 | gsap | **GSAP Standard "No Charge" License**（非开源许可，见许可证审计） | 仅用于本应用自身界面的动效（`apps/web/src/motion.ts` 是唯一引用处） | beta.4 |
 | @fontsource-variable/geist、@fontsource-variable/geist-mono | OFL-1.1 | 界面字体，随包打包 | beta.4 |
+| @fontsource-variable/inter | OFL-1.1 | 界面主字体（beta.5 起替代 Geist 正文） | beta.5 |
 | yaml | ISC | 解析 SKILL.md 的 YAML frontmatter | beta.4 |
 | FFmpeg（独立可执行文件） | LGPL-2.1+（视编译选项） | 抽帧/合成 | beta.5 |
 
@@ -33,6 +34,7 @@
 | ZeroLu/open-canvas | MIT | 图模型、provider/存储接口分层、上游输出注入下游的执行规则 |
 | fancyboi999/Loomic | MIT | Agent + Skill + 异步 Worker 分层 |
 | saihhold-zhao/polox_ai | MIT | 视频模型选择卡、资产库抽屉 |
+| nextlevelbuilder/ui-ux-pro-max-skill（UI-UX-Pro-Max） | MIT | beta.5 工作室界面：按其「照片编辑 / 短视频编辑 / 生成艺术 / 绘画画布」产品档案选定中性深灰 + 内容优先风格、粉色强调色、Inter 字体（#60 Modern Dark Cinema）；按其 UX 规则与交付前清单检查对比度、焦点、图标一致性与减少动态效果；未复制其代码或数据 |
 | Leonxlnx/taste-skill（Taste Skill） | MIT | beta.4 界面重做的设计准则：一套系统（一对按钮、一种卡片、一套圆角）、不用紫色、克制的悬停/按下反馈、不倾斜、尊重减少动态效果、多宽度真实浏览器检查；未复制其代码或素材 |
 | TG8848/Tapnow-Studio | **GPL-3.0** | 仅功能灵感（视频拆解、分镜表）；**未复制任何代码** |
 | LibTV / TapNow / 即梦 / 可灵 / Krea / Flora / Weavy（商业产品） | — | 仅公开的产品交互思路 |

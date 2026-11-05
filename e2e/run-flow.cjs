@@ -47,12 +47,16 @@ async function api(method, url, body) {
   fs.writeFileSync(pngPath, PNG)
 
   const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } })
+  const page = await browser.newPage({ viewport: { width: 1840, height: 1000 } })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })
 
   await page.goto(BASE + '/')
+
+  // select a node (opens it in the inspector) by clicking its title
+  const pick = async (t, nth = 0) => { await page.locator(`[data-testid="node-${t}"] .ntitle`).nth(nth).click(); await page.waitForSelector('[data-testid="inspector"]') }
+  const insp = (tid) => `[data-testid="inspector"] [data-testid="${tid}"]`
   await page.waitForSelector('[data-testid="save-state"]:has-text("已保存")')
 
   // build: image -> image-reverse -> preview (+ an unbound llm to check error reporting)
@@ -70,7 +74,8 @@ async function api(method, url, body) {
   console.log('2 image uploaded and previewed in node')
 
   await page.selectOption('[data-testid="node-image-reverse"] select[aria-label="模型档案"]', vlm.id)
-  await page.selectOption('[data-testid="reverse-style"]', 'midjourney')
+  await pick('image-reverse')
+  await page.selectOption(insp('reverse-style'), 'midjourney')
 
   const handle = (t, id, kind) => page.locator(`.react-flow__node:has([data-testid="node-${t}"]) .react-flow__handle[data-handleid="${id}"].${kind}`).first()
   async function connect(a, b) {
@@ -102,6 +107,19 @@ async function api(method, url, body) {
   assert.equal(calls.length, 1, 'cache hit: no second provider call')
   assert.match(await page.locator('[data-testid="node-llm"] [data-testid="node-error"]').innerText(), /没有输入提示|未绑定模型档案/)
   console.log('4 run-all: reverse node cached (no new call); unbound LLM shows a clear error')
+
+  // gallery: the upload is in the assets panel; clicking it adds an image node; lightbox preview
+  await page.click('[data-testid="rail-assets"]')
+  await page.waitForSelector('[data-testid="asset-cell"]')
+  const imgNodes = await page.locator('[data-testid="node-image"]').count()
+  await page.locator('[data-testid="asset-cell"]').first().click()
+  await page.waitForFunction((n) => document.querySelectorAll('[data-testid="node-image"]').length === n + 1, imgNodes)
+  await page.locator('[data-testid="node-image"] .nmedia').first().dblclick()
+  await page.waitForSelector('[data-testid="lightbox"] img')
+  await page.keyboard.press('Escape')
+  assert.equal(await page.locator('[data-testid="lightbox"]').count(), 0)
+  await page.click('[data-testid="rail-library"]')
+  console.log('5a gallery lists the upload; click adds an image node; double-click opens the lightbox, Esc closes')
 
   // reload: outputs restored
   await page.reload()
