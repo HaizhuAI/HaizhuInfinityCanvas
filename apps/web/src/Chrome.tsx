@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useReactFlow, useViewport } from '@xyflow/react'
-import { Blocks, Download, Images, Maximize, Minus, Plus, Settings as SettingsIcon, X } from 'lucide-react'
+import { Blocks, Download, Images, Maximize, Minus, Plus, Redo2, Settings as SettingsIcon, Undo2, X } from 'lucide-react'
+import { redo, undo } from './history'
+import { MOD } from './Overlays'
 import { assetUrl } from './api'
 import { enterOverlay } from './motion'
 import { useStore } from './store'
@@ -33,8 +35,13 @@ export function FloatingToolbar() {
   const { zoomIn, zoomOut, fitView, zoomTo } = useReactFlow()
   const { zoom } = useViewport()
   const openPalette = useStore((s) => s.openPalette)
+  const canUndo = useStore((s) => s.canUndo)
+  const canRedo = useStore((s) => s.canRedo)
   return (
     <div className="ftoolbar" role="toolbar" aria-label="画布工具">
+      <button className="btn ghost sm icon" onClick={() => undo()} disabled={!canUndo} aria-label="撤销" title={`撤销（${MOD} Z）`} data-testid="undo"><Undo2 /></button>
+      <button className="btn ghost sm icon" onClick={() => redo()} disabled={!canRedo} aria-label="重做" title={`重做（${MOD} Shift Z）`} data-testid="redo"><Redo2 /></button>
+      <span className="sep" />
       <button className="btn ghost sm icon" onClick={() => void zoomOut({ duration: 160 })} aria-label="缩小"><Minus /></button>
       <button className="zoom-label" onClick={() => void zoomTo(1, { duration: 200 })} title="恢复 100%" aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击恢复 100%`}>{Math.round(zoom * 100)}%</button>
       <button className="btn ghost sm icon" onClick={() => void zoomIn({ duration: 160 })} aria-label="放大"><Plus /></button>

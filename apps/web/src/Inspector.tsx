@@ -5,7 +5,7 @@ import {
   ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS, type PortValue,
 } from '@hzc/core'
 import { assetUrl } from './api'
-import { FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
+import { ErrorBox, FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
 import { CATEGORY_COLOR, KIND_LABEL, NODE_ICON } from './icons'
 import { useStore, type CanvasNode } from './store'
 
@@ -278,7 +278,7 @@ export function Inspector({ onClose }: { onClose: () => void }) {
               </dl>
             )}
             {runState?.progress && status === 'running' && <div className="progress">{runState.progress}</div>}
-            {runState?.error && <div className="err">{runState.error}</div>}
+            {runState?.error && <ErrorBox nodeId={node.id} error={runState.error} kind={def.modelKind} />}
           </section>
         )}
 

@@ -1,16 +1,19 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, Keyboard, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
+import { CanvasHelpers, PreflightDialog, ShortcutsSheet, ToastView, useEscape } from './Overlays'
+import { copySelection, duplicateSelection, paste } from './clipboard'
+import { initHistory, redo, undo } from './history'
 import { CommandPalette } from './CommandPalette'
 import { DND_MIME, readDrag } from './dnd'
 import { CATEGORY_COLOR, NODE_ICON, PORT_COLOR } from './icons'
 import { Inspector } from './Inspector'
 import { Assets, Library } from './LeftPanel'
-import { enterMenu, enterOverlay, enterToast } from './motion'
+import { enterMenu, enterOverlay } from './motion'
 import { Settings } from './Settings'
 import { Starfield } from './Starfield'
 import { TEMPLATES } from './templates'
@@ -20,7 +23,7 @@ import { useStore } from './store'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.1'
+export const APP_VERSION = 'v1.0.0-rc.2'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -36,6 +39,7 @@ function ConfirmRun() {
   const backRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (pending) enterOverlay(panelRef.current, backRef.current) }, [pending])
+  useEscape(dismiss, !!pending)
   if (!pending) return null
   const { estimate } = pending
   const calls = estimate.items.filter((i) => !i.cached)
@@ -60,7 +64,7 @@ function ConfirmRun() {
         </div>
         <div className="foot">
           <button className="btn" onClick={dismiss} data-testid="confirm-cancel">取消</button>
-          <button className="btn primary" onClick={() => void runNodes(pending.nodeIds, pending.force, true)} data-testid="confirm-run"><Play />确认运行</button>
+          <button className="btn primary" onClick={() => void runNodes(pending.nodeIds, pending.force, { confirmed: true, checked: true })} data-testid="confirm-run"><Play />确认运行</button>
         </div>
       </div>
     </div>
@@ -179,6 +183,30 @@ async function importCanvas(file: File) {
   } catch (e) { s.showToast(`导入失败：${(e as Error).message}`) }
 }
 
+const MOD_LABEL = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
+
+/** Upload media files (dropped on the canvas or pasted) and add one input node per file. */
+async function addMediaFiles(files: File[], at?: { x: number; y: number }) {
+  const s = useStore.getState()
+  const media = files.filter((f) => /^(image|video|audio)\//.test(f.type)).slice(0, 12)
+  if (!media.length) { s.showToast('只能放入图片、视频或音频文件', { tone: 'error' }); return }
+  const el = document.querySelector('.react-flow__viewport') as HTMLElement | null
+  // without a drop point, place near the top-left of the visible canvas
+  const m = el ? new DOMMatrixReadOnly(getComputedStyle(el).transform) : new DOMMatrixReadOnly()
+  const base = at ?? { x: (80 - m.e) / (m.a || 1), y: (80 - m.f) / (m.a || 1) }
+  s.showToast(`正在上传 ${media.length} 个文件…`)
+  let i = 0
+  for (const f of media) {
+    try {
+      const a = await api.uploadAsset(f)
+      const kind = f.type.split('/')[0]!
+      s.addNode(kind, { x: base.x + (i % 4) * 320, y: base.y + Math.floor(i / 4) * 300 }, undefined, { assetId: a.id, mime: a.mime, label: f.name || '粘贴的' + ({ image: '图片', video: '视频', audio: '音频' }[kind] ?? '文件') })
+      i++
+    } catch (e) { s.showToast(`上传失败：${(e as Error).message}`, { tone: 'error' }) }
+  }
+  if (i) { void s.loadAssets(); s.showToast(`已添加 ${i} 个素材节点`) }
+}
+
 function SaveIndicator() {
   const state = useStore((s) => s.saveState)
   const label = { idle: '', dirty: '未保存', saving: '保存中…', saved: '已保存', error: '保存失败' }[state]
@@ -193,7 +221,7 @@ function SaveIndicator() {
 }
 
 function EmptyState() {
-  const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const openSettings = useStore((s) => s.openSettings)
   const openPalette = useStore((s) => s.openPalette)
   const hasProfiles = useStore((s) => s.profiles.length > 0)
   const { addTemplate } = useAddNode()
@@ -224,7 +252,7 @@ function EmptyState() {
           ))}
         </div>
         <div className="empty-actions">
-          {!hasProfiles && <button className="btn primary" onClick={() => setSettingsOpen(true)}><Plus />接入第一个模型</button>}
+          {!hasProfiles && <button className="btn primary" onClick={() => openSettings({ addKind: 'llm' })} data-testid="empty-add-model"><Plus />接入第一个模型</button>}
           <button className="btn" onClick={() => openPalette()}><Sparkles />浏览全部节点 <kbd>/</kbd></button>
           <span>或从左侧拖入 · 双击空白处添加</span>
         </div>
@@ -240,9 +268,10 @@ function Canvas() {
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
+    const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+    if (e.dataTransfer.files.length && !e.dataTransfer.types.includes(DND_MIME)) { void addMediaFiles(Array.from(e.dataTransfer.files), pos); return }
     const p = readDrag(e)
     if (!p) return
-    const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
     if ('assetId' in p) s.addNode(p.type, pos, undefined, { assetId: p.assetId, mime: p.mime, label: p.name })
     else s.addNode(p.type, pos, p.profileId)
   }, [s, screenToFlowPosition])
@@ -259,7 +288,7 @@ function Canvas() {
   }, [s.edges, s.nodes, s.runStates])
 
   return (
-    <div className="canvas" onDrop={onDrop} onDragOver={(e) => { if (e.dataTransfer.types.includes(DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
+    <div className="canvas" onDrop={onDrop} onDragOver={(e) => { if (e.dataTransfer.types.includes(DND_MIME) || e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
       onDoubleClick={(e) => {
         if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return
         s.openPalette(screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }))
@@ -306,16 +335,9 @@ function ProjectWorkspace({ inspector, setInspector }: { inspector: boolean; set
         {inspector ? <Inspector onClose={() => setInspector(false)} /> : <span />}
       </div>
       <CommandPalette />
+      <CanvasHelpers />
     </ReactFlowProvider>
   )
-}
-
-function Toast() {
-  const toast = useStore((s) => s.toast)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (toast) enterToast(ref.current) }, [toast])
-  if (!toast) return null
-  return <div className="toast" role="status" ref={ref}><Sparkles aria-hidden="true" />{toast}</div>
 }
 
 export function App() {
@@ -332,16 +354,49 @@ export function App() {
   }, [s.saveState, s.nodes, s.edges, s.projectName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    initHistory()
+    const pasteNodes = () => {
+      const n = paste()
+      if (n) useStore.getState().showToast(`已粘贴 ${n} 个节点`, { action: { label: '撤销', run: () => void undo() } })
+      return n
+    }
+    // Ctrl+V normally arrives as a paste event (which can carry files); if none follows, paste nodes
+    let pasteSeen = false
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
-      const t = e.target as HTMLElement
-      if (t.closest('input, textarea, select, [contenteditable="true"]')) return
-      if (useStore.getState().settingsOpen) return
-      e.preventDefault()
-      useStore.getState().openPalette()
+      const st = useStore.getState()
+      const editing = !!(e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')
+      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key === 'Enter' && !overlay) { e.preventDefault(); if (!st.runId && st.nodes.length) void st.runNodes(); return }
+      if (editing || overlay || e.altKey) return
+      if (e.key === '/' && !mod) { e.preventDefault(); st.openPalette(); return }
+      if (e.key === '?' && !mod) { e.preventDefault(); st.setShortcutsOpen(true); return }
+      if (!mod) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); if (!undo()) st.showToast('没有可以撤销的操作'); return }
+      if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); if (!redo()) st.showToast('没有可以重做的操作'); return }
+      if (k === 'c') {
+        if (window.getSelection()?.toString()) return // copying selected text: leave it to the browser
+        const n = copySelection()
+        if (n) { e.preventDefault(); st.showToast(`已复制 ${n} 个节点，${MOD_LABEL} V 粘贴`) }
+        return
+      }
+      if (k === 'v') { pasteSeen = false; setTimeout(() => { if (!pasteSeen) pasteNodes() }, 80); return }
+      if (k === 'd') { e.preventDefault(); const n = duplicateSelection(); if (n) st.showToast(`已创建 ${n} 个副本`, { action: { label: '撤销', run: () => void undo() } }); return }
+      if (k === 'a') { e.preventDefault(); useStore.setState({ nodes: st.nodes.map((n) => (n.selected ? n : { ...n, selected: true })) }) }
+    }
+    // paste: media files from the system clipboard become nodes; otherwise copied nodes are pasted
+    const onPaste = (e: ClipboardEvent) => {
+      pasteSeen = true
+      const st = useStore.getState()
+      if ((e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"]') || st.settingsOpen || st.palette.open) return
+      const files = Array.from(e.clipboardData?.files ?? []).filter((f) => /^(image|video|audio)\//.test(f.type))
+      if (files.length) { e.preventDefault(); void addMediaFiles(files); return }
+      if (pasteNodes()) e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('paste', onPaste)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste) }
   }, [])
 
   return (
@@ -363,14 +418,17 @@ export function App() {
               ? <button className="btn danger running sm" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
               : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}
             <button className="btn ghost sm icon" onClick={() => setInspector(!inspector)} aria-label={inspector ? '收起属性面板' : '打开属性面板'} aria-pressed={inspector} data-testid="toggle-inspector"><PanelRightOpen /></button>
+            <button className="btn ghost sm icon" onClick={() => s.setShortcutsOpen(true)} aria-label="快捷键" title="快捷键（?）" data-testid="open-shortcuts"><Keyboard /></button>
             <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
           </div>
         </header>
         <ErrorBoundary><ProjectWorkspace inspector={inspector} setInspector={setInspector} /></ErrorBoundary>
+        <PreflightDialog />
         {s.settingsOpen && <Settings />}
         <ConfirmRun />
+        <ShortcutsSheet />
         <Lightbox />
-        <Toast />
+        <ToastView />
       </div>
     </>
   )

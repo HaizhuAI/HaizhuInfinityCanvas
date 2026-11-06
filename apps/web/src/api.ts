@@ -4,6 +4,8 @@ export interface SkillMeta { name: string; description: string; source: 'builtin
 
 export interface AssetMeta { id: string; mime: string; size: number; name: string; createdAt: string }
 
+export type ConnTest = { status: 'ok'; message: string; models: string[] } | { status: 'error' | 'skipped'; message: string }
+
 export interface ProjectSummary { id: string; name: string; createdAt: string; updatedAt: string }
 export interface Project extends ProjectSummary { graph: ProjectGraph }
 
@@ -95,6 +97,7 @@ export const api = {
   createProfile: (p: ModelProfileInput) => req<ModelProfilePublic>('POST', '/api/profiles', p),
   updateProfile: (id: string, p: ModelProfileInput) => req<ModelProfilePublic>('PUT', `/api/profiles/${id}`, p),
   deleteProfile: (id: string) => req<void>('DELETE', `/api/profiles/${id}`),
+  testProfile: (b: { adapter: string; endpoint: string; apiKey?: string; profileId?: string }) => req<ConnTest>('POST', '/api/profiles/test', b),
   listProjects: () => req<ProjectSummary[]>('GET', '/api/projects'),
   getProject: (id: string) => req<Project>('GET', `/api/projects/${id}`),
   createProject: (name: string, graph?: ProjectGraph) => req<Project>('POST', '/api/projects', { name, graph }),

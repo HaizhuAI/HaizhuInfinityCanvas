@@ -3,13 +3,35 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
+import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
 import { api, type AssetMeta, type ProjectSummary, type SkillMeta } from './api'
+import { preflight } from './preflight'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
 export type CanvasNode = Node<CanvasNodeData>
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
+
+/** the profile a new node of `type` should use: the one last chosen for that kind, else the first */
+const LAST_PROFILE = 'hzc.lastProfile'
+function lastProfiles(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LAST_PROFILE) ?? '{}') as Record<string, string> } catch { return {} }
+}
+export function defaultProfileFor(type: string | undefined, profiles: ModelProfilePublic[]): string | undefined {
+  const kind = type ? NODE_TYPE_MAP[type]?.modelKind : undefined
+  if (!kind) return undefined
+  const ofKind = profiles.filter((p) => p.kind === kind)
+  return (ofKind.find((p) => p.id === lastProfiles()[kind]) ?? ofKind[0])?.id
+}
+function rememberProfile(kind: ModelKind, id: string) {
+  try { localStorage.setItem(LAST_PROFILE, JSON.stringify({ ...lastProfiles(), [kind]: id })) } catch { /* ignore */ }
+}
+const withDefaultProfile = (n: CanvasNode, profiles: ModelProfilePublic[]): CanvasNode =>
+  n.data.profileId || !NODE_TYPE_MAP[n.type ?? '']?.modelKind ? n : { ...n, data: { ...n.data, profileId: defaultProfileFor(n.type, profiles) } }
+
+export interface Toast { id: number; text: string; tone?: 'info' | 'error'; action?: { label: string; run: () => void } }
+export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'about'
+export interface SettingsIntent { tab?: SettingsTab; addKind?: ModelKind }
 
 const toGraph = (nodes: CanvasNode[], edges: Edge[]): ProjectGraph => ({
   version: 1,
@@ -30,8 +52,19 @@ interface State {
   nodes: CanvasNode[]
   edges: Edge[]
   saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
-  toast: string | null
+  toast: Toast | null
   settingsOpen: boolean
+  /** where Settings should open (tab, or straight into "add a model" of a kind) */
+  settingsIntent: SettingsIntent | null
+  /** FFmpeg availability, for the pre-run check (null until known) */
+  ffmpegOk: boolean | null
+  /** a run waiting on the pre-run check (missing models, inputs, files) */
+  pendingCheck: { nodeIds?: string[]; force?: boolean } | null
+  /** ask the canvas to centre on a node (watched inside the React Flow provider) */
+  focusRequest: { id: string; n: number } | null
+  shortcutsOpen: boolean
+  canUndo: boolean
+  canRedo: boolean
   /** latest run state per node (live during a run, restored from saved outputs on open) */
   runStates: Record<string, NodeRunState>
   runId: string | null
@@ -52,7 +85,17 @@ interface State {
   renameProject: (name: string) => void
   save: () => Promise<void>
   setSettingsOpen: (o: boolean) => void
-  showToast: (m: string) => void
+  openSettings: (intent?: SettingsIntent) => void
+  showToast: (text: string, opts?: { action?: Toast['action']; tone?: Toast['tone']; ms?: number }) => void
+  dismissToast: () => void
+  /** select a node and centre the canvas on it */
+  focusNode: (id: string) => void
+  setShortcutsOpen: (o: boolean) => void
+  /** give every node of `kind` without a usable model this profile; returns how many changed */
+  bindUnbound: (kind: ModelKind, profileId: string) => number
+  /** add nodes/edges as one step and select exactly them (paste, duplicate) */
+  insertGraph: (nodes: CanvasNode[], edges: Edge[]) => void
+  dismissCheck: () => void
 
   onNodesChange: (c: NodeChange<CanvasNode>[]) => void
   onEdgesChange: (c: EdgeChange[]) => void
@@ -72,7 +115,7 @@ interface State {
   closePalette: () => void
   /** turn a director node's storyboard into per-shot image → video (→ voice) rows; returns new node ids */
   expandStoryboard: (directorId: string) => string[]
-  runNodes: (nodeIds?: string[], force?: boolean, confirmed?: boolean) => Promise<void>
+  runNodes: (nodeIds?: string[], force?: boolean, opts?: { confirmed?: boolean; checked?: boolean }) => Promise<void>
   dismissPendingRun: () => void
   cancelRun: () => Promise<void>
 }
@@ -81,9 +124,38 @@ export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null,
+  settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, shortcutsOpen: false, canUndo: false, canRedo: false,
 
-  showToast: (m) => { set({ toast: m }); setTimeout(() => get().toast === m && set({ toast: null }), 2500) },
-  setSettingsOpen: (o) => set({ settingsOpen: o }),
+  showToast: (text, opts) => {
+    const t: Toast = { id: Date.now() + Math.random(), text, tone: opts?.tone, action: opts?.action }
+    set({ toast: t })
+    setTimeout(() => get().toast?.id === t.id && set({ toast: null }), opts?.ms ?? (opts?.action ? 7000 : 2800))
+  },
+  dismissToast: () => set({ toast: null }),
+  setSettingsOpen: (o) => set({ settingsOpen: o, settingsIntent: null }),
+  openSettings: (intent) => set({ settingsOpen: true, settingsIntent: intent ?? null }),
+  focusNode: (id) => { get().selectNode(id); set((s) => ({ focusRequest: { id, n: (s.focusRequest?.n ?? 0) + 1 } })) },
+  setShortcutsOpen: (o) => set({ shortcutsOpen: o }),
+  dismissCheck: () => set({ pendingCheck: null }),
+
+  bindUnbound: (kind, profileId) => {
+    const { nodes, profiles } = get()
+    const ids = new Set(profiles.map((p) => p.id))
+    let n = 0
+    const next = nodes.map((nd) => {
+      if (NODE_TYPE_MAP[nd.type ?? '']?.modelKind !== kind || (nd.data.profileId && ids.has(nd.data.profileId))) return nd
+      n++
+      return { ...nd, data: { ...nd.data, profileId } }
+    })
+    if (n) set({ nodes: next, saveState: 'dirty' })
+    return n
+  },
+
+  insertGraph: (nodes, edges) => set((s) => ({
+    nodes: [...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...nodes.map((n) => ({ ...n, selected: true }))],
+    edges: [...s.edges, ...edges],
+    saveState: 'dirty',
+  })),
 
   async loadProfiles() { set({ profiles: await api.listProfiles() }) },
 
@@ -100,8 +172,8 @@ export const useStore = create<State>((set, get) => ({
     const dir = nodes.find((n) => n.id === directorId)
     const sb = runStates[directorId]?.outputs?.out?.find((v) => v.type === 'storyboard')
     if (!dir || !sb || sb.type !== 'storyboard') return []
-    const first = (kind: ModelProfilePublic['kind']) => profiles.find((p) => p.kind === kind)
-    const img = first('image'), vid = first('video'), tts = first('tts')
+    const first = (type: string) => { const id = defaultProfileFor(type, profiles); return id ? { id } : undefined }
+    const img = first('image-gen'), vid = first('video-gen'), tts = first('tts')
     const aspect = dir.data.params?.aspect_ratio
     const ROW = 480, X0 = dir.position.x + 400
     const newNodes: CanvasNode[] = []
@@ -143,6 +215,7 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     void get().loadSkills().catch(() => undefined)
+    void api.system().then((sys) => set({ ffmpegOk: sys.ffmpeg.ok })).catch(() => undefined)
     void get().loadAssets().catch(() => undefined)
     await get().loadProfiles()
     const projects = await api.listProjects()
@@ -204,10 +277,10 @@ export const useStore = create<State>((set, get) => ({
     const def = NODE_TYPE_MAP[type]
     if (!def) return undefined
     const profile = profileId ? get().profiles.find((p) => p.id === profileId) : undefined
-    const node: CanvasNode = {
+    const node: CanvasNode = withDefaultProfile({
       id: `n_${uid()}`, type, position,
       data: { label: profile?.name ?? def.label, profileId, text: '', ...data },
-    }
+    }, get().profiles)
     set((s) => ({ nodes: [...s.nodes, node], saveState: 'dirty' }))
     return node.id
   },
@@ -220,19 +293,22 @@ export const useStore = create<State>((set, get) => ({
 
   loadTemplate: (g) => {
     const { nodes, edges } = fromGraph(g)
-    set((s) => ({ nodes: [...s.nodes, ...nodes], edges: [...s.edges, ...edges], saveState: 'dirty' }))
+    const bound = nodes.map((n) => withDefaultProfile(n, get().profiles))
+    set((s) => ({ nodes: [...s.nodes, ...bound], edges: [...s.edges, ...edges], saveState: 'dirty' }))
   },
 
   dismissPendingRun: () => set({ pendingRun: null }),
 
-  async runNodes(nodeIds, force, confirmed) {
+  async runNodes(nodeIds, force, opts) {
     const { projectId } = get()
     if (!projectId) return
-    set({ pendingRun: null })
+    set({ pendingRun: null, pendingCheck: null })
+    // missing models / inputs / files: show what to fix first (the dialog can still run anyway)
+    if (!opts?.checked && preflight(get(), nodeIds).length) { set({ pendingCheck: { nodeIds, force } }); return }
     await get().save() // the server runs the saved graph
     if (get().saveState === 'error') return
     try {
-      if (!confirmed) {
+      if (!opts?.confirmed) {
         // ask before anything that generates media or has a configured price
         const estimate = await api.estimate(projectId, { nodeIds, force })
         const paid = estimate.items.some((i) => !i.cached && (i.generative || (i.cost?.amount ?? 0) > 0))
@@ -245,7 +321,17 @@ export const useStore = create<State>((set, get) => ({
         if (e.kind === 'node') set((s) => ({ runStates: { ...s.runStates, [e.nodeId]: e.state } }))
         if (e.kind === 'run-end') {
           set({ runId: null })
-          if (e.status === 'error') get().showToast('运行结束：有节点失败，详情见节点')
+          if (e.status === 'error') {
+            const { runStates, nodes } = get()
+            const failed = nodes.filter((n) => runStates[n.id]?.status === 'error')
+            const firstFailed = failed[0]
+            const name = firstFailed ? firstFailed.data.label ?? NODE_TYPE_MAP[firstFailed.type ?? '']?.label ?? '节点' : ''
+            get().showToast(failed.length > 1 ? `运行结束：${failed.length} 个节点失败` : `运行结束：「${name}」失败`, {
+              tone: 'error',
+              action: firstFailed ? { label: '查看原因', run: () => get().focusNode(firstFailed.id) } : undefined,
+            })
+          }
+          if (e.status === 'done') get().showToast('运行完成')
           if (e.status === 'cancelled') get().showToast('已停止')
         }
       })
@@ -260,6 +346,11 @@ export const useStore = create<State>((set, get) => ({
     if (runId) await api.cancelRun(runId).catch(() => undefined)
   },
 
-  setNodeData: (id, patch) =>
-    set((s) => ({ nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)), saveState: 'dirty' })),
+  setNodeData: (id, patch) => {
+    if (patch.profileId) {
+      const kind = NODE_TYPE_MAP[get().nodes.find((n) => n.id === id)?.type ?? '']?.modelKind
+      if (kind) rememberProfile(kind, patch.profileId)
+    }
+    set((s) => ({ nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)), saveState: 'dirty' }))
+  },
 }))

@@ -100,13 +100,35 @@ async function api(method, url, body) {
   assert.equal(await page.locator('[data-testid="node-llm"] [data-testid="node-status"]').count(), 0, 'unrelated node not run')
   console.log('3 reverse prompt produced and shown in preview; provider got style template + image + key')
 
-  // run all: reverse is cached, unbound llm errors clearly
+  // run all: the pre-run check lists what would fail, with fixes
   await page.click('[data-testid="run-all"]')
+  await page.waitForSelector('[data-testid="preflight"]')
+  const rows = page.locator('[data-testid="preflight-row"]')
+  // the unused VLM node has no image; the LLM has no input and there is no text model at all
+  let texts = await rows.allInnerTexts()
+  assert.equal(texts.length, 2, JSON.stringify(texts))
+  assert.ok(texts.some((t) => /Qwen-VL[\s\S]*需要连接至少一张图片/.test(t)), JSON.stringify(texts))
+  assert.ok(texts.some((t) => /文本模型[\s\S]*没有输入/.test(t)), JSON.stringify(texts))
+  assert.match(await page.locator('[data-testid="preflight-model-group"]').innerText(), /需要文本模型[\s\S]*还没有文本模型档案/)
+  assert.equal(await page.locator('[data-testid="preflight-add-model"]').count(), 1, 'offers to add a text model')
+  await page.screenshot({ path: OUT + '/rc2-preflight.png' })
+  // the list updates live: give the LLM a prompt (behind the dialog) and its input issue goes away
+  await page.click('[data-testid="preflight-cancel"]')
+  await page.fill('[data-testid="node-llm"] [data-testid="llm-text"]', '把上面的提示词改写得更有电影感')
+  await page.click('[data-testid="run-all"]')
+  await page.waitForSelector('[data-testid="preflight"]')
+  texts = await rows.allInnerTexts()
+  assert.ok(!texts.some((t) => /没有输入/.test(t)), JSON.stringify(texts))
+  assert.equal(await page.locator('[data-testid="preflight-model-group"]').count(), 1)
+  // running anyway: reverse is cached, the LLM fails with the server's clear error and a fix button
+  await page.click('[data-testid="preflight-run-anyway"]')
   await page.waitForSelector('[data-testid="node-llm"] [data-testid="node-error"]', { timeout: 15000 })
   assert.equal(await page.locator('[data-testid="node-image-reverse"] [data-testid="node-status"]').innerText(), '复用缓存')
   assert.equal(calls.length, 1, 'cache hit: no second provider call')
-  assert.match(await page.locator('[data-testid="node-llm"] [data-testid="node-error"]').innerText(), /没有输入提示|未绑定模型档案/)
-  console.log('4 run-all: reverse node cached (no new call); unbound LLM shows a clear error')
+  assert.match(await page.locator('[data-testid="node-llm"] [data-testid="node-error"]').innerText(), /没有输入提示|还没有选择/)
+  assert.match(await page.locator('[data-testid="node-llm"] [data-testid="error-action"]').innerText(), /添加文本模型/)
+  await page.waitForSelector('[data-testid="toast-action"]:has-text("查看原因")')
+  console.log('4 run-all: pre-run check lists the LLM with fixes; run anyway → reverse cached, LLM error offers "添加文本模型", toast offers "查看原因"')
 
   // gallery: the upload is in the assets panel; clicking it adds an image node; lightbox preview
   await page.click('[data-testid="rail-assets"]')

@@ -34,11 +34,14 @@ export type Handler = (ctx: HandlerCtx) => Promise<NodeOutputs>
 
 const PLANNED: Record<string, string> = {}
 
+const KIND_NAME: Record<string, string> = { llm: '文本模型', vlm: '视觉分析模型', image: '图片生成模型', video: '视频生成模型', tts: '语音合成模型' }
+
 function requireProfile(ctx: HandlerCtx): ModelProfile {
   const def = NODE_TYPE_MAP[ctx.node.type]
-  if (!ctx.node.data.profileId) throw new NodeError('未绑定模型档案')
-  if (!ctx.profile) throw new NodeError('绑定的模型档案已被删除')
-  if (def?.modelKind && ctx.profile.kind !== def.modelKind) throw new NodeError(`该节点需要「${def.modelKind}」类型的模型档案，当前绑定的是「${ctx.profile.kind}」`)
+  const want = def?.modelKind ? KIND_NAME[def.modelKind] : '模型'
+  if (!ctx.node.data.profileId) throw new NodeError(`还没有选择${want}：在节点上的模型下拉框里选一个，或先在「设置 → 模型档案」添加`)
+  if (!ctx.profile) throw new NodeError(`之前选择的${want}档案已被删除：请重新选择一个`)
+  if (def?.modelKind && ctx.profile.kind !== def.modelKind) throw new NodeError(`这个节点需要${want}，当前选择的是${KIND_NAME[ctx.profile.kind]}：请重新选择`)
   return ctx.profile
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
 import { Ban, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
-import { NODE_TYPE_MAP, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
+import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { ASPECT_CSS, CATEGORY_COLOR, KIND_LABEL, NODE_ICON, PORT_COLOR, PORT_LABEL } from './icons'
 import { enterNode, successPulse } from './motion'
@@ -22,6 +22,25 @@ const MEDIA_ACCEPT: Record<string, string> = { image: 'image/png,image/jpeg,imag
 const MEDIA_LABEL: Record<string, string> = { image: '图片', video: '视频', audio: '音频' }
 export const RUNNABLE = new Set(['llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'])
 const WIDE = new Set(['image-gen', 'video-gen', 'image', 'video', 'director', 'video-reverse', 'export', 'preview'])
+
+/** A node's error with the one action that fixes it, when we know it. */
+export function ErrorBox({ nodeId, error, kind }: { nodeId: string; error: string; kind?: ModelKind }) {
+  const openSettings = useStore((s) => s.openSettings)
+  const hasModel = useStore((s) => !!kind && s.profiles.some((p) => p.kind === kind))
+  let action: { label: string; run: () => void } | undefined
+  if (kind && /还没有选择|已被删除|需要.*模型|请重新选择/.test(error)) {
+    action = hasModel
+      ? { label: '选择模型', run: () => { const el = document.querySelector<HTMLSelectElement>(`.react-flow__node[data-id="${nodeId}"] select[aria-label="模型档案"]`); el?.focus(); el?.showPicker?.() } }
+      : { label: `添加${KIND_LABEL[kind]}`, run: () => openSettings({ addKind: kind }) }
+  } else if (/FFmpeg/.test(error)) action = { label: '查看安装方法', run: () => openSettings({ tab: 'about' }) }
+  else if (/重新填写 Key|返回 40[13]|Key 无效/.test(error)) action = { label: '检查模型档案', run: () => openSettings({ tab: 'profiles' }) }
+  return (
+    <div className="err" data-testid="node-error">
+      <span>{error}</span>
+      {action && <button className="err-action nodrag" onClick={action.run} data-testid="error-action">{action.label}</button>}
+    </div>
+  )
+}
 
 export function StatusPill({ status, error }: { status: NodeStatus; error?: string }) {
   const st = STATUS[status]
@@ -169,7 +188,7 @@ function OwnText({ id, port, text, placeholder, testid, rows }: { id: string; po
 function ModelChip({ id, kind, profileId, label, defLabel }: { id: string; kind: NonNullable<(typeof NODE_TYPE_MAP)[string]['modelKind']>; profileId?: string; label?: string; defLabel: string }) {
   const profiles = useStore((s) => s.profiles)
   const setNodeData = useStore((s) => s.setNodeData)
-  const openSettings = useStore((s) => s.setSettingsOpen)
+  const openSettings = useStore((s) => s.openSettings)
   const profile = profileId ? profiles.find((p) => p.id === profileId) : undefined
   const options = profiles.filter((p) => p.kind === kind)
   return (
@@ -187,7 +206,7 @@ function ModelChip({ id, kind, profileId, label, defLabel }: { id: string; kind:
       </div>
       {!!profileId && !profile && <div className="warn"><TriangleExclamationPoint aria-hidden="true" />绑定的模型档案已被删除</div>}
       {!profileId && options.length === 0 && (
-        <div className="hint"><Info aria-hidden="true" /><span>还没有{KIND_LABEL[kind]}档案。<button className="link nodrag" onClick={() => openSettings(true)}>去添加</button></span></div>
+        <div className="hint"><Info aria-hidden="true" /><span>还没有{KIND_LABEL[kind]}档案。<button className="link nodrag" onClick={() => openSettings({ addKind: kind })} data-testid="node-add-model">去添加</button></span></div>
       )}
     </>
   )
@@ -258,7 +277,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
           {type === 'llm' && <OwnText id={id} port="in" text={data.text} rows={3} testid="llm-text" placeholder="提示词（或连接上游文本）" />}
 
           {!genKind && isRunning && runState?.progress && <div className="progress" data-testid="node-progress"><span className="orbit" style={{ '--s': '13px' } as React.CSSProperties} aria-hidden="true" />{runState.progress}</div>}
-          {runState?.error && <div className="err" data-testid="node-error">{runState.error}</div>}
+          {runState?.error && <ErrorBox nodeId={id} error={runState.error} kind={def.modelKind} />}
           {shown && shown.length > 0 && !(genKind && type !== 'export') && <Values vals={shown} />}
           {type === 'export' && !media.length && <Frame kind="video" running={isRunning} progress={runState?.progress} aspect={params.aspect_ratio as string | undefined} />}
           {hasStoryboard && (

@@ -126,7 +126,7 @@ describe('engine + openai-compat provider', () => {
     const p = project(textLlmPreview(undefined))
     const { last, end } = await run(p.id)
     expect(end.status).toBe('error')
-    expect(last.get('l')).toMatchObject({ status: 'error', error: '未绑定模型档案' })
+    expect(last.get('l')).toMatchObject({ status: 'error', error: expect.stringContaining('还没有选择文本模型') })
     expect(last.get('p').status).toBe('skipped')
     expect(seen).toHaveLength(0)
   })
@@ -143,7 +143,7 @@ describe('engine + openai-compat provider', () => {
   it('rejects a profile of the wrong kind', async () => {
     const p = project(textLlmPreview(profile('vlm').id))
     const { last } = await run(p.id)
-    expect(last.get('l').error).toMatch(/需要「llm」/)
+    expect(last.get('l').error).toMatch(/需要文本模型/)
   })
 
   it('cancels a running provider call', async () => {

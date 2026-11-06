@@ -2,16 +2,17 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { createReadStream, existsSync } from 'node:fs'
 import { Readable } from 'node:stream'
-import { validateProfileInput, type ProjectGraph } from '@hzc/core'
+import { ADAPTERS, validateProfileInput, type AdapterId, type ProjectGraph } from '@hzc/core'
 import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
 import { SkillError, type SkillStore } from './skills'
 import { ffmpegInfo } from './media'
+import { testConnection } from './conntest'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 
-export const APP_VERSION = '1.0.0-rc.1'
+export const APP_VERSION = '1.0.0-rc.2'
 
 export interface AppOptions {
   store: Store
@@ -73,6 +74,18 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (!v.ok) return reply.code(400).send({ error: v.error })
     const p = store.updateProfile(req.params.id, v.value)
     return p ? publicProfile(p) : reply.code(404).send({ error: 'not found' })
+  })
+
+  /** free, read-only connectivity check (lists models where the provider allows it) */
+  app.post<{ Body: { adapter?: unknown; endpoint?: unknown; apiKey?: unknown; profileId?: unknown } }>('/api/profiles/test', async (req, reply) => {
+    const b = req.body ?? {}
+    if (typeof b.adapter !== 'string' || !(ADAPTERS as readonly string[]).includes(b.adapter)) return reply.code(400).send({ error: 'unknown adapter' })
+    // editing a saved profile without retyping its key: use the stored one (never sent back)
+    let key = typeof b.apiKey === 'string' && b.apiKey ? b.apiKey : undefined
+    if (!key && typeof b.profileId === 'string') {
+      try { key = store.getApiKey(b.profileId) } catch (e) { return { status: 'error', message: (e as Error).message } }
+    }
+    return testConnection(b.adapter as AdapterId, typeof b.endpoint === 'string' ? b.endpoint : '', key)
   })
 
   app.delete<{ Params: { id: string } }>('/api/profiles/:id', async (req, reply) =>
