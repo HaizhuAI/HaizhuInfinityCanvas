@@ -351,6 +351,11 @@ export const useStore = create<State>((set, get) => ({
       const kind = NODE_TYPE_MAP[get().nodes.find((n) => n.id === id)?.type ?? '']?.modelKind
       if (kind) rememberProfile(kind, patch.profileId)
     }
-    set((s) => ({ nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)), saveState: 'dirty' }))
+    set((s) => {
+      // editing a failed node is usually the fix: drop its stale error (results of other nodes stay)
+      const failed = s.runStates[id]?.status === 'error' || s.runStates[id]?.status === 'skipped'
+      const runStates = failed ? Object.fromEntries(Object.entries(s.runStates).filter(([k]) => k !== id)) : s.runStates
+      return { nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)), runStates, saveState: 'dirty' }
+    })
   },
 }))

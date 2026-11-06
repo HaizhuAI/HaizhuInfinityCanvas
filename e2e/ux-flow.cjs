@@ -125,6 +125,38 @@ function startMock() {
   await page.waitForFunction((n) => document.querySelectorAll('[data-testid="node-image"] img').length === n + 1, before, { timeout: 10000 })
   console.log('7 a file dropped on the canvas becomes an image node')
 
+  // 8. right-click menus: duplicate a node; paste at the pointer on empty canvas
+  const directors = await count('[data-testid="node-director"]')
+  await page.locator('[data-testid="node-director"] .ntitle').first().click({ button: 'right' })
+  await page.waitForSelector('[data-testid="context-menu"]')
+  await page.screenshot({ path: OUT + '/rc2-context-node.png' })
+  await page.click('[data-testid="ctx-duplicate"]')
+  await page.waitForFunction((n) => document.querySelectorAll('[data-testid="node-director"]').length === n + 1, directors)
+  await page.keyboard.press(`${mod}+c`)
+  await page.locator('.react-flow__pane').click({ button: 'right', position: { x: 24, y: 24 } })
+  await page.click('[data-testid="ctx-paste"]')
+  await page.waitForFunction((n) => document.querySelectorAll('[data-testid="node-director"]').length === n + 2, directors)
+  console.log('8 right-click: 创建副本 on a node, 粘贴到这里 on the canvas')
+
+  // 9. a failed input node shows why, and the error clears once it is fixed
+  await page.dragAndDrop('[data-testid="palette-image"]', '.react-flow__pane', { targetPosition: { x: 200, y: 120 } })
+  const empty = page.locator('[data-testid="node-image"]:not(:has(img))')
+  await empty.waitFor()
+  await page.fill('[data-testid="node-text"] textarea', '雨夜霓虹街头的机械猫') // give the directors an idea again
+  await page.waitForTimeout(500)
+  await page.click('[data-testid="run-all"]')
+  await page.waitForSelector('[data-testid="preflight"]')
+  assert.match(await page.locator('[data-testid="preflight"]').innerText(), /还没有上传图片/)
+  await page.click('[data-testid="preflight-run-anyway"]')
+  await empty.locator('[data-testid="node-error"]').waitFor({ timeout: 15000 })
+  assert.match(await empty.locator('[data-testid="node-error"]').innerText(), /还没有上传/)
+  // the mock rejects chat calls: the director's error offers to check the model profile
+  await page.locator('[data-testid="node-director"] [data-testid="error-action"]:has-text("检查模型档案")').first().waitFor({ timeout: 15000 })
+  await page.screenshot({ path: OUT + '/rc2-errors.png' })
+  await empty.locator('[data-testid="upload-image"]').setInputFiles({ name: 'fix.png', mimeType: 'image/png', buffer: Buffer.from(PNG, 'base64') })
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="node-image"]')].every((n) => !n.querySelector('[data-testid="node-error"]')))
+  console.log('9 an empty image node shows "还没有上传" after a run; uploading clears the error; a 401 offers 检查模型档案')
+
   await page.screenshot({ path: OUT + '/rc2-canvas.png' })
   await browser.close(); mock.close()
   console.log('console/page errors:', errors.length ? errors : 'none')

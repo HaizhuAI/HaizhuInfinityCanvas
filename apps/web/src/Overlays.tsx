@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { CircleAlert, Crosshair, Download, Keyboard, Play, Plus, Sparkles, X } from 'lucide-react'
+import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, Keyboard, Maximize, Play, Plus, Sparkles, Trash, Undo2, X } from 'lucide-react'
+import { canPaste, copySelection, duplicateSelection, paste } from './clipboard'
+import { undo } from './history'
 import { NODE_TYPE_MAP, type ModelKind } from '@hzc/core'
 import { CATEGORY_COLOR, KIND_COLOR, KIND_ICON, KIND_LABEL, NODE_ICON } from './icons'
 import { enterOverlay, enterToast } from './motion'
@@ -191,4 +193,52 @@ export function CanvasHelpers() {
     return () => window.removeEventListener('keydown', onKey)
   }, [fitView])
   return null
+}
+
+export type CtxMenu = { x: number; y: number; nodeId?: string; at?: { x: number; y: number } } | null
+
+/** Right-click menu: the same actions as the shortcuts, for mouse users (shortcut shown on the right). */
+export function ContextMenu({ menu, onClose }: { menu: NonNullable<CtxMenu>; onClose: () => void }) {
+  const { fitView, deleteElements } = useReactFlow()
+  const ref = useRef<HTMLDivElement>(null)
+  useEscape(onClose)
+  useEffect(() => {
+    const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose() }
+    window.addEventListener('mousedown', away, true)
+    window.addEventListener('wheel', onClose, { passive: true })
+    return () => { window.removeEventListener('mousedown', away, true); window.removeEventListener('wheel', onClose) }
+  }, [onClose])
+  const st = useStore.getState()
+  const selected = st.nodes.filter((n) => n.selected)
+  const item = (label: string, Icon: typeof Copy, run: () => void, keys?: string, opts?: { disabled?: boolean; danger?: boolean; testid?: string }) => (
+    <button role="menuitem" className={`menu-item${opts?.danger ? ' danger' : ''}`} disabled={opts?.disabled} data-testid={opts?.testid}
+      onClick={() => { onClose(); run() }}>
+      <Icon aria-hidden="true" /><span className="grow">{label}</span>{keys && <kbd>{keys}</kbd>}
+    </button>
+  )
+  // keep the menu inside the window
+  const left = Math.min(menu.x, window.innerWidth - 230), top = Math.min(menu.y, window.innerHeight - (menu.nodeId ? 190 : 230))
+  return (
+    <div className="menu ctx" role="menu" ref={ref} style={{ left, top }} data-testid="context-menu" onContextMenu={(e) => e.preventDefault()}>
+      {menu.nodeId ? (
+        <>
+          {item(selected.length > 1 ? `运行这 ${selected.length} 个节点` : '运行到这里', Play, () => void st.runNodes(selected.length ? selected.map((n) => n.id) : [menu.nodeId!]), undefined, { testid: 'ctx-run' })}
+          <div className="menu-sep" />
+          {item('创建副本', CopyPlus, () => { duplicateSelection() }, `${MOD} D`, { testid: 'ctx-duplicate' })}
+          {item('复制', Copy, () => { const n = copySelection(); if (n) st.showToast(`已复制 ${n} 个节点`) }, `${MOD} C`, { testid: 'ctx-copy' })}
+          <div className="menu-sep" />
+          {item(selected.length > 1 ? `删除 ${selected.length} 个节点` : '删除', Trash, () => void deleteElements({ nodes: (selected.length ? selected : [{ id: menu.nodeId! }]).map((n) => ({ id: n.id })) }), 'Delete', { danger: true, testid: 'ctx-delete' })}
+        </>
+      ) : (
+        <>
+          {item('在这里添加节点…', Plus, () => st.openPalette(menu.at), '/', { testid: 'ctx-add' })}
+          {item('粘贴到这里', ClipboardPaste, () => { const n = paste(menu.at && { x: menu.at.x + 150, y: menu.at.y + 40 }); if (n) st.showToast(`已粘贴 ${n} 个节点`) }, `${MOD} V`, { disabled: !canPaste(), testid: 'ctx-paste' })}
+          <div className="menu-sep" />
+          {item('全选', BoxSelect, () => useStore.setState({ nodes: st.nodes.map((n) => (n.selected ? n : { ...n, selected: true })) }), `${MOD} A`, { disabled: !st.nodes.length })}
+          {item('适应画布', Maximize, () => void fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 'Shift 1', { disabled: !st.nodes.length })}
+          {item('撤销', Undo2, () => { undo() }, `${MOD} Z`, { disabled: !st.canUndo })}
+        </>
+      )}
+    </div>
+  )
 }

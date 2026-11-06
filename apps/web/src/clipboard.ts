@@ -30,19 +30,27 @@ export function copySelection(): number {
   return c.nodes.length
 }
 
-function insert(c: Clip, offset: number): number {
+function insert(c: Clip, offset: number, at?: { x: number; y: number }): number {
   const map = new Map(c.nodes.map((n) => [n.id, `n_${uid()}`]))
-  const nodes = c.nodes.map((n) => ({ ...n, id: map.get(n.id)!, position: { x: n.position.x + offset, y: n.position.y + offset }, data: { ...n.data } }))
+  // at a point (right-click paste): the group's top-left lands there; otherwise offset from the originals
+  const minX = Math.min(...c.nodes.map((n) => n.position.x)), minY = Math.min(...c.nodes.map((n) => n.position.y))
+  const dx = at ? at.x - minX : offset, dy = at ? at.y - minY : offset
+  const nodes = c.nodes.map((n) => ({ ...n, id: map.get(n.id)!, position: { x: n.position.x + dx, y: n.position.y + dy }, data: { ...n.data } }))
   const edges = c.edges.map((e) => ({ ...e, id: `e_${uid()}`, source: map.get(e.source)!, target: map.get(e.target)! }))
   useStore.getState().insertGraph(nodes, edges)
   return nodes.length
 }
 
-export function paste(): number {
+export function paste(at?: { x: number; y: number }): number {
   if (!clip) { try { clip = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Clip | null } catch { clip = null } }
   if (!clip?.nodes?.length) return 0
   pasteCount++
-  return insert(clip, 40 * pasteCount)
+  return insert(clip, 40 * pasteCount, at)
+}
+
+export function canPaste(): boolean {
+  if (clip?.nodes?.length) return true
+  try { return !!(JSON.parse(localStorage.getItem(KEY) ?? 'null') as Clip | null)?.nodes?.length } catch { return false }
 }
 
 export function duplicateSelection(): number {

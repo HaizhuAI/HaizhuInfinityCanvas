@@ -12,7 +12,7 @@ const CATS: NodeCategory[] = ['input', 'model', 'tool', 'output']
 /** Models + all node types. Drag to place, click to add near the centre of the view. */
 export function Library() {
   const profiles = useStore((s) => s.profiles)
-  const openSettings = useStore((s) => s.setSettingsOpen)
+  const openSettings = useStore((s) => s.openSettings)
   const { addAt } = useAddNode()
   const [q, setQ] = useState('')
   const query = q.trim().toLowerCase()
@@ -31,12 +31,12 @@ export function Library() {
         <details className="lsec" open>
           <summary>
             <ChevronRight className="chev" aria-hidden="true" />我的模型
-            <button className="btn ghost xs icon" title="添加模型档案" aria-label="添加模型档案" onClick={(e) => { e.preventDefault(); openSettings(true) }}><Plus /></button>
+            <button className="btn ghost xs icon" title="添加模型" aria-label="添加模型" onClick={(e) => { e.preventDefault(); openSettings({ addKind: 'llm' }) }} data-testid="lib-add-model"><Plus /></button>
           </summary>
           {profiles.length === 0 ? (
             <div className="lempty">
               接入你的文本、视觉、图片、视频与语音模型，它们会作为智能体出现在这里。
-              <div><button className="btn primary sm" onClick={() => openSettings(true)}><Plus />添加模型档案</button></div>
+              <div><button className="btn primary sm" onClick={() => openSettings({ addKind: 'llm' })}><Plus />添加模型</button></div>
             </div>
           ) : (
             <div className="llist">

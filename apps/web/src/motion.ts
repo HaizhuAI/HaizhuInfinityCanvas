@@ -62,5 +62,5 @@ export function successPulse(ring: Element | null) {
 
 export function enterToast(el: Element | null) {
   if (!el || !enabled) return
-  gsap.fromTo(el, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.2, clearProps: 'opacity' })
+  gsap.fromTo(el, { opacity: 0, y: -8 }, { opacity: 1, y: 0, duration: 0.2, clearProps: 'opacity' })
 }

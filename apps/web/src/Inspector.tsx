@@ -282,6 +282,10 @@ export function Inspector({ onClose }: { onClose: () => void }) {
           </section>
         )}
 
+        {!RUNNABLE.has(def.type) && runState?.error && (
+          <section className="insp-sec"><h3>上次运行</h3><ErrorBox nodeId={node.id} error={runState.error} kind={def.modelKind} /></section>
+        )}
+
         {shown && shown.length > 0 && (
           <section className="insp-sec">
             <h3>结果</h3>

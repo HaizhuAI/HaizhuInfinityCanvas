@@ -5,7 +5,7 @@ import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudChec
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
-import { CanvasHelpers, PreflightDialog, ShortcutsSheet, ToastView, useEscape } from './Overlays'
+import { CanvasHelpers, ContextMenu, PreflightDialog, ShortcutsSheet, ToastView, useEscape, type CtxMenu } from './Overlays'
 import { copySelection, duplicateSelection, paste } from './clipboard'
 import { initHistory, redo, undo } from './history'
 import { CommandPalette } from './CommandPalette'
@@ -265,6 +265,8 @@ function Canvas() {
   const s = useStore()
   const { screenToFlowPosition } = useReactFlow()
   const [fitOnOpen] = useState(() => useStore.getState().nodes.length > 0)
+  const [ctx, setCtx] = useState<CtxMenu>(null)
+  const closeCtx = useCallback(() => setCtx(null), [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -297,6 +299,8 @@ function Canvas() {
         nodes={s.nodes} edges={edges} nodeTypes={nodeTypes}
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
+        onNodeContextMenu={(e, node) => { e.preventDefault(); if (!node.selected) s.selectNode(node.id); setCtx({ x: e.clientX, y: e.clientY, nodeId: node.id }) }}
+        onPaneContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, at: screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }) }) }}
         onMove={(_, vp) => {
           const r = document.documentElement.style
           r.setProperty('--pan-x', String(vp.x)); r.setProperty('--pan-y', String(vp.y))
@@ -314,6 +318,7 @@ function Canvas() {
         )}
       </ReactFlow>
       {s.nodes.length > 0 && <FloatingToolbar />}
+      {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
       {s.nodes.length === 0 && <EmptyState />}
     </div>
   )

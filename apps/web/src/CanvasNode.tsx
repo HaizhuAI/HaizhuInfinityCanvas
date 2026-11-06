@@ -137,7 +137,7 @@ function Frame({ aspect, kind, running, progress }: { aspect?: string; kind: 'im
   )
 }
 
-function MediaInput({ id, kind, assetId, mime, name }: { id: string; kind: 'image' | 'video' | 'audio'; assetId?: string; mime?: string; name?: string }) {
+function MediaInput({ id, kind, assetId, mime, name, error }: { id: string; kind: 'image' | 'video' | 'audio'; assetId?: string; mime?: string; name?: string; error?: string }) {
   const setNodeData = useStore((s) => s.setNodeData)
   const showToast = useStore((s) => s.showToast)
   const loadAssets = useStore((s) => s.loadAssets)
@@ -173,6 +173,7 @@ function MediaInput({ id, kind, assetId, mime, name }: { id: string; kind: 'imag
           <span>{busy ? '上传中…' : `点击或拖入${MEDIA_LABEL[kind]}`}</span>
         </div>
       )}
+      {error && <ErrorBox nodeId={id} error={error} />}
     </div>
   )
 }
@@ -261,7 +262,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
         )}
       </div>
 
-      {(type === 'image' || type === 'video' || type === 'audio') && <MediaInput id={id} kind={type} assetId={data.assetId} mime={data.mime} name={data.label} />}
+      {(type === 'image' || type === 'video' || type === 'audio') && <MediaInput id={id} kind={type} assetId={data.assetId} mime={data.mime} name={data.label} error={runState?.error} />}
 
       {type !== 'image' && type !== 'video' && type !== 'audio' && (
         <div className="nbody">

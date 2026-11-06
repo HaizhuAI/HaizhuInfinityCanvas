@@ -501,8 +501,8 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .err-action:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); }
 .err-action:focus-visible { outline: 2px solid var(--danger-hi); outline-offset: 2px; }
 
-/* toast: an action and a quiet close */
-.toast { padding: 7px 8px 7px 14px; max-width: min(640px, calc(100vw - 32px)); }
+/* toast: an action and a quiet close; at the top so it never covers the toolbar or minimap */
+.toast { top: 60px; bottom: auto; padding: 7px 8px 7px 14px; max-width: min(640px, calc(100vw - 32px)); }
 .toast > span { flex: 1; min-width: 0; }
 .toast .btn.sm { height: 26px; }
 .toast.error svg:first-child { color: var(--danger-hi); }
@@ -553,3 +553,10 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 
 /* templates: two by two instead of three plus one */
 .tpl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* right-click menu: fixed at the pointer */
+.menu.ctx { position: fixed; transform: none; min-width: 220px; z-index: 45; }
+.menu.ctx .menu-item kbd { margin-left: auto; }
+.menu.ctx .menu-item:disabled { opacity: .45; cursor: default; background: none; }
+.menu.ctx .menu-item.danger { color: var(--danger-hi); }
+.menu.ctx .menu-item.danger:hover { background: var(--danger-soft); }
