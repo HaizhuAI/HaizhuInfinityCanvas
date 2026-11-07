@@ -9,10 +9,13 @@ import type { Engine } from './engine'
 import { SkillError, type SkillStore } from './skills'
 import { ffmpegInfo } from './media'
 import { testConnection } from './conntest'
+import { runAssistant, type CanvasSummary, type ChatTurn } from './assistant'
+import { chatAdapterFor, ProviderError } from './providers'
+import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 
-export const APP_VERSION = '1.0.0-rc.3'
+export const APP_VERSION = '1.0.0-rc.4'
 
 export interface AppOptions {
   store: Store
@@ -109,6 +112,12 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     return p ?? reply.code(404).send({ error: 'not found' })
   })
 
+  app.post<{ Params: { id: string }; Body: { name?: unknown } }>('/api/projects/:id/duplicate', async (req, reply) => {
+    const name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim().slice(0, 100) : undefined
+    const p = store.duplicateProject(req.params.id, name)
+    return p ? reply.code(201).send(p) : reply.code(404).send({ error: 'not found' })
+  })
+
   app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) =>
     store.deleteProject(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' }))
 
@@ -172,6 +181,52 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     return reply.send(createReadStream(a.file))
   })
 
+  // ---- prompt library: saved prompts
+  app.get('/api/prompts', async () => store.listPrompts())
+  app.post<{ Body: { text?: unknown; title?: unknown } }>('/api/prompts', async (req, reply) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, 4000) : ''
+    if (!text) return reply.code(400).send({ error: '提示词不能为空' })
+    const title = (typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim() : text.replace(/\s+/g, ' ')).slice(0, 40)
+    return reply.code(201).send(store.addPrompt(text, title))
+  })
+  app.delete<{ Params: { id: string } }>('/api/prompts/:id', async (req, reply) =>
+    store.deletePrompt(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' }))
+
+  // ---- canvas assistant: a request -> a node plan the user approves before it is added
+  app.post<{ Body: { profileId?: unknown; message?: unknown; history?: unknown; canvas?: unknown } }>('/api/assistant', async (req, reply) => {
+    const b = req.body ?? {}
+    const profile = typeof b.profileId === 'string' ? store.getProfile(b.profileId) : undefined
+    if (!profile) return reply.code(400).send({ error: '请先选择一个文本模型' })
+    if (profile.kind !== 'llm' && profile.kind !== 'vlm') return reply.code(400).send({ error: '画布助手需要文本模型' })
+    const message = typeof b.message === 'string' ? b.message.trim().slice(0, 4000) : ''
+    if (!message) return reply.code(400).send({ error: '请输入想做的内容' })
+    const history: ChatTurn[] = Array.isArray(b.history)
+      ? b.history.filter((t): t is ChatTurn => !!t && typeof t === 'object' && ((t as ChatTurn).role === 'user' || (t as ChatTurn).role === 'assistant') && typeof (t as ChatTurn).content === 'string').slice(-12)
+      : []
+    const c = b.canvas as Partial<CanvasSummary> | undefined
+    const canvas: CanvasSummary | undefined = c && Array.isArray(c.nodes) && Array.isArray(c.edges)
+      ? {
+          nodes: c.nodes.filter((n) => n && typeof n.id === 'string' && typeof n.type === 'string').slice(0, 200).map((n) => ({ id: n.id, type: n.type, label: typeof n.label === 'string' ? n.label : undefined, text: typeof n.text === 'string' ? n.text : undefined })),
+          edges: c.edges.filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string').slice(0, 400),
+        }
+      : undefined
+    let apiKey: string | undefined
+    try { apiKey = store.getApiKey(profile.id) } catch (e) { if (e instanceof SecretError) return reply.code(400).send({ error: e.message }); throw e }
+    const ctrl = new AbortController()
+    // the client went away before the answer was sent (a request's own 'close' fires once its body is read)
+    reply.raw.on('close', () => { if (!reply.raw.writableEnded) ctrl.abort() })
+    try {
+      return await runAssistant({
+        profile, apiKey, adapter: chatAdapterFor(profile.adapter), message, history, canvas, signal: ctrl.signal,
+        skills: skills.list().filter((x) => x.metadata?.['hzc-kind'] === 'director').map((x) => x.name),
+        kinds: [...new Set(store.listProfiles().map((p) => p.kind))],
+      })
+    } catch (e) {
+      if (e instanceof ProviderError) return reply.code(502).send({ error: e.message })
+      throw e
+    }
+  })
+
   // ---- skills (Agent Skills SKILL.md)
   app.get('/api/skills', async () => skills.list())
   app.get<{ Params: { name: string } }>('/api/skills/:name', async (req, reply) => skills.get(req.params.name) ?? reply.code(404).send({ error: 'not found' }))
@@ -233,7 +288,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (!unsubscribe) { send({ kind: 'run-end', runId: req.params.id, status: 'error' }); res.end(); return }
     if (ended) return
     const ping = setInterval(() => res.write(': ping\n\n'), 15_000)
-    req.raw.on('close', () => { clearInterval(ping); unsubscribe() })
+    res.on('close', () => { clearInterval(ping); unsubscribe() })
   })
 
   app.get<{ Params: { id: string } }>('/api/projects/:id/outputs', async (req, reply) =>

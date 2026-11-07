@@ -110,3 +110,42 @@ describe('master key', () => {
     } finally { rmSync(d, { recursive: true, force: true }) }
   })
 })
+
+describe('projects manager', () => {
+  it('lists node counts and covers, duplicates with results, deletes', async () => {
+    const img = { id: 'i1', type: 'image', position: { x: 0, y: 0 }, data: { assetId: 'a-in', mime: 'image/png' } }
+    const gen = { id: 'g1', type: 'image-gen', position: { x: 300, y: 0 }, data: {} }
+    const p = store.createProject('海报', { version: 1, nodes: [img, gen], edges: [] })
+    let row = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((x: any) => x.id === p.id)
+    expect(row).toMatchObject({ nodeCount: 2, cover: { assetId: 'a-in', mime: 'image/png' } })   // input image until something is generated
+    store.setNodeOutput(p.id, 'g1', 'k1', { out: [{ type: 'image', assetId: 'a-gen', mime: 'image/png' }] })
+    row = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((x: any) => x.id === p.id)
+    expect(row.cover).toEqual({ assetId: 'a-gen', mime: 'image/png' })                          // latest generated image wins
+
+    const dup = await app.inject({ method: 'POST', url: `/api/projects/${p.id}/duplicate`, payload: {} })
+    expect(dup.statusCode).toBe(201)
+    expect(dup.json().name).toBe('海报 副本')
+    expect(store.getNodeOutput(dup.json().id, 'g1')).toMatchObject({ cacheKey: 'k1' })
+    expect((await app.inject({ method: 'POST', url: `/api/projects/${p.id}/duplicate`, payload: { name: '海报 B' } })).json().name).toBe('海报 B')
+    expect((await app.inject({ method: 'POST', url: '/api/projects/nope/duplicate', payload: {} })).statusCode).toBe(404)
+
+    expect((await app.inject({ method: 'DELETE', url: `/api/projects/${p.id}` })).statusCode).toBe(204)
+    expect(store.getNodeOutput(p.id, 'g1')).toBeUndefined()
+  })
+})
+
+describe('prompt library', () => {
+  it('saves, de-duplicates, lists newest first and deletes prompts', async () => {
+    const a = (await app.inject({ method: 'POST', url: '/api/prompts', payload: { text: '  电影感，浅景深，柔和逆光  ' } })).json()
+    expect(a).toMatchObject({ title: '电影感，浅景深，柔和逆光', text: '电影感，浅景深，柔和逆光' })
+    const again = (await app.inject({ method: 'POST', url: '/api/prompts', payload: { text: '电影感，浅景深，柔和逆光', title: '别名' } })).json()
+    expect(again.id).toBe(a.id)
+    await new Promise((r) => setTimeout(r, 5))
+    await app.inject({ method: 'POST', url: '/api/prompts', payload: { text: '缓慢推近', title: '推镜头' } })
+    const list = (await app.inject({ method: 'GET', url: '/api/prompts' })).json()
+    expect(list.map((p: any) => p.title)).toEqual(['推镜头', '电影感，浅景深，柔和逆光'])
+    expect((await app.inject({ method: 'POST', url: '/api/prompts', payload: { text: '   ' } })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'DELETE', url: `/api/prompts/${a.id}` })).statusCode).toBe(204)
+    expect((await app.inject({ method: 'DELETE', url: `/api/prompts/${a.id}` })).statusCode).toBe(404)
+  })
+})

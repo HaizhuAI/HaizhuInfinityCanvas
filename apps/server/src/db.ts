@@ -7,6 +7,12 @@ import type { ModelProfile, ModelProfileInput, ProjectGraph } from '@hzc/core'
 import { EMPTY_GRAPH } from '@hzc/core'
 import { SecretError, type SecretBox } from './secrets'
 
+/** first image (or video) value anywhere in a node's outputs */
+function mediaIn(outputs: Record<string, { type?: string; assetId?: string; mime?: string }[]>, kind: 'image' | 'video') {
+  for (const vals of Object.values(outputs ?? {})) for (const v of vals ?? []) if (v?.type === kind && v.assetId && v.mime) return { assetId: v.assetId, mime: v.mime }
+  return undefined
+}
+
 /** generations kept per node (result versions) */
 export const MAX_VERSIONS = 30
 
@@ -79,6 +85,9 @@ export class Store {
         outputs TEXT NOT NULL, finished_at TEXT NOT NULL,
         PRIMARY KEY (project_id, node_id)
       );
+      CREATE TABLE IF NOT EXISTS prompts (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS node_versions (
         project_id TEXT NOT NULL, node_id TEXT NOT NULL, seq INTEGER NOT NULL, cache_key TEXT NOT NULL,
         outputs TEXT NOT NULL, finished_at TEXT NOT NULL,
@@ -141,6 +150,25 @@ export class Store {
 
   setNodeOutput(projectId: string, nodeId: string, cacheKey: string, outputs: unknown) {
     this.db.prepare('INSERT OR REPLACE INTO node_outputs VALUES (?,?,?,?,?)').run(projectId, nodeId, cacheKey, JSON.stringify(outputs), new Date().toISOString())
+  }
+
+  // ---------- saved prompts (the prompt library's favourites)
+  listPrompts() {
+    return (this.db.prepare('SELECT id, title, text, created_at FROM prompts ORDER BY created_at DESC').all() as Record<string, string>[])
+      .map((r) => ({ id: r.id!, title: r.title!, text: r.text!, createdAt: r.created_at! }))
+  }
+
+  /** saving the same text twice returns the existing entry */
+  addPrompt(text: string, title: string) {
+    const dup = this.db.prepare('SELECT id, title, text, created_at FROM prompts WHERE text = ?').get(text) as Record<string, string> | undefined
+    if (dup) return { id: dup.id!, title: dup.title!, text: dup.text!, createdAt: dup.created_at! }
+    const p = { id: randomUUID(), title, text, createdAt: new Date().toISOString() }
+    this.db.prepare('INSERT INTO prompts VALUES (?,?,?,?)').run(p.id, p.title, p.text, p.createdAt)
+    return p
+  }
+
+  deletePrompt(id: string) {
+    return this.db.prepare('DELETE FROM prompts WHERE id = ?').run(id).changes > 0
   }
 
   // ---------- result versions: every generation of a node is kept (newest MAX_VERSIONS)
@@ -252,10 +280,31 @@ export class Store {
     return { id: r.id as string, name: r.name as string, graph: JSON.parse(r.graph as string), createdAt: r.created_at as string, updatedAt: r.updated_at as string }
   }
 
+  /** Canvases newest first, with a node count and a cover (latest generated image, else an input image or video). */
   listProjects() {
-    return (this.db.prepare('SELECT id, name, created_at, updated_at FROM projects ORDER BY updated_at DESC').all() as Record<string, string>[]).map((r) => ({
-      id: r.id!, name: r.name!, createdAt: r.created_at!, updatedAt: r.updated_at!,
-    }))
+    const covers = new Map<string, { assetId: string; mime: string }>()
+    const rows = this.db.prepare('SELECT project_id, outputs FROM node_outputs ORDER BY finished_at DESC').all() as { project_id: string; outputs: string }[]
+    for (const r of rows) {
+      if (covers.has(r.project_id)) continue
+      const img = mediaIn(JSON.parse(r.outputs), 'image')
+      if (img) covers.set(r.project_id, img)
+    }
+    return (this.db.prepare('SELECT id, name, graph, created_at, updated_at FROM projects ORDER BY updated_at DESC').all() as Record<string, string>[]).map((r) => {
+      const graph = JSON.parse(r.graph!) as ProjectGraph
+      const input = (kind: string) => graph.nodes.find((n) => n.type === kind && typeof n.data?.assetId === 'string' && typeof n.data?.mime === 'string')
+      const fromInput = input('image') ?? input('video')
+      const cover = covers.get(r.id!) ?? (fromInput ? { assetId: fromInput.data.assetId as string, mime: fromInput.data.mime as string } : undefined)
+      return { id: r.id!, name: r.name!, createdAt: r.created_at!, updatedAt: r.updated_at!, nodeCount: graph.nodes.length, cover }
+    })
+  }
+
+  /** A copy of a canvas with its current results (same node ids, so results and caches carry over). */
+  duplicateProject(id: string, name?: string) {
+    const src = this.getProject(id)
+    if (!src) return undefined
+    const copy = this.createProject(name ?? `${src.name} 副本`, src.graph)
+    for (const o of this.listNodeOutputsForBundle(id)) this.setNodeOutput(copy.id, o.nodeId, o.cacheKey, o.outputs)
+    return copy
   }
 
   getProject(id: string) {
