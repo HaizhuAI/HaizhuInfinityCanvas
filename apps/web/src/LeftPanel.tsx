@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
-import { AudioLines, ChevronRight, Image as ImageIcon, Info, Plus, Search, Upload, Video } from 'lucide-react'
+import { AudioLines, ChevronRight, Image as ImageIcon, Info, Plus, Search, Star, Trash, Upload, Video } from 'lucide-react'
+import { STYLE_GROUPS } from './prompts'
 import { CATEGORY_LABEL, NODE_TYPES, type NodeCategory } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { mediaKind, startDrag } from './dnd'
@@ -137,6 +138,64 @@ export function Assets() {
         )}
       </div>
       <div className="lfoot"><Info aria-hidden="true" />单击添加 · 拖入画布 · 双击预览</div>
+    </>
+  )
+}
+
+/** Style words and saved prompts: click adds to the selected node's prompt; drag makes a text node. */
+export function PromptLibrary() {
+  const saved = useStore((s) => s.savedPrompts)
+  const loadPrompts = useStore((s) => s.loadPrompts)
+  const savePrompt = useStore((s) => s.savePrompt)
+  const applyPrompt = useStore((s) => s.applyPrompt)
+  const showToast = useStore((s) => s.showToast)
+  const { addAt } = useAddNode()
+  const [q, setQ] = useState('')
+  const [draft, setDraft] = useState('')
+  const query = q.trim().toLowerCase()
+  const use = (text: string, label?: string) => {
+    const r = applyPrompt(text)
+    if (r?.ok) showToast(`已加到「${r.where}」`)
+    else if (r) showToast(r.reason, { tone: 'error' })
+    else { addAt({ type: 'text' }, undefined, { text, label: label ?? '提示词' }); showToast('没有选中可写提示词的节点，已新建一个文本节点') }
+  }
+  const item = (key: string, label: string, text: string, extra?: React.ReactNode) => (
+    <div key={key} className="pitem" role="button" tabIndex={0} draggable title={text} data-testid="prompt-item"
+      onDragStart={(e) => startDrag(e, { type: 'text', text, label })}
+      onClick={() => use(text, label)} onKeyDown={(e) => { if (e.key === 'Enter') use(text, label) }}>
+      <span className="nm">{label}</span><span className="ds">{text}</span>{extra}
+    </div>
+  )
+  return (
+    <>
+      <div className="lpanel-head"><h2>提示词库</h2></div>
+      <div className="lsearch">
+        <Search aria-hidden="true" />
+        <input placeholder="搜索风格或收藏" value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜索提示词" />
+      </div>
+      <div className="lhint muted">选中一个节点后点击，加到它的提示词里；也可以拖到画布上。</div>
+      <div className="lscroll">
+        <details className="lsec" open>
+          <summary><ChevronRight className="chev" aria-hidden="true" />我的收藏<span className="count">{saved.length}</span></summary>
+          <form className="padd" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) void savePrompt(draft.trim()).then(() => setDraft('')) }}>
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="写一段常用提示词，回车收藏" aria-label="新的收藏" data-testid="prompt-new" />
+          </form>
+          {saved.filter((p) => !query || `${p.title} ${p.text}`.toLowerCase().includes(query)).map((p) => item(p.id, p.title, p.text,
+            <button className="btn xs ghost icon del" aria-label={`删除收藏「${p.title}」`} title="删除"
+              onClick={(e) => { e.stopPropagation(); void api.deletePrompt(p.id).then(loadPrompts) }}><Trash /></button>))}
+          {!saved.length && <div className="lempty">反推得到的提示词、写得好的描述，点结果旁的 <Star aria-hidden="true" className="inline-ico" /> 就能收藏到这里。</div>}
+        </details>
+        {STYLE_GROUPS.map((g) => {
+          const items = g.items.filter((i) => !query || `${i.label} ${i.text}`.toLowerCase().includes(query))
+          if (!items.length) return null
+          return (
+            <details className="lsec" open key={g.group}>
+              <summary><ChevronRight className="chev" aria-hidden="true" />{g.group}<span className="count">{items.length}</span></summary>
+              <div className="pchipgrid">{items.map((i) => item(`${g.group}:${i.label}`, i.label, i.text))}</div>
+            </details>
+          )
+        })}
+      </div>
     </>
   )
 }

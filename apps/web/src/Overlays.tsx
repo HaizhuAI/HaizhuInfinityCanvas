@@ -126,9 +126,9 @@ export function PreflightDialog() {
 }
 
 const SHORTCUTS: [string, [string, string[]][]][] = [
-  ['添加与编辑', [['快速添加 / 查找节点', ['/']], ['在某处添加', ['双击空白处']], ['从连线添加', ['连线拖到空白处']], ['撤销', [MOD, 'Z']], ['重做', [MOD, 'Shift', 'Z']], ['复制 / 粘贴', [MOD, 'C', '/', 'V']], ['创建副本', [MOD, 'D']], ['全选', [MOD, 'A']], ['删除选中', ['Delete']]]],
-  ['运行与结果', [['运行全部', [MOD, 'Enter']], ['运行单个节点', ['节点上的 ▶']], ['切换版本', ['节点上的 ‹ ›']], ['预览中切换版本', ['←', '/', '→']], ['拖出结果', ['悬停 → 拖动 ⠿']]]],
-  ['画布', [['适应画布', ['Shift', '1']], ['整理画布', ['工具条 ▦']], ['平移', ['拖动空白处']], ['缩放', [MOD, '滚轮']], ['框选', ['Shift', '拖动']], ['多选', [MOD, '点击']]]],
+  ['添加与编辑', [['快速添加 / 查找节点', ['/']], ['在某处添加', ['双击空白处']], ['从连线添加', ['连线拖到空白处']], ['撤销', [MOD, 'Z']], ['重做', [MOD, 'Shift', 'Z']], ['复制 / 粘贴', [MOD, 'C', '/', 'V']], ['创建副本', [MOD, 'D']], ['拖动复制', ['Alt', '拖动']], ['全选', [MOD, 'A']], ['取消选择', ['Esc']], ['删除选中', ['Delete']], ['保存', [MOD, 'S']]]],
+  ['运行与结果', [['运行全部', [MOD, 'Enter']], ['运行单个节点', ['节点上的 ▶']], ['切换版本', ['节点上的 ‹ ›']], ['预览中切换版本', ['←', '/', '→']], ['拖出结果', ['悬停 → 拖动 ⠿']], ['画布助手', ['顶栏「助手」']]]],
+  ['画布', [['适应画布', ['Shift', '1']], ['放大查看选中', ['F']], ['整理画布', ['工具条 ▦']], ['平移', ['拖动空白处 / 中键']], ['缩放', [MOD, '滚轮']], ['框选', ['Shift', '拖动']], ['多选', [MOD, '点击']]]],
   ['其他', [['粘贴图片 / 视频', [MOD, 'V']], ['拖入文件', ['拖到画布上']], ['右键菜单', ['右键']], ['关闭弹窗', ['Esc']], ['快捷键', ['?']]]],
 ]
 
@@ -185,10 +185,17 @@ export function CanvasHelpers() {
   }, [req, fitView])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.shiftKey && (e.code === 'Digit1' || e.key === '!')) || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
       if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
-      e.preventDefault()
-      void fitView({ padding: 0.2, maxZoom: 1, duration: 300 })
+      const st = useStore.getState()
+      if (st.settingsOpen || st.palette.open || st.pendingCheck || st.pendingRun || st.shortcutsOpen || st.projectsOpen || st.lightbox) return
+      if (e.shiftKey && (e.code === 'Digit1' || e.key === '!')) { e.preventDefault(); void fitView({ padding: 0.2, maxZoom: 1, duration: 300 }); return }
+      if (!e.shiftKey && e.key.toLowerCase() === 'f') {
+        // zoom to the selection (or everything)
+        const sel = st.nodes.filter((n) => n.selected)
+        e.preventDefault()
+        void fitView({ nodes: sel.length ? sel.map((n) => ({ id: n.id })) : undefined, padding: 0.3, maxZoom: 1.6, duration: 300 })
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

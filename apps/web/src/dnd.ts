@@ -3,6 +3,7 @@ export const DND_MIME = 'application/x-hzc-node'
 
 export type DragPayload =
   | { type: string; profileId?: string }
+  | { type: 'text'; text: string; label?: string }
   | { type: 'image' | 'video' | 'audio'; assetId: string; mime: string; name?: string }
 
 export function startDrag(e: React.DragEvent, payload: DragPayload) {

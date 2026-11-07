@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useReactFlow, useViewport } from '@xyflow/react'
-import { Blocks, ChevronLeft, ChevronRight, Download, Images, LayoutDashboard, Maximize, Minus, Plus, Redo2, Settings as SettingsIcon, Undo2, X } from 'lucide-react'
+import { Blocks, BookMarked, Grid3x3, LayoutGrid, Map as MapIcon, ChevronLeft, ChevronRight, Download, Images, LayoutDashboard, Maximize, Minus, Plus, Redo2, Settings as SettingsIcon, Undo2, X } from 'lucide-react'
 import type { NodeOutputs } from '@hzc/core'
 import { redo, undo } from './history'
 import { MOD } from './Overlays'
@@ -13,16 +13,22 @@ export function Rail() {
   const panel = useStore((s) => s.leftPanel)
   const setPanel = useStore((s) => s.setLeftPanel)
   const openSettings = useStore((s) => s.setSettingsOpen)
-  const btn = (id: 'library' | 'assets', label: string, Icon: typeof Blocks) => (
+  const btn = (id: 'library' | 'assets' | 'prompts', label: string, Icon: typeof Blocks) => (
     <button className={`rail-btn${panel === id ? ' on' : ''}`} aria-label={label} aria-pressed={panel === id} data-testid={`rail-${id}`}
       onClick={() => setPanel(panel === id ? null : id)}>
       <Icon aria-hidden="true" /><span className="tip" aria-hidden="true">{label}</span>
     </button>
   )
+  const openProjects = useStore((s) => s.setProjectsOpen)
   return (
     <nav className="rail" aria-label="工作区">
+      <button className="rail-btn" aria-label="我的画布" onClick={() => openProjects(true)} data-testid="rail-projects">
+        <LayoutGrid aria-hidden="true" /><span className="tip" aria-hidden="true">我的画布</span>
+      </button>
+      <span className="rail-div" aria-hidden="true" />
       {btn('library', '组件库', Blocks)}
       {btn('assets', '素材库', Images)}
+      {btn('prompts', '提示词库', BookMarked)}
       <span className="rail-sep" />
       <button className="rail-btn" aria-label="设置" onClick={() => openSettings(true)} data-testid="rail-settings">
         <SettingsIcon aria-hidden="true" /><span className="tip" aria-hidden="true">设置</span>
@@ -47,8 +53,14 @@ export function FloatingToolbar() {
   const openPalette = useStore((s) => s.openPalette)
   const canUndo = useStore((s) => s.canUndo)
   const canRedo = useStore((s) => s.canRedo)
+  const minimap = useStore((s) => s.minimap)
+  const snap = useStore((s) => s.snap)
+  const toggleView = useStore((s) => s.toggleView)
   return (
     <div className="ftoolbar" role="toolbar" aria-label="画布工具">
+      <button className={`btn ghost sm icon${minimap ? ' on' : ''}`} onClick={() => toggleView('minimap')} aria-pressed={minimap} aria-label="小地图" title={minimap ? '隐藏小地图' : '显示小地图'} data-testid="toggle-minimap"><MapIcon /></button>
+      <button className={`btn ghost sm icon${snap ? ' on' : ''}`} onClick={() => toggleView('snap')} aria-pressed={snap} aria-label="网格吸附" title={snap ? '关闭网格吸附' : '开启网格吸附：拖动时对齐网格'} data-testid="toggle-snap"><Grid3x3 /></button>
+      <span className="sep" />
       <button className="btn ghost sm icon" onClick={() => undo()} disabled={!canUndo} aria-label="撤销" title={`撤销（${MOD} Z）`} data-testid="undo"><Undo2 /></button>
       <button className="btn ghost sm icon" onClick={() => redo()} disabled={!canRedo} aria-label="重做" title={`重做（${MOD} Shift Z）`} data-testid="redo"><Redo2 /></button>
       <span className="sep" />

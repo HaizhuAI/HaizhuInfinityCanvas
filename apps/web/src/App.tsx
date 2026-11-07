@@ -1,29 +1,31 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, Keyboard, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, Keyboard, LayoutGrid, Moon, Sun, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
 import { CanvasHelpers, ContextMenu, PreflightDialog, ShortcutsSheet, ToastView, useEscape, type CtxMenu } from './Overlays'
-import { copySelection, duplicateSelection, paste } from './clipboard'
+import { copySelection, duplicateSelection, leaveCopies, paste } from './clipboard'
 import { initHistory, redo, undo } from './history'
 import { CommandPalette } from './CommandPalette'
 import { DND_MIME, readDrag } from './dnd'
 import { CATEGORY_COLOR, NODE_ICON, PORT_COLOR } from './icons'
 import { Inspector } from './Inspector'
-import { Assets, Library } from './LeftPanel'
+import { Assistant } from './Assistant'
+import { Projects } from './Projects'
+import { Assets, Library, PromptLibrary } from './LeftPanel'
 import { enterMenu, enterOverlay } from './motion'
 import { Settings } from './Settings'
 import { Starfield } from './Starfield'
 import { TEMPLATES } from './templates'
-import { inspectorPref, setInspectorPref } from './theme'
+import { inspectorPref, setInspectorPref, resolvedTheme, setThemePref } from './theme'
 import { useAddNode } from './useAddNode'
 import { useStore } from './store'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.3'
+export const APP_VERSION = 'v1.0.0-rc.4'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -100,6 +102,7 @@ function ProjectMenu() {
           ))}
           <div className="menu-sep" />
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void newProject() }} data-testid="new-project"><Plus aria-hidden="true" />新建画布</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); useStore.getState().setProjectsOpen(true) }} data-testid="manage-projects"><LayoutGrid aria-hidden="true" />管理全部画布…</button>
           <div className="menu-sep" />
           <div className="menu-label">备份与分享</div>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); void exportBundle() }} data-testid="export-bundle"><Package aria-hidden="true" /><span className="grow">导出项目包<small>.hzc · 含素材与生成结果</small></span></button>
@@ -207,6 +210,18 @@ async function addMediaFiles(files: File[], at?: { x: number; y: number }) {
   if (i) { void s.loadAssets(); s.showToast(`已添加 ${i} 个素材节点`) }
 }
 
+/** quick light / dark switch (Settings › 外观 still offers "follow the system") */
+function ThemeToggle() {
+  const [theme, setTheme] = useState(resolvedTheme())
+  useEffect(() => { const on = (e: Event) => setTheme((e as CustomEvent<'dark' | 'light'>).detail); window.addEventListener('hzc:theme', on); return () => window.removeEventListener('hzc:theme', on) }, [])
+  const next = theme === 'dark' ? 'light' : 'dark'
+  return (
+    <button className="btn ghost sm icon" onClick={() => setThemePref(next)} aria-label={next === 'light' ? '切换到浅色' : '切换到深色'} title={next === 'light' ? '切换到浅色' : '切换到深色'} data-testid="theme-toggle">
+      {theme === 'dark' ? <Sun /> : <Moon />}
+    </button>
+  )
+}
+
 /** "运行中 2 / 5" while a run is in progress */
 function RunProgress() {
   const ids = useStore((s) => s.runNodeIds)
@@ -288,6 +303,7 @@ function Canvas() {
     const p = readDrag(e)
     if (!p) return
     if ('assetId' in p) s.addNode(p.type, pos, undefined, { assetId: p.assetId, mime: p.mime, label: p.name })
+    else if ('text' in p) s.addNode('text', pos, undefined, { text: p.text, label: p.label ?? '提示词' })
     else s.addNode(p.type, pos, p.profileId)
   }, [s, screenToFlowPosition])
 
@@ -329,11 +345,13 @@ function Canvas() {
         }}
         fitView={fitOnOpen} fitViewOptions={{ maxZoom: 1, minZoom: 0.6, padding: 0.12 }}
         zoomOnDoubleClick={false} onlyRenderVisibleElements={s.nodes.length > 60}
+        snapToGrid={s.snap} snapGrid={[24, 24]} panOnDrag={[0, 1]}
+        onNodeDragStart={(e, _n, dragged) => { if (e.altKey && leaveCopies(dragged.map((d) => d.id))) s.showToast('已复制（按住 Alt 拖动）', { action: { label: '撤销', run: () => void undo() } }) }}
         deleteKeyCode={['Backspace', 'Delete']} minZoom={0.1} maxZoom={2}
         colorMode="system" proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.3} />
-        {s.nodes.length > 0 && (
+        {s.nodes.length > 0 && s.minimap && (
           <MiniMap pannable zoomable nodeBorderRadius={8} style={{ width: 168, height: 112 }}
             nodeColor={(n) => { const d = NODE_TYPE_MAP[n.type ?? '']; return d ? CATEGORY_COLOR[d.category] : '#555' }} />
         )}
@@ -341,6 +359,24 @@ function Canvas() {
       {s.nodes.length > 0 && <FloatingToolbar />}
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
       {s.nodes.length === 0 && <EmptyState />}
+    </div>
+  )
+}
+
+/** Right side: the selected node's properties, or the canvas assistant. */
+function RightPanel({ onClose }: { onClose: () => void }) {
+  const tab = useStore((s) => s.rightTab)
+  const setTab = useStore((s) => s.setRightTab)
+  const busy = useStore((s) => s.assistantBusy)
+  return (
+    <div className="rpanel">
+      <div className="rtabs" role="tablist" aria-label="右侧面板">
+        <button role="tab" aria-selected={tab === 'inspector'} className={tab === 'inspector' ? 'on' : ''} onClick={() => setTab('inspector')} data-testid="tab-inspector">属性</button>
+        <button role="tab" aria-selected={tab === 'assistant'} className={tab === 'assistant' ? 'on' : ''} onClick={() => setTab('assistant')} data-testid="tab-assistant">
+          {busy ? <span className="orbit" style={{ '--s': '12px' } as React.CSSProperties} aria-hidden="true" /> : <Sparkles aria-hidden="true" />}助手
+        </button>
+      </div>
+      {tab === 'inspector' ? <Inspector onClose={onClose} /> : <Assistant />}
     </div>
   )
 }
@@ -354,11 +390,11 @@ function ProjectWorkspace({ inspector, setInspector }: { inspector: boolean; set
       <div className="workspace" style={{ gridTemplateColumns: `52px ${leftPanel ? 'auto' : '0'} 1fr ${inspector ? 'auto' : '0'}` }}>
         <Rail />
         <div style={{ display: 'contents' }}>
-          {leftPanel && <aside className="lpanel" aria-label={leftPanel === 'assets' ? '素材库' : '组件库'}>{leftPanel === 'assets' ? <Assets /> : <Library />}</aside>}
+          {leftPanel && <aside className="lpanel" aria-label={leftPanel === 'assets' ? '素材库' : leftPanel === 'prompts' ? '提示词库' : '组件库'}>{leftPanel === 'assets' ? <Assets /> : leftPanel === 'prompts' ? <PromptLibrary /> : <Library />}</aside>}
           {!leftPanel && <span />}
         </div>
         <Canvas />
-        {inspector ? <Inspector onClose={() => setInspector(false)} /> : <span />}
+        {inspector ? <RightPanel onClose={() => setInspector(false)} /> : <span />}
       </div>
       <CommandPalette />
       <CanvasHelpers />
@@ -394,7 +430,9 @@ export function App() {
       const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key === 'Enter' && !overlay) { e.preventDefault(); if (!st.runId && st.nodes.length) void st.runNodes(); return }
+      if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void st.save().then(() => { if (useStore.getState().saveState === 'saved') st.showToast('已保存') }); return }
       if (editing || overlay || e.altKey) return
+      if (e.key === 'Escape' && !mod) { if (st.nodes.some((n) => n.selected)) useStore.setState({ nodes: st.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)) }); return }
       if (e.key === '/' && !mod) { e.preventDefault(); st.openPalette(); return }
       if (e.key === '?' && !mod) { e.preventDefault(); st.setShortcutsOpen(true); return }
       if (!mod) return
@@ -445,6 +483,8 @@ export function App() {
               ? <button className="btn danger running sm" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
               : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}
             <button className="btn ghost sm icon" onClick={() => setInspector(!inspector)} aria-label={inspector ? '收起属性面板' : '打开属性面板'} aria-pressed={inspector} data-testid="toggle-inspector"><PanelRightOpen /></button>
+            <button className={`btn sm${inspector && s.rightTab === 'assistant' ? ' on' : ''}`} onClick={() => { if (inspector && s.rightTab === 'assistant') setInspector(false); else { setInspector(true); s.setRightTab('assistant') } }} aria-pressed={inspector && s.rightTab === 'assistant'} title="画布助手：一句话搭节点" data-testid="open-assistant"><Sparkles />助手</button>
+            <ThemeToggle />
             <button className="btn ghost sm icon" onClick={() => s.setShortcutsOpen(true)} aria-label="快捷键" title="快捷键（?）" data-testid="open-shortcuts"><Keyboard /></button>
             <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
           </div>
@@ -454,6 +494,7 @@ export function App() {
         {s.settingsOpen && <Settings />}
         <ConfirmRun />
         <ShortcutsSheet />
+        <Projects />
         <Lightbox />
         <ToastView />
       </div>

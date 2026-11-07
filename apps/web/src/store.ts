@@ -4,9 +4,10 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
 import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
-import { api, type AssetMeta, type ProjectSummary, type SkillMeta } from './api'
+import { api, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
+import { setViewPref, viewPref } from './theme'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
 export type CanvasNode = Node<CanvasNodeData>
@@ -33,8 +34,26 @@ const withDefaultProfile = (n: CanvasNode, profiles: ModelProfilePublic[]): Canv
 export interface Toast { id: number; text: string; tone?: 'info' | 'error'; action?: { label: string; run: () => void } }
 export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'about'
 export interface SettingsIntent { tab?: SettingsTab; addKind?: ModelKind }
+/** one turn of the canvas assistant conversation */
+export interface AssistantTurn { role: 'user' | 'assistant'; content: string; plan?: Plan | null; warnings?: string[]; applied?: string[]; error?: boolean }
+
 /** a wire dropped on empty canvas: the quick-add palette offers nodes that fit and connects the pick */
 export interface ConnectFrom { nodeId: string; handleId: string; handleType: 'source' | 'target' }
+
+/** nodes whose own text is a prompt (the prompt library adds to it) */
+const PROMPT_TYPES = new Set(['text', 'image-gen', 'video-gen', 'llm', 'tts', 'director'])
+/** the input port that replaces a node's own text when connected */
+const PROMPT_PORT: Record<string, string> = { 'image-gen': 'prompt', 'video-gen': 'prompt', llm: 'in', tts: 'in', director: 'in' }
+
+/** the assistant conversation is kept per canvas in this browser */
+const turnsKey = (projectId: string) => `hzc.assistant.${projectId}`
+function loadTurns(projectId: string): AssistantTurn[] {
+  try { return (JSON.parse(localStorage.getItem(turnsKey(projectId)) ?? '[]') as AssistantTurn[]).slice(-40) } catch { return [] }
+}
+function saveTurns(projectId: string | null, turns: AssistantTurn[]) {
+  if (!projectId) return
+  try { localStorage.setItem(turnsKey(projectId), JSON.stringify(turns.slice(-40))) } catch { /* full or blocked */ }
+}
 
 const toGraph = (nodes: CanvasNode[], edges: Edge[]): ProjectGraph => ({
   version: 1,
@@ -66,6 +85,10 @@ interface State {
   /** ask the canvas to centre on a node (watched inside the React Flow provider) */
   focusRequest: { id: string; n: number } | null
   shortcutsOpen: boolean
+  projectsOpen: boolean
+  /** bottom toolbar toggles, remembered per browser */
+  minimap: boolean
+  snap: boolean
   canUndo: boolean
   canRedo: boolean
   /** latest run state per node (live during a run, restored from saved outputs on open) */
@@ -74,7 +97,8 @@ interface State {
   skills: SkillMeta[]
   assets: AssetMeta[]
   /** left panel shown next to the rail; null = collapsed */
-  leftPanel: 'library' | 'assets' | null
+  leftPanel: 'library' | 'assets' | 'prompts' | null
+  savedPrompts: SavedPrompt[]
   /** full-screen viewer; with `nodeId`, the node's kept versions can be browsed there */
   lightbox: { assetId: string; mime: string; name?: string; nodeId?: string } | null
   /** command palette; `at` = flow position to add at (double-click), else the view centre */
@@ -83,6 +107,10 @@ interface State {
   versionLists: Record<string, NodeVersion[]>
   /** nodes of the current run, for the progress counter */
   runNodeIds: string[]
+  /** right panel: node properties or the canvas assistant */
+  rightTab: 'inspector' | 'assistant'
+  assistantTurns: AssistantTurn[]
+  assistantBusy: boolean
   /** a run waiting for the user to confirm paid generation calls */
   pendingRun: { nodeIds?: string[]; force?: boolean; estimate: Estimate } | null
 
@@ -99,11 +127,21 @@ interface State {
   /** select a node and centre the canvas on it */
   focusNode: (id: string) => void
   setShortcutsOpen: (o: boolean) => void
+  setProjectsOpen: (o: boolean) => void
+  toggleView: (k: 'minimap' | 'snap') => void
+  /** delete a canvas; when it is the open one, open the next (or a new one) */
+  deleteProject: (id: string) => Promise<void>
   /** give every node of `kind` without a usable model this profile; returns how many changed */
   bindUnbound: (kind: ModelKind, profileId: string) => number
   /** add nodes/edges as one step and select exactly them (paste, duplicate) */
-  insertGraph: (nodes: CanvasNode[], edges: Edge[]) => void
+  insertGraph: (nodes: CanvasNode[], edges: Edge[], select?: boolean) => void
   dismissCheck: () => void
+  setRightTab: (t: State['rightTab']) => void
+  /** send a request to the canvas assistant (uses the chosen text model) */
+  askAssistant: (profileId: string, message: string) => Promise<void>
+  clearAssistant: () => void
+  /** add an approved assistant plan to the canvas; returns the new node ids */
+  applyPlan: (turnIndex: number) => string[]
   /** lay the canvas out left to right (one undo step); returns how many nodes moved */
   tidy: () => number
 
@@ -117,6 +155,11 @@ interface State {
   loadTemplate: (g: ProjectGraph) => void
   loadSkills: () => Promise<void>
   loadAssets: () => Promise<void>
+  loadPrompts: () => Promise<void>
+  /** save text to the prompt library */
+  savePrompt: (text: string, title?: string) => Promise<void>
+  /** add a prompt to the selected node's prompt — or to the text node that feeds it; none selected → undefined */
+  applyPrompt: (text: string) => { ok: true; where: string } | { ok: false; reason: string } | undefined
   setLeftPanel: (p: State['leftPanel']) => void
   openLightbox: (a: State['lightbox']) => void
   /** select exactly this node (used by the inspector and keyboard flows) */
@@ -136,9 +179,9 @@ interface State {
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
-  skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null,
-  versionLists: {}, runNodeIds: [],
-  settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, shortcutsOpen: false, canUndo: false, canRedo: false,
+  skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
+  versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
+  settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
 
   showToast: (text, opts) => {
     const t: Toast = { id: Date.now() + Math.random(), text, tone: opts?.tone, action: opts?.action }
@@ -150,6 +193,18 @@ export const useStore = create<State>((set, get) => ({
   openSettings: (intent) => set({ settingsOpen: true, settingsIntent: intent ?? null }),
   focusNode: (id) => { get().selectNode(id); set((s) => ({ focusRequest: { id, n: (s.focusRequest?.n ?? 0) + 1 } })) },
   setShortcutsOpen: (o) => set({ shortcutsOpen: o }),
+  setProjectsOpen: (o) => set({ projectsOpen: o }),
+  toggleView: (k) => { const on = !get()[k]; setViewPref(k, on); set({ [k]: on } as Pick<State, 'minimap' | 'snap'>) },
+  async deleteProject(id) {
+    await api.deleteProject(id)
+    try { localStorage.removeItem(`hzc.assistant.${id}`) } catch { /* ignore */ }
+    const projects = await api.listProjects()
+    set({ projects })
+    if (get().projectId === id) {
+      if (projects[0]) await get().openProject(projects[0].id)
+      else await get().newProject()
+    }
+  },
   dismissCheck: () => set({ pendingCheck: null }),
 
   bindUnbound: (kind, profileId) => {
@@ -163,6 +218,61 @@ export const useStore = create<State>((set, get) => ({
     })
     if (n) set({ nodes: next, saveState: 'dirty' })
     return n
+  },
+
+  setRightTab: (t) => set({ rightTab: t }),
+
+  async askAssistant(profileId, message) {
+    const { nodes, edges, assistantTurns } = get()
+    const history = assistantTurns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.content }))
+    const turns = [...assistantTurns, { role: 'user' as const, content: message }]
+    set({ assistantTurns: turns, assistantBusy: true })
+    try {
+      const r = await api.assistant({
+        profileId, message, history,
+        canvas: {
+          nodes: nodes.map((n) => ({ id: n.id, type: n.type ?? 'text', label: n.data.label, text: n.data.text?.slice(0, 300) })),
+          edges: edges.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined })),
+        },
+      })
+      set({ assistantTurns: [...get().assistantTurns, { role: 'assistant', content: r.reply, plan: r.plan, warnings: r.warnings }] })
+    } catch (e) {
+      set({ assistantTurns: [...get().assistantTurns, { role: 'assistant', content: `没能完成：${(e as Error).message}`, error: true }] })
+    } finally {
+      set({ assistantBusy: false })
+      saveTurns(get().projectId, get().assistantTurns)
+    }
+  },
+
+  clearAssistant: () => { set({ assistantTurns: [] }); saveTurns(get().projectId, []) },
+
+  applyPlan: (turnIndex) => {
+    const { assistantTurns, nodes, profiles } = get()
+    const turn = assistantTurns[turnIndex]
+    if (!turn?.plan || turn.applied) return []
+    const ids = new Map(turn.plan.nodes.map((n) => [n.key, `n_${uid()}`]))
+    const fresh: CanvasNode[] = turn.plan.nodes.map((n) => withDefaultProfile({
+      id: ids.get(n.key)!, type: n.type, position: { x: 0, y: 0 },
+      data: { label: n.label || NODE_TYPE_MAP[n.type]?.label, text: n.text ?? '', params: n.params ?? {} },
+    }, profiles))
+    const resolve = (k: string) => (k.startsWith('@') ? (nodes.some((n) => n.id === k.slice(1)) ? k.slice(1) : undefined) : ids.get(k))
+    const edges: Edge[] = []
+    for (const e of turn.plan.edges) {
+      const source = resolve(e.from), target = resolve(e.to)
+      if (source && target) edges.push({ id: `e_${uid()}`, source, sourceHandle: e.fromPort, target, targetHandle: e.toPort })
+    }
+    // lay the new nodes out left to right, to the right of what is already on the canvas
+    const inner = edges.filter((e) => fresh.some((n) => n.id === e.source) && fresh.some((n) => n.id === e.target))
+    const pos = tidyLayout(fresh, inner)
+    const x0 = nodes.length ? Math.max(...nodes.map((n) => n.position.x + (n.measured?.width ?? 300))) + 160 : 0
+    const y0 = nodes.length ? Math.min(...nodes.map((n) => n.position.y)) : 0
+    const minX = Math.min(...[...pos.values()].map((p) => p.x)), minY = Math.min(...[...pos.values()].map((p) => p.y))
+    for (const n of fresh) { const p = pos.get(n.id)!; n.position = { x: x0 + p.x - minX, y: y0 + p.y - minY } }
+    get().insertGraph(fresh, edges)
+    const turns = assistantTurns.map((t, i) => (i === turnIndex ? { ...t, applied: fresh.map((n) => n.id) } : t))
+    set({ assistantTurns: turns })
+    saveTurns(get().projectId, turns)
+    return fresh.map((n) => n.id)
   },
 
   tidy: () => {
@@ -180,8 +290,8 @@ export const useStore = create<State>((set, get) => ({
     return moved
   },
 
-  insertGraph: (nodes, edges) => set((s) => ({
-    nodes: [...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...nodes.map((n) => ({ ...n, selected: true }))],
+  insertGraph: (nodes, edges, select = true) => set((s) => ({
+    nodes: select ? [...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...nodes.map((n) => ({ ...n, selected: true }))] : [...s.nodes, ...nodes.map((n) => ({ ...n, selected: false }))],
     edges: [...s.edges, ...edges],
     saveState: 'dirty',
   })),
@@ -190,6 +300,32 @@ export const useStore = create<State>((set, get) => ({
 
   async loadSkills() { set({ skills: await api.listSkills() }) },
   async loadAssets() { set({ assets: await api.listAssets() }) },
+  async loadPrompts() { set({ savedPrompts: await api.listPrompts() }) },
+  async savePrompt(text, title) {
+    try {
+      await api.savePrompt(text, title)
+      await get().loadPrompts()
+      get().showToast('已收藏到提示词库', { action: { label: '查看', run: () => set({ leftPanel: 'prompts' }) } })
+    } catch (e) { get().showToast(`收藏失败：${(e as Error).message}`, { tone: 'error' }) }
+  },
+  applyPrompt(text) {
+    const { nodes, edges } = get()
+    const sel = nodes.filter((n) => n.selected && PROMPT_TYPES.has(n.type ?? ''))
+    if (sel.length !== 1) return undefined
+    let n = sel[0]!
+    // when the prompt arrives over a wire, the node's own text is not used: edit the source instead
+    const port = PROMPT_PORT[n.type ?? '']
+    const feed = port ? edges.find((e) => e.target === n.id && (e.targetHandle ?? 'in') === port) : undefined
+    if (feed) {
+      const src = nodes.find((x) => x.id === feed.source)
+      const srcName = src ? src.data.label ?? NODE_TYPE_MAP[src.type ?? '']?.label ?? '上游节点' : '上游节点'
+      if (src?.type !== 'text') return { ok: false, reason: `这个节点的提示词来自「${srcName}」，请在那里修改` }
+      n = src
+    }
+    const cur = n.data.text?.trim() ?? ''
+    get().setNodeData(n.id, { text: cur ? `${cur.replace(/[，,。.\s]+$/, '')}，${text}` : text })
+    return { ok: true, where: n.data.label ?? NODE_TYPE_MAP[n.type ?? '']?.label ?? '节点' }
+  },
   setLeftPanel: (p) => set({ leftPanel: p }),
   openLightbox: (a) => set({ lightbox: a }),
   selectNode: (id) => set((s) => ({ nodes: s.nodes.map((n) => (!!n.selected === (n.id === id) ? n : { ...n, selected: n.id === id })) })),
@@ -263,6 +399,7 @@ export const useStore = create<State>((set, get) => ({
     void get().loadSkills().catch(() => undefined)
     void api.system().then((sys) => set({ ffmpegOk: sys.ffmpeg.ok })).catch(() => undefined)
     void get().loadAssets().catch(() => undefined)
+    void get().loadPrompts().catch(() => undefined)
     await get().loadProfiles()
     const projects = await api.listProjects()
     set({ projects })
@@ -274,7 +411,7 @@ export const useStore = create<State>((set, get) => ({
     const [p, outs] = await Promise.all([api.getProject(id), api.outputs(id)])
     const runStates: Record<string, NodeRunState> = {}
     for (const o of outs) runStates[o.nodeId] = { status: 'done', outputs: o.outputs, finishedAt: o.finishedAt, versions: o.versions }
-    set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', runStates, runId: null, versionLists: {}, runNodeIds: [] })
+    set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', runStates, runId: null, versionLists: {}, runNodeIds: [], assistantTurns: loadTurns(p.id), assistantBusy: false })
   },
 
   async newProject() {

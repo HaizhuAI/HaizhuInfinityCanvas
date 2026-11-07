@@ -6,7 +6,19 @@ export interface AssetMeta { id: string; mime: string; size: number; name: strin
 
 export type ConnTest = { status: 'ok'; message: string; models: string[] } | { status: 'error' | 'skipped'; message: string }
 
-export interface ProjectSummary { id: string; name: string; createdAt: string; updatedAt: string }
+export interface PlanNode { key: string; type: string; label?: string; text?: string; params?: Record<string, unknown> }
+export interface PlanEdge { from: string; fromPort: string; to: string; toPort: string }
+export interface Plan { nodes: PlanNode[]; edges: PlanEdge[] }
+export interface AssistantReply { reply: string; plan: Plan | null; warnings: string[] }
+export interface AssistantRequest {
+  profileId: string; message: string
+  history: { role: 'user' | 'assistant'; content: string }[]
+  canvas: { nodes: { id: string; type: string; label?: string; text?: string }[]; edges: { source: string; sourceHandle?: string; target: string; targetHandle?: string }[] }
+}
+
+export interface SavedPrompt { id: string; title: string; text: string; createdAt: string }
+
+export interface ProjectSummary { id: string; name: string; createdAt: string; updatedAt: string; nodeCount?: number; cover?: { assetId: string; mime: string } }
 export interface Project extends ProjectSummary { graph: ProjectGraph }
 
 const TOKEN_KEY = 'hzc.token'
@@ -97,12 +109,17 @@ export const api = {
   createProfile: (p: ModelProfileInput) => req<ModelProfilePublic>('POST', '/api/profiles', p),
   updateProfile: (id: string, p: ModelProfileInput) => req<ModelProfilePublic>('PUT', `/api/profiles/${id}`, p),
   deleteProfile: (id: string) => req<void>('DELETE', `/api/profiles/${id}`),
+  listPrompts: () => req<SavedPrompt[]>('GET', '/api/prompts'),
+  savePrompt: (text: string, title?: string) => req<SavedPrompt>('POST', '/api/prompts', { text, title }),
+  deletePrompt: (id: string) => req<void>('DELETE', `/api/prompts/${id}`),
+  assistant: (b: AssistantRequest) => req<AssistantReply>('POST', '/api/assistant', b),
   testProfile: (b: { adapter: string; endpoint: string; apiKey?: string; profileId?: string }) => req<ConnTest>('POST', '/api/profiles/test', b),
   listProjects: () => req<ProjectSummary[]>('GET', '/api/projects'),
   getProject: (id: string) => req<Project>('GET', `/api/projects/${id}`),
   createProject: (name: string, graph?: ProjectGraph) => req<Project>('POST', '/api/projects', { name, graph }),
   saveProject: (id: string, patch: { name?: string; graph?: ProjectGraph }) => req<Project>('PUT', `/api/projects/${id}`, patch),
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
+  duplicateProject: (id: string, name?: string) => req<Project>('POST', `/api/projects/${id}/duplicate`, { name }),
   uploadAsset,
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),

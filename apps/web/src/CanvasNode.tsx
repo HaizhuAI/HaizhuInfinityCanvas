@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
 import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -88,13 +88,17 @@ function MediaView({ v, name, nodeId }: { v: MediaValue; name?: string; nodeId?:
 
 export function TextOut({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const savePrompt = useStore((s) => s.savePrompt)
   return (
     <div className="out-text">
       <pre className="nodrag nowheel" data-testid="out-text">{text || '（空）'}</pre>
-      <button className="btn xs icon ghost copy nodrag" aria-label={copied ? '已复制' : '复制'} title="复制"
-        onClick={() => { void navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1200) }}>
-        {copied ? <Check /> : <Copy />}
-      </button>
+      <div className="out-tools">
+        {text.trim() && <button className="btn xs icon ghost nodrag" aria-label="收藏到提示词库" title="收藏到提示词库" onClick={() => void savePrompt(text.trim())} data-testid="save-prompt"><Star /></button>}
+        <button className="btn xs icon ghost nodrag" aria-label={copied ? '已复制' : '复制'} title="复制"
+          onClick={() => { void navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1200) }}>
+          {copied ? <Check /> : <Copy />}
+        </button>
+      </div>
     </div>
   )
 }

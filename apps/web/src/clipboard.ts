@@ -53,6 +53,19 @@ export function canPaste(): boolean {
   try { return !!(JSON.parse(localStorage.getItem(KEY) ?? 'null') as Clip | null)?.nodes?.length } catch { return false }
 }
 
+/** Alt + drag: copies stay where the dragged nodes started; the originals keep moving */
+export function leaveCopies(ids: string[]): number {
+  const { nodes, edges } = useStore.getState()
+  const set = new Set(ids)
+  const picked = nodes.filter((n) => set.has(n.id))
+  if (!picked.length) return 0
+  const map = new Map(picked.map((n) => [n.id, `n_${uid()}`]))
+  const copies = picked.map(({ id, type, position, data }) => ({ id: map.get(id)!, type, position: { ...position }, data: { ...data } }) as CanvasNode)
+  const links = edges.filter((e) => set.has(e.source) && set.has(e.target)).map((e) => ({ id: `e_${uid()}`, source: map.get(e.source)!, sourceHandle: e.sourceHandle, target: map.get(e.target)!, targetHandle: e.targetHandle }))
+  useStore.getState().insertGraph(copies, links, false)
+  return copies.length
+}
+
 export function duplicateSelection(): number {
   const c = selection()
   return c ? insert(c, 40) : 0
