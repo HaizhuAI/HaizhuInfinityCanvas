@@ -12,7 +12,7 @@ import { testConnection } from './conntest'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 
-export const APP_VERSION = '1.0.0-rc.2'
+export const APP_VERSION = '1.0.0-rc.3'
 
 export interface AppOptions {
   store: Store
@@ -238,6 +238,17 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
 
   app.get<{ Params: { id: string } }>('/api/projects/:id/outputs', async (req, reply) =>
     store.getProject(req.params.id) ? store.listNodeOutputs(req.params.id) : reply.code(404).send({ error: 'not found' }))
+
+  // ---- result versions (every generation of a node, newest first) and switching between them
+  app.get<{ Params: { id: string; nodeId: string } }>('/api/projects/:id/nodes/:nodeId/versions', async (req, reply) =>
+    store.getProject(req.params.id) ? store.listNodeVersions(req.params.id, req.params.nodeId) : reply.code(404).send({ error: 'not found' }))
+
+  app.post<{ Params: { id: string; nodeId: string; seq: string } }>('/api/projects/:id/nodes/:nodeId/versions/:seq/use', async (req, reply) => {
+    if (!store.getProject(req.params.id)) return reply.code(404).send({ error: 'not found' })
+    if (engine.isRunning(req.params.id)) return reply.code(409).send({ error: '运行中不能切换版本，请等运行结束' })
+    const cur = store.useNodeVersion(req.params.id, req.params.nodeId, Number(req.params.seq))
+    return cur ? { outputs: cur.outputs, finishedAt: cur.finishedAt, versions: store.countNodeVersions(req.params.id, req.params.nodeId) } : reply.code(404).send({ error: 'no such version' })
+  })
 
   // ---- static web UI (SPA fallback)
   if (opts.webDir && existsSync(opts.webDir)) {

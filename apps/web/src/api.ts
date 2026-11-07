@@ -1,4 +1,4 @@
-import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, ProjectGraph, RunEvent } from '@hzc/core'
+import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, NodeVersion, ProjectGraph, RunEvent } from '@hzc/core'
 
 export interface SkillMeta { name: string; description: string; source: 'builtin' | 'user'; label: string; metadata: Record<string, string>; license?: string }
 
@@ -114,5 +114,7 @@ export const api = {
   estimate: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<Estimate>('POST', `/api/projects/${projectId}/estimate`, body),
   cancelRun: (runId: string) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/cancel`),
   streamRun,
-  outputs: (projectId: string) => req<{ nodeId: string; outputs: NodeOutputs; finishedAt: string }[]>('GET', `/api/projects/${projectId}/outputs`),
+  outputs: (projectId: string) => req<{ nodeId: string; outputs: NodeOutputs; finishedAt: string; versions: number }[]>('GET', `/api/projects/${projectId}/outputs`),
+  listVersions: (projectId: string, nodeId: string) => req<NodeVersion[]>('GET', `/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}/versions`),
+  useVersion: (projectId: string, nodeId: string, seq: number) => req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('POST', `/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}/versions/${seq}/use`),
 }

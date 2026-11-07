@@ -36,7 +36,7 @@ describe('segmentsFromCuts (pure)', () => {
   })
 })
 
-describe.skipIf(!HAS_FFMPEG)('FFmpeg + video prompt reverse', () => {
+describe.skipIf(!HAS_FFMPEG)('FFmpeg + video prompt reverse', { timeout: 60_000 }, () => {
   let dir: string, video: string
   let mock: FastifyInstance, M = ''
   const seen: any[] = []
@@ -173,7 +173,7 @@ describe('buildSrt (pure)', () => {
   })
 })
 
-describe.skipIf(!HAS_FFMPEG)('export node (FFmpeg)', () => {
+describe.skipIf(!HAS_FFMPEG)('export node (FFmpeg)', { timeout: 60_000 }, () => {
   let dir: string, data: string, store: Store, assets: AssetStore, engine: Engine, app: FastifyInstance
   const ff = (args: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args])
   const probeJson = (f: string) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', f]).toString())

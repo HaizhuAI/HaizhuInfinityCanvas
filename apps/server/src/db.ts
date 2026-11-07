@@ -7,6 +7,9 @@ import type { ModelProfile, ModelProfileInput, ProjectGraph } from '@hzc/core'
 import { EMPTY_GRAPH } from '@hzc/core'
 import { SecretError, type SecretBox } from './secrets'
 
+/** generations kept per node (result versions) */
+export const MAX_VERSIONS = 30
+
 // Loaded at runtime via require so bundlers (tsup/esbuild) cannot strip the `node:` prefix,
 // which would turn the import into the non-existent "sqlite" package.
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')
@@ -76,6 +79,11 @@ export class Store {
         outputs TEXT NOT NULL, finished_at TEXT NOT NULL,
         PRIMARY KEY (project_id, node_id)
       );
+      CREATE TABLE IF NOT EXISTS node_versions (
+        project_id TEXT NOT NULL, node_id TEXT NOT NULL, seq INTEGER NOT NULL, cache_key TEXT NOT NULL,
+        outputs TEXT NOT NULL, finished_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, node_id, seq)
+      );
     `)
     // migrations for databases created by earlier betas
     const cols = (this.db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]).map((c) => c.name)
@@ -135,6 +143,37 @@ export class Store {
     this.db.prepare('INSERT OR REPLACE INTO node_outputs VALUES (?,?,?,?,?)').run(projectId, nodeId, cacheKey, JSON.stringify(outputs), new Date().toISOString())
   }
 
+  // ---------- result versions: every generation of a node is kept (newest MAX_VERSIONS)
+  /** Records a generation unless it equals the latest one; returns how many versions the node now has. */
+  addNodeVersion(projectId: string, nodeId: string, cacheKey: string, outputs: unknown): number {
+    const json = JSON.stringify(outputs)
+    const last = this.db.prepare('SELECT seq, outputs FROM node_versions WHERE project_id = ? AND node_id = ? ORDER BY seq DESC LIMIT 1').get(projectId, nodeId) as { seq: number; outputs: string } | undefined
+    if (last?.outputs !== json) {
+      const seq = (last?.seq ?? 0) + 1
+      this.db.prepare('INSERT INTO node_versions VALUES (?,?,?,?,?,?)').run(projectId, nodeId, seq, cacheKey, json, new Date().toISOString())
+      this.db.prepare('DELETE FROM node_versions WHERE project_id = ? AND node_id = ? AND seq <= ?').run(projectId, nodeId, seq - MAX_VERSIONS)
+    }
+    return this.countNodeVersions(projectId, nodeId)
+  }
+
+  countNodeVersions(projectId: string, nodeId: string): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM node_versions WHERE project_id = ? AND node_id = ?').get(projectId, nodeId) as { n: number }).n
+  }
+
+  /** newest first */
+  listNodeVersions(projectId: string, nodeId: string) {
+    return (this.db.prepare('SELECT seq, outputs, finished_at FROM node_versions WHERE project_id = ? AND node_id = ? ORDER BY seq DESC').all(projectId, nodeId) as Record<string, string | number>[])
+      .map((r) => ({ seq: r.seq as number, outputs: JSON.parse(r.outputs as string) as unknown, finishedAt: r.finished_at as string }))
+  }
+
+  /** Make a kept version the node's current result (what downstream nodes receive). */
+  useNodeVersion(projectId: string, nodeId: string, seq: number) {
+    const v = this.db.prepare('SELECT cache_key, outputs FROM node_versions WHERE project_id = ? AND node_id = ? AND seq = ?').get(projectId, nodeId, seq) as { cache_key: string; outputs: string } | undefined
+    if (!v) return undefined
+    this.setNodeOutput(projectId, nodeId, v.cache_key, JSON.parse(v.outputs))
+    return this.getNodeOutput(projectId, nodeId)!
+  }
+
   /** Results with their cache keys, for project bundles. */
   listNodeOutputsForBundle(projectId: string) {
     return (this.db.prepare('SELECT node_id, cache_key, outputs, finished_at FROM node_outputs WHERE project_id = ?').all(projectId) as Record<string, string>[]).map((r) => ({
@@ -143,8 +182,9 @@ export class Store {
   }
 
   listNodeOutputs(projectId: string) {
+    const counts = new Map((this.db.prepare('SELECT node_id, COUNT(*) AS n FROM node_versions WHERE project_id = ? GROUP BY node_id').all(projectId) as { node_id: string; n: number }[]).map((r) => [r.node_id, r.n]))
     return (this.db.prepare('SELECT node_id, outputs, finished_at FROM node_outputs WHERE project_id = ?').all(projectId) as Record<string, string>[]).map((r) => ({
-      nodeId: r.node_id!, outputs: JSON.parse(r.outputs!), finishedAt: r.finished_at!,
+      nodeId: r.node_id!, outputs: JSON.parse(r.outputs!), finishedAt: r.finished_at!, versions: counts.get(r.node_id!) ?? 0,
     }))
   }
 
@@ -240,6 +280,8 @@ export class Store {
   }
 
   deleteProject(id: string) {
+    this.db.prepare('DELETE FROM node_outputs WHERE project_id = ?').run(id)
+    this.db.prepare('DELETE FROM node_versions WHERE project_id = ?').run(id)
     return this.db.prepare('DELETE FROM projects WHERE id = ?').run(id).changes > 0
   }
 

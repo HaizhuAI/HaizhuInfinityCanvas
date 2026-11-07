@@ -58,6 +58,8 @@ export class Engine {
   /** one active run per project: starting a new one cancels the previous */
   private active = new Map<string, string>()
 
+  isRunning(projectId: string): boolean { return this.active.has(projectId) }
+
   private chatAdapter?: HandlerCtx['chatAdapter']
   private pollDelays?: number[]
   private skills?: SkillStore
@@ -230,7 +232,8 @@ export class Engine {
         })
         outputs.set(nodeId, out)
         this.store.setNodeOutput(run.projectId, nodeId, key, out)
-        this.setNode(run, nodeId, { status: 'done', outputs: out, startedAt, finishedAt: new Date().toISOString() })
+        const versions = this.store.addNodeVersion(run.projectId, nodeId, key, out)
+        this.setNode(run, nodeId, { status: 'done', outputs: out, startedAt, finishedAt: new Date().toISOString(), versions })
       } catch (e) {
         failed.add(nodeId)
         if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); continue }

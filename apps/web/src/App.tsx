@@ -23,7 +23,7 @@ import { useStore } from './store'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.2'
+export const APP_VERSION = 'v1.0.0-rc.3'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -207,6 +207,19 @@ async function addMediaFiles(files: File[], at?: { x: number; y: number }) {
   if (i) { void s.loadAssets(); s.showToast(`已添加 ${i} 个素材节点`) }
 }
 
+/** "运行中 2 / 5" while a run is in progress */
+function RunProgress() {
+  const ids = useStore((s) => s.runNodeIds)
+  const done = useStore((s) => ids.filter((id) => ['done', 'cached', 'error', 'skipped', 'cancelled'].includes(s.runStates[id]?.status ?? '')).length)
+  if (!ids.length) return null
+  return (
+    <span className="run-progress" role="status" data-testid="run-progress">
+      <span className="bar" style={{ '--p': `${Math.round((done / ids.length) * 100)}%` } as React.CSSProperties} aria-hidden="true" />
+      运行中 {done} / {ids.length}
+    </span>
+  )
+}
+
 function SaveIndicator() {
   const state = useStore((s) => s.saveState)
   const label = { idle: '', dirty: '未保存', saving: '保存中…', saved: '已保存', error: '保存失败' }[state]
@@ -299,6 +312,14 @@ function Canvas() {
         nodes={s.nodes} edges={edges} nodeTypes={nodeTypes}
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
+        onConnectEnd={(e, c) => {
+          // a wire dropped on empty canvas: offer the nodes that fit, connect the one picked
+          if (c.toNode || !c.fromNode || !c.fromHandle) return
+          const p = 'changedTouches' in e ? e.changedTouches[0]! : e
+          const at = screenToFlowPosition({ x: p.clientX, y: p.clientY })
+          const out = c.fromHandle.type === 'source'
+          s.openPalette({ x: out ? at.x + 10 : at.x - 310, y: at.y - 60 }, { nodeId: c.fromNode.id, handleId: c.fromHandle.id ?? (out ? 'out' : 'in'), handleType: c.fromHandle.type })
+        }}
         onNodeContextMenu={(e, node) => { e.preventDefault(); if (!node.selected) s.selectNode(node.id); setCtx({ x: e.clientX, y: e.clientY, nodeId: node.id }) }}
         onPaneContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, at: screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }) }) }}
         onMove={(_, vp) => {
@@ -419,6 +440,7 @@ export function App() {
           <ProjectMenu />
           <div className="tb-right">
             <SaveIndicator />
+            {s.runId && <RunProgress />}
             {s.runId
               ? <button className="btn danger running sm" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
               : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}

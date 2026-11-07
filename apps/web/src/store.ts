@@ -3,7 +3,7 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type ProjectGraph } from '@hzc/core'
+import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { api, type AssetMeta, type ProjectSummary, type SkillMeta } from './api'
 import { preflight } from './preflight'
 
@@ -32,6 +32,8 @@ const withDefaultProfile = (n: CanvasNode, profiles: ModelProfilePublic[]): Canv
 export interface Toast { id: number; text: string; tone?: 'info' | 'error'; action?: { label: string; run: () => void } }
 export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'about'
 export interface SettingsIntent { tab?: SettingsTab; addKind?: ModelKind }
+/** a wire dropped on empty canvas: the quick-add palette offers nodes that fit and connects the pick */
+export interface ConnectFrom { nodeId: string; handleId: string; handleType: 'source' | 'target' }
 
 const toGraph = (nodes: CanvasNode[], edges: Edge[]): ProjectGraph => ({
   version: 1,
@@ -74,7 +76,11 @@ interface State {
   leftPanel: 'library' | 'assets' | null
   lightbox: { assetId: string; mime: string; name?: string } | null
   /** command palette; `at` = flow position to add at (double-click), else the view centre */
-  palette: { open: boolean; at?: { x: number; y: number } }
+  palette: { open: boolean; at?: { x: number; y: number }; connect?: ConnectFrom }
+  /** kept generations per node, newest first (loaded on demand) */
+  versionLists: Record<string, NodeVersion[]>
+  /** nodes of the current run, for the progress counter */
+  runNodeIds: string[]
   /** a run waiting for the user to confirm paid generation calls */
   pendingRun: { nodeIds?: string[]; force?: boolean; estimate: Estimate } | null
 
@@ -111,7 +117,10 @@ interface State {
   openLightbox: (a: State['lightbox']) => void
   /** select exactly this node (used by the inspector and keyboard flows) */
   selectNode: (id: string | null) => void
-  openPalette: (at?: { x: number; y: number }) => void
+  openPalette: (at?: { x: number; y: number }, connect?: ConnectFrom) => void
+  loadVersions: (nodeId: string) => Promise<NodeVersion[]>
+  /** make a kept generation the node's current result */
+  useVersion: (nodeId: string, seq: number) => Promise<void>
   closePalette: () => void
   /** turn a director node's storyboard into per-shot image → video (→ voice) rows; returns new node ids */
   expandStoryboard: (directorId: string) => string[]
@@ -124,6 +133,7 @@ export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null,
+  versionLists: {}, runNodeIds: [],
   settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, shortcutsOpen: false, canUndo: false, canRedo: false,
 
   showToast: (text, opts) => {
@@ -164,7 +174,24 @@ export const useStore = create<State>((set, get) => ({
   setLeftPanel: (p) => set({ leftPanel: p }),
   openLightbox: (a) => set({ lightbox: a }),
   selectNode: (id) => set((s) => ({ nodes: s.nodes.map((n) => (!!n.selected === (n.id === id) ? n : { ...n, selected: n.id === id })) })),
-  openPalette: (at) => set({ palette: { open: true, at } }),
+  openPalette: (at, connect) => set({ palette: { open: true, at, connect } }),
+
+  async loadVersions(nodeId) {
+    const { projectId } = get()
+    if (!projectId) return []
+    const list = await api.listVersions(projectId, nodeId)
+    set((s) => ({ versionLists: { ...s.versionLists, [nodeId]: list } }))
+    return list
+  },
+
+  async useVersion(nodeId, seq) {
+    const { projectId } = get()
+    if (!projectId) return
+    try {
+      const r = await api.useVersion(projectId, nodeId, seq)
+      set((s) => ({ runStates: { ...s.runStates, [nodeId]: { status: 'done', outputs: r.outputs, finishedAt: r.finishedAt, versions: r.versions } } }))
+    } catch (e) { get().showToast(`切换失败：${(e as Error).message}`, { tone: 'error' }) }
+  },
   closePalette: () => set({ palette: { open: false } }),
 
   expandStoryboard: (directorId) => {
@@ -227,8 +254,8 @@ export const useStore = create<State>((set, get) => ({
   async openProject(id) {
     const [p, outs] = await Promise.all([api.getProject(id), api.outputs(id)])
     const runStates: Record<string, NodeRunState> = {}
-    for (const o of outs) runStates[o.nodeId] = { status: 'done', outputs: o.outputs, finishedAt: o.finishedAt }
-    set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', runStates, runId: null })
+    for (const o of outs) runStates[o.nodeId] = { status: 'done', outputs: o.outputs, finishedAt: o.finishedAt, versions: o.versions }
+    set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', runStates, runId: null, versionLists: {}, runNodeIds: [] })
   },
 
   async newProject() {
@@ -318,7 +345,16 @@ export const useStore = create<State>((set, get) => ({
       set({ runId })
       await api.streamRun(runId, (e) => {
         if (get().runId !== runId) return
-        if (e.kind === 'node') set((s) => ({ runStates: { ...s.runStates, [e.nodeId]: e.state } }))
+        if (e.kind === 'run-start') set({ runNodeIds: e.nodeIds })
+        if (e.kind === 'node') set((s) => {
+          // keep the known version count while queued/running; a new generation invalidates the loaded list
+          const versions = e.state.versions ?? s.runStates[e.nodeId]?.versions
+          const fresh = e.state.versions !== undefined && e.state.versions !== s.runStates[e.nodeId]?.versions
+          const versionLists = fresh ? Object.fromEntries(Object.entries(s.versionLists).filter(([k]) => k !== e.nodeId)) : s.versionLists
+          // the saved result only changes when a run succeeds: keep showing it while (re)running or after a failure
+          const outputs = e.state.outputs ?? s.runStates[e.nodeId]?.outputs
+          return { runStates: { ...s.runStates, [e.nodeId]: { ...e.state, versions, outputs } }, versionLists }
+        })
         if (e.kind === 'run-end') {
           set({ runId: null })
           if (e.status === 'error') {

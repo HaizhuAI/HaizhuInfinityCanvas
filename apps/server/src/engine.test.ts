@@ -22,7 +22,8 @@ interface Seen { auth?: string; body: any }
 let mock: FastifyInstance
 let mockUrl = ''
 let seen: Seen[] = []
-let mode: 'ok' | 'fail-echo-key' | 'slow' = 'ok'
+let mode: 'ok' | 'fail-echo-key' | 'slow' | 'takes' = 'ok'
+let takes = 0
 
 beforeAll(async () => {
   mock = Fastify({ bodyLimit: 50 * 1024 * 1024 })
@@ -30,6 +31,7 @@ beforeAll(async () => {
     seen.push({ auth: req.headers.authorization, body: req.body })
     if (mode === 'fail-echo-key') return reply.code(500).send({ error: `bad key ${KEY}` })
     if (mode === 'slow') await new Promise((r) => setTimeout(r, 1500))
+    if (mode === 'takes') return { choices: [{ message: { content: `TAKE:${++takes}` } }] }
     const b = req.body as { messages: { content: unknown }[] }
     const user = b.messages[b.messages.length - 1]!.content
     const hasImage = Array.isArray(user) && user.some((p: any) => p.type === 'image_url')
@@ -80,6 +82,45 @@ const textLlmPreview = (profileId?: string): ProjectGraph => ({
     { id: 'e1', source: 't', sourceHandle: 'out', target: 'l', targetHandle: 'in' },
     { id: 'e2', source: 'l', sourceHandle: 'out', target: 'p', targetHandle: 'in' },
   ],
+})
+
+describe('result versions', () => {
+  afterEach(() => { mode = 'ok' })
+  it('keeps every generation, lists newest first, and switches the current result', async () => {
+    mode = 'takes'; takes = 0
+    const p = project(textLlmPreview(profile('llm').id))
+    expect((await run(p.id)).last.get('l')).toMatchObject({ status: 'done', versions: 1 })
+    const second = await run(p.id, { nodeIds: ['l'], force: true })
+    expect(second.last.get('l')).toMatchObject({ status: 'done', versions: 2, outputs: { out: [{ text: 'TAKE:2' }] } })
+
+    const list = (await app.inject({ method: 'GET', url: `/api/projects/${p.id}/nodes/l/versions` })).json()
+    expect(list.map((v: any) => [v.seq, v.outputs.out[0].text])).toEqual([[2, 'TAKE:2'], [1, 'TAKE:1']])
+
+    const use = await app.inject({ method: 'POST', url: `/api/projects/${p.id}/nodes/l/versions/1/use` })
+    expect(use.json()).toMatchObject({ outputs: { out: [{ text: 'TAKE:1' }] }, versions: 2 })
+    const outs = (await app.inject({ method: 'GET', url: `/api/projects/${p.id}/outputs` })).json()
+    expect(outs.find((o: any) => o.nodeId === 'l')).toMatchObject({ versions: 2, outputs: { out: [{ text: 'TAKE:1' }] } })
+
+    // downstream now receives the chosen take, from cache (no new provider call)
+    const callsBefore = seen.length
+    const after = await run(p.id)
+    expect(after.last.get('l').status).toBe('cached')
+    expect(after.last.get('p').outputs.in[0].text).toBe('TAKE:1')
+    expect(seen.length).toBe(callsBefore)
+    expect((await app.inject({ method: 'POST', url: `/api/projects/${p.id}/nodes/l/versions/9/use` })).statusCode).toBe(404)
+  })
+
+  it('does not record an identical result twice, keeps at most 30, and forgets a deleted canvas', async () => {
+    const p = project(textLlmPreview(profile('llm').id))
+    await run(p.id)
+    expect((await run(p.id, { nodeIds: ['l'], force: true })).last.get('l').versions).toBe(1) // same ECHO text
+    for (let i = 0; i < 35; i++) store.addNodeVersion(p.id, 'x', 'k', { out: [{ type: 'text', text: `v${i}` }] })
+    const kept = store.listNodeVersions(p.id, 'x')
+    expect(kept).toHaveLength(30)
+    expect(kept[29]!.seq).toBe(6)
+    store.deleteProject(p.id)
+    expect(store.countNodeVersions(p.id, 'x')).toBe(0)
+  })
 })
 
 describe('engine + openai-compat provider', () => {

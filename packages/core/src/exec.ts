@@ -24,7 +24,12 @@ export interface NodeRunState {
   outputs?: NodeOutputs
   startedAt?: string
   finishedAt?: string
+  /** how many generations of this node are kept (result versions) */
+  versions?: number
 }
+
+/** One kept generation of a node. */
+export interface NodeVersion { seq: number; outputs: NodeOutputs; finishedAt: string }
 
 /** Events streamed to the client while a run progresses. */
 export type RunEvent =

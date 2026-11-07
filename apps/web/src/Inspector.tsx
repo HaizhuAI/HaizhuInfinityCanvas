@@ -6,6 +6,7 @@ import {
 } from '@hzc/core'
 import { assetUrl } from './api'
 import { ErrorBox, FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
+import { VersionStrip } from './Versions'
 import { CATEGORY_COLOR, KIND_LABEL, NODE_ICON } from './icons'
 import { useStore, type CanvasNode } from './store'
 
@@ -273,8 +274,8 @@ export function Inspector({ onClose }: { onClose: () => void }) {
             {status !== 'idle' && (
               <dl className="meta-list">
                 <dt>状态</dt><dd><StatusPill status={status} error={runState?.error} /></dd>
-                <dt>开始</dt><dd>{fmtTime(runState?.startedAt)}</dd>
-                <dt>完成</dt><dd>{fmtTime(runState?.finishedAt)}</dd>
+                {runState?.startedAt && <><dt>开始</dt><dd>{fmtTime(runState.startedAt)}</dd></>}
+                {runState?.finishedAt && <><dt>完成</dt><dd>{fmtTime(runState.finishedAt)}</dd></>}
               </dl>
             )}
             {runState?.progress && status === 'running' && <div className="progress">{runState.progress}</div>}
@@ -291,6 +292,7 @@ export function Inspector({ onClose }: { onClose: () => void }) {
             <h3>结果</h3>
             <Values vals={shown} />
             <Downloads vals={shown} name={baseName} />
+            <VersionStrip nodeId={node.id} />
           </section>
         )}
 
