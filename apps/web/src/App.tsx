@@ -458,9 +458,22 @@ export function App() {
       if (files.length) { e.preventDefault(); void addMediaFiles(files); return }
       if (pasteNodes()) e.preventDefault()
     }
+    // arrow keys nudge the selection: 1 px, Shift 10 px, one grid step while snapping. Captured on the
+    // window so the canvas's own (focused-node-only, 5 px) arrow handling doesn't move it a second time.
+    const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+    const onArrow = (e: KeyboardEvent) => {
+      const dir = ARROWS[e.key]
+      if (!dir || e.metaKey || e.ctrlKey || e.altKey) return
+      const st = useStore.getState()
+      if ((e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], .assistant, .lpanel, [role="menu"]')) return
+      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen) return
+      const step = st.snap ? 24 : e.shiftKey ? 10 : 1
+      if (st.nudge(dir[0] * step, dir[1] * step)) { e.preventDefault(); e.stopPropagation() }
+    }
+    window.addEventListener('keydown', onArrow, true)
     window.addEventListener('keydown', onKey)
     window.addEventListener('paste', onPaste)
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste) }
+    return () => { window.removeEventListener('keydown', onArrow, true); window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste) }
   }, [])
 
   return (

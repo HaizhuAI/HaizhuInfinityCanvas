@@ -46,7 +46,7 @@ function Card({ p, current, onOpen }: { p: ProjectSummary; current: boolean; onO
         <div className="actions danger">
           <span>删除后无法恢复</span>
           <button className="btn xs" onClick={() => setConfirm(false)}>取消</button>
-          <button className="btn xs danger" onClick={() => void deleteProject(p.id).then(() => showToast(`已删除「${p.name}」`))} data-testid="project-delete-confirm">删除</button>
+          <button className="btn xs danger" onClick={() => void deleteProject(p.id).then(() => showToast(`已删除「${p.name}」`), (e: unknown) => { setConfirm(false); showToast(e instanceof Error ? e.message.replace(/^\d{3} /, '') : '删除失败', { tone: 'error' }) })} data-testid="project-delete-confirm">删除</button>
         </div>
       ) : (
         <div className="actions">

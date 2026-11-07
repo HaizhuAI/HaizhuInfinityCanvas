@@ -86,6 +86,27 @@ function startMock() {
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="node-director"]').length === 2)
   console.log('4 Ctrl+D duplicates, Ctrl+C / Ctrl+V pastes, the toolbar undo button reverts the paste')
 
+  // 4b. arrow keys nudge the selection (1 px, Shift 10 px) and the burst undoes as one step
+  const pos = () => page.evaluate(() => {
+    const el = document.querySelector('.react-flow__node.selected')
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(el?.style.transform ?? '')
+    return m ? [Number(m[1]), Number(m[2])] : null
+  })
+  await page.locator('[data-testid="node-director"] .ntitle').first().click()
+  await page.waitForTimeout(500)
+  const start = await pos()
+  assert.ok(start, 'a node is selected')
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Shift+ArrowDown')
+  assert.deepEqual(await pos(), [start[0] + 3, start[1] + 10])
+  await page.waitForTimeout(600)
+  await page.keyboard.press(`${mod}+z`)
+  await page.waitForFunction(([x, y]) => {
+    const el = document.querySelector('.react-flow__node.selected') ?? document.querySelector('.react-flow__node')
+    return !!el && Array.from(document.querySelectorAll('.react-flow__node')).some((n) => n.style.transform.replace(/\s/g, '') === `translate(${x}px,${y}px)`)
+  }, start)
+  console.log('4b arrow keys nudge the selected node 1 px (Shift 10 px); one undo puts it back')
+
   // 5. pre-run check: an empty idea is caught before any model call; 定位 jumps to the node
   await page.fill('[data-testid="node-text"] textarea', '')
   await page.waitForTimeout(500)

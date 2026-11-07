@@ -144,6 +144,8 @@ interface State {
   applyPlan: (turnIndex: number) => string[]
   /** lay the canvas out left to right (one undo step); returns how many nodes moved */
   tidy: () => number
+  /** arrow keys: move the selected nodes by (dx, dy); returns how many moved */
+  nudge: (dx: number, dy: number) => number
 
   onNodesChange: (c: NodeChange<CanvasNode>[]) => void
   onEdgesChange: (c: EdgeChange[]) => void
@@ -275,6 +277,16 @@ export const useStore = create<State>((set, get) => ({
     return fresh.map((n) => n.id)
   },
 
+  nudge: (dx, dy) => {
+    let moved = 0
+    const next = get().nodes.map((n) => {
+      if (!n.selected || n.draggable === false) return n
+      moved++
+      return { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
+    })
+    if (moved) set({ nodes: next, saveState: 'dirty' })
+    return moved
+  },
   tidy: () => {
     const { nodes, edges } = get()
     if (nodes.length < 2) return 0

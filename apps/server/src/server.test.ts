@@ -16,12 +16,14 @@ import { Engine } from './engine'
 let dir: string
 let store: Store
 let app: FastifyInstance
+let engine: Engine
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'hzc-test-'))
   store = new Store(':memory:', new SecretBox(join(dir, 'master.key')))
   const assets = new AssetStore(dir, store)
-  app = await buildApp({ store, assets, engine: new Engine(store, assets), skills: new SkillStore(BUILTIN_SKILLS, dir) })
+  engine = new Engine(store, assets)
+  app = await buildApp({ store, assets, engine, skills: new SkillStore(BUILTIN_SKILLS, dir) })
 })
 afterEach(async () => { await app.close(); store.close(); rmSync(dir, { recursive: true, force: true }) })
 
@@ -129,6 +131,12 @@ describe('projects manager', () => {
     expect((await app.inject({ method: 'POST', url: `/api/projects/${p.id}/duplicate`, payload: { name: '海报 B' } })).json().name).toBe('海报 B')
     expect((await app.inject({ method: 'POST', url: '/api/projects/nope/duplicate', payload: {} })).statusCode).toBe(404)
 
+    const running = engine.isRunning
+    engine.isRunning = (id) => id === p.id
+    const busy = await app.inject({ method: 'DELETE', url: `/api/projects/${p.id}` })
+    engine.isRunning = running
+    expect(busy.statusCode).toBe(409)                                                             // not while it runs
+    expect(store.getProject(p.id)).toBeTruthy()
     expect((await app.inject({ method: 'DELETE', url: `/api/projects/${p.id}` })).statusCode).toBe(204)
     expect(store.getNodeOutput(p.id, 'g1')).toBeUndefined()
   })

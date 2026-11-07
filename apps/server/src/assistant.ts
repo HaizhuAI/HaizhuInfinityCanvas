@@ -66,7 +66,7 @@ export function assistantSystem(skills: string[], kinds: ModelKind[]): string {
     '可用节点（type｜名称｜用途｜输入端口｜输出端口）：',
     catalog(skills),
     '端口类型必须匹配：text→text、image→image、video→video、audio→audio；storyboard 可以接到 text；preview 的输入接受任何类型。没有输入端口的节点不能被连入。',
-    `用户已配置的模型类型：${kinds.length ? kinds.map((k) => KIND_NAME[k]).join('、') : '无'}。如果方案需要用户还没有的模型，在 reply 里提醒他到「设置 → 模型档案」添加。`,
+    `用户已配置的模型类型：${kinds.length ? kinds.map((k) => KIND_NAME[k]).join('、') : '无'}。如果方案需要用户还没有的模型，在 reply 里提醒用户到「设置 → 模型档案」添加。`,
     '规则：',
     '1. 只输出一个 JSON 对象，不要 Markdown 代码块，不要解释：{"reply": "给用户的简短中文说明（1-3 句）", "plan": {"nodes": [...], "edges": [...]}}',
     '2. nodes 的每一项：{"key": "n1", "type": "节点 type", "label": "简短中文名", "text": "提示词或文本内容（可选）", "params": {…可选…}}。最多 12 个节点。',

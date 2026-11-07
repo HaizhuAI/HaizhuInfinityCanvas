@@ -118,8 +118,10 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     return p ? reply.code(201).send(p) : reply.code(404).send({ error: 'not found' })
   })
 
-  app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) =>
-    store.deleteProject(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' }))
+  app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
+    if (engine.isRunning(req.params.id)) return reply.code(409).send({ error: '这个画布正在运行，停止后再删除' })
+    return store.deleteProject(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' })
+  })
 
   // ---- portable project bundle (.hzc = zip: project.json + referenced assets), streamed one file at a time
   app.get<{ Params: { id: string } }>('/api/projects/:id/bundle', async (req, reply) => {
