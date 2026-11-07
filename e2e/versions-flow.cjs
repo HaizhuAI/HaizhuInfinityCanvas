@@ -100,6 +100,20 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   assert.equal(await imgSrc(), v1)
   console.log('3 ‹ on the node goes to 2 / 3; the inspector strip lists all 3 and switches back to the first')
 
+  // 3b. the full-screen viewer browses versions with ← / → and can switch to one
+  await page.locator('[data-testid="node-image-gen"] .nmedia').dblclick()
+  await page.waitForSelector('[data-testid="lightbox-versions"]:has-text("第 1 / 3 版（当前）")')
+  await page.keyboard.press('ArrowRight')
+  await page.waitForSelector('[data-testid="lightbox-versions"]:has-text("第 2 / 3 版")')
+  await page.screenshot({ path: OUT + '/rc3-lightbox.png' })
+  await page.click('[data-testid="lightbox-use"]')
+  await page.waitForSelector('[data-testid="lightbox-versions"]:has-text("第 2 / 3 版（当前）")')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('[data-testid="node-image-gen"] [data-testid="version-label"]')?.textContent === '2 / 3')
+  await page.click('[data-testid="node-image-gen"] [aria-label="上一版"]')
+  await page.waitForFunction(() => document.querySelector('[data-testid="node-image-gen"] [data-testid="version-label"]')?.textContent === '1 / 3')
+  console.log('3b the viewer shows 第 1 / 3 版（当前）, → goes to version 2, 使用这一版 switches the node')
+
   // 4. the choice is saved: still the first version after a reload
   await page.reload()
   await page.waitForSelector('[data-testid="node-image-gen"] [data-testid="version-label"]')
@@ -128,6 +142,42 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await page.keyboard.press('Enter')
   await page.waitForSelector('.react-flow__node.selected [data-testid="node-text"]')
   console.log('6 typing in the palette finds the text node by its content; Enter selects it')
+
+  // 7. drag a result out of the node: it becomes a new image node with the same picture
+  const imgsBefore = await page.locator('[data-testid="node-image"]').count()
+  await page.click('[data-testid="fit-view"]')
+  await page.waitForTimeout(400)
+  await page.locator('[data-testid="node-image-gen"] .nmedia').hover()
+  await page.dragAndDrop('[data-testid="node-image-gen"] [data-testid="drag-result"]', '.react-flow__pane', { targetPosition: { x: 120, y: 620 } })
+  await page.waitForFunction((n) => document.querySelectorAll('[data-testid="node-image"] img').length === n + 1, imgsBefore)
+  assert.equal(await page.locator('[data-testid="node-image"] img').last().getAttribute('src'), await imgSrc())
+  console.log('7 the result dragged out of the node becomes an image node with the same picture')
+
+  // 8. 整理画布 lays nodes out left to right; undo puts them back
+  const pos = () => page.evaluate(() => [...document.querySelectorAll('.react-flow__node')].map((n) => n.style.transform).join('|'))
+  const before = await pos()
+  await page.click('[data-testid="tidy"]')
+  await page.waitForSelector('[data-testid="toast"]:has-text("已整理")')
+  await page.waitForFunction((b) => [...document.querySelectorAll('.react-flow__node')].map((n) => n.style.transform).join('|') !== b, before)
+  const xs = await page.evaluate(() => {
+    const x = (sel) => document.querySelector(sel)?.closest('.react-flow__node')?.getBoundingClientRect().x ?? 0
+    return [x('[data-testid="node-text"]'), x('[data-testid="node-image-gen"]')]
+  })
+  assert.ok(xs[0] < xs[1], 'text node left of the image node it feeds')
+  await page.screenshot({ path: OUT + '/rc3-tidy.png' })
+  await page.click('[data-testid="toast-action"]')
+  await page.waitForFunction((b) => [...document.querySelectorAll('.react-flow__node')].map((n) => n.style.transform).join('|') === b, before)
+  console.log('8 整理画布 puts the text left of the image node it feeds; 撤销 restores the previous layout')
+
+  // 9. the 文生图 → 图生视频 template, from the palette: the image step uses the configured model
+  await page.locator('.react-flow__pane').click({ position: { x: 20, y: 20 } })
+  await page.keyboard.press('/')
+  await page.fill('[data-testid="palette-input"]', '图生视频')
+  await page.click('[data-testid="palette-item-t:text-to-video"]')
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="node-video-gen"]').length === 1)
+  const bound = await page.locator('[data-testid="node-image-gen"] select[aria-label="模型档案"]').last().inputValue()
+  assert.equal(bound, prof.id)
+  console.log('9 文生图 → 图生视频 template added; its image step already uses 「GPT 图片」')
 
   await browser.close(); mock.close()
   console.log('console/page errors:', errors.length ? errors : 'none')

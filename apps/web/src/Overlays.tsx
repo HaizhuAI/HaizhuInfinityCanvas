@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, Keyboard, Maximize, Play, Plus, Sparkles, Trash, Undo2, X } from 'lucide-react'
+import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, Keyboard, LayoutDashboard, Maximize, Play, Plus, Sparkles, Trash, Undo2, X } from 'lucide-react'
+import { tidyCanvas } from './Chrome'
 import { canPaste, copySelection, duplicateSelection, paste } from './clipboard'
 import { undo } from './history'
 import { NODE_TYPE_MAP, type ModelKind } from '@hzc/core'
@@ -236,6 +237,7 @@ export function ContextMenu({ menu, onClose }: { menu: NonNullable<CtxMenu>; onC
           <div className="menu-sep" />
           {item('全选', BoxSelect, () => useStore.setState({ nodes: st.nodes.map((n) => (n.selected ? n : { ...n, selected: true })) }), `${MOD} A`, { disabled: !st.nodes.length })}
           {item('适应画布', Maximize, () => void fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 'Shift 1', { disabled: !st.nodes.length })}
+          {item('整理画布', LayoutDashboard, () => tidyCanvas(fitView), undefined, { disabled: st.nodes.length < 2, testid: 'ctx-tidy' })}
           {item('撤销', Undo2, () => { undo() }, `${MOD} Z`, { disabled: !st.canUndo })}
         </>
       )}

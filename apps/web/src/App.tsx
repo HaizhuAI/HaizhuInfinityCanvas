@@ -245,7 +245,7 @@ function EmptyState() {
         <h2>从一个想法，到一部成片。</h2>
         <p>把你的模型当作创作团队：导演拆分镜，画师出图，摄影成片，配音收尾。挑一个起点：</p>
         <div className="tpl-grid">
-          {TEMPLATES.map((t) => (
+          {TEMPLATES.filter((t) => t.featured).map((t) => (
             <button key={t.id} className="tpl" onClick={() => addTemplate(t.graph())} data-testid={`template-${t.id}`}>
               <span className="flow" aria-hidden="true">
                 {t.flow.map((type, i) => {

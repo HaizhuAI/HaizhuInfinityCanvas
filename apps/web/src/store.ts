@@ -6,6 +6,7 @@ import {
 import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { api, type AssetMeta, type ProjectSummary, type SkillMeta } from './api'
 import { preflight } from './preflight'
+import { tidyLayout } from './layout'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
 export type CanvasNode = Node<CanvasNodeData>
@@ -74,7 +75,8 @@ interface State {
   assets: AssetMeta[]
   /** left panel shown next to the rail; null = collapsed */
   leftPanel: 'library' | 'assets' | null
-  lightbox: { assetId: string; mime: string; name?: string } | null
+  /** full-screen viewer; with `nodeId`, the node's kept versions can be browsed there */
+  lightbox: { assetId: string; mime: string; name?: string; nodeId?: string } | null
   /** command palette; `at` = flow position to add at (double-click), else the view centre */
   palette: { open: boolean; at?: { x: number; y: number }; connect?: ConnectFrom }
   /** kept generations per node, newest first (loaded on demand) */
@@ -102,6 +104,8 @@ interface State {
   /** add nodes/edges as one step and select exactly them (paste, duplicate) */
   insertGraph: (nodes: CanvasNode[], edges: Edge[]) => void
   dismissCheck: () => void
+  /** lay the canvas out left to right (one undo step); returns how many nodes moved */
+  tidy: () => number
 
   onNodesChange: (c: NodeChange<CanvasNode>[]) => void
   onEdgesChange: (c: EdgeChange[]) => void
@@ -159,6 +163,21 @@ export const useStore = create<State>((set, get) => ({
     })
     if (n) set({ nodes: next, saveState: 'dirty' })
     return n
+  },
+
+  tidy: () => {
+    const { nodes, edges } = get()
+    if (nodes.length < 2) return 0
+    const pos = tidyLayout(nodes, edges)
+    let moved = 0
+    const next = nodes.map((n) => {
+      const p = pos.get(n.id)
+      if (!p || (Math.round(p.x) === Math.round(n.position.x) && Math.round(p.y) === Math.round(n.position.y))) return n
+      moved++
+      return { ...n, position: p }
+    })
+    if (moved) set({ nodes: next, saveState: 'dirty' })
+    return moved
   },
 
   insertGraph: (nodes, edges) => set((s) => ({

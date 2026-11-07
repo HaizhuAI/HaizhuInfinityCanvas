@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { DND_MIME, readDrag, startDrag } from './dnd'
 import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { ASPECT_CSS, CATEGORY_COLOR, KIND_LABEL, NODE_ICON, PORT_COLOR, PORT_LABEL } from './icons'
@@ -67,15 +68,20 @@ export function FileCard({ v, hint }: { v: FileValue; hint?: string }) {
   )
 }
 
-function MediaView({ v, name }: { v: MediaValue; name?: string }) {
+function MediaView({ v, name, nodeId }: { v: MediaValue; name?: string; nodeId?: string }) {
   const openLightbox = useStore((s) => s.openLightbox)
   const url = assetUrl(v.assetId)
   if (v.type === 'audio') return <div className="nmedia audio"><audio className="nodrag" src={url} controls preload="metadata" data-testid="out-audio" /></div>
-  const open = () => openLightbox({ assetId: v.assetId, mime: v.mime, name })
+  const open = () => openLightbox({ assetId: v.assetId, mime: v.mime, name, nodeId })
+  // drag the result onto the canvas (a new input node) or onto another media node
+  const drag = (e: React.DragEvent) => { e.stopPropagation(); startDrag(e, { type: v.type, assetId: v.assetId, mime: v.mime, name: name ? `${name}（结果）` : undefined }) }
   return (
     <div className="nmedia" onDoubleClick={open}>
       {v.type === 'image' ? <img className="media" src={url} alt={name ?? '图片'} draggable={false} /> : <video className="media nodrag" src={url} controls preload="metadata" />}
-      <button className="btn xs icon expand nodrag" onClick={open} aria-label="全屏预览" title="全屏预览（双击也可）"><Expand /></button>
+      <div className="media-tools">
+        <span className="btn xs icon nodrag grip" draggable onDragStart={drag} role="button" tabIndex={-1} aria-label="拖出这个结果" title={`拖到画布上作为新的${v.type === 'image' ? '图片' : '视频'}节点，或拖到另一个${v.type === 'image' ? '图片' : '视频'}节点上替换`} data-testid="drag-result"><GripVertical /></span>
+        <button className="btn xs icon nodrag" onClick={open} aria-label="全屏预览" title="全屏预览（双击也可）"><Expand /></button>
+      </div>
     </div>
   )
 }
@@ -156,9 +162,18 @@ function MediaInput({ id, kind, assetId, mime, name, error }: { id: string; kind
     } catch (e) { showToast(`上传失败：${(e as Error).message}`) } finally { setBusy(false) }
   }
   const dropProps = {
-    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setOver(true) } },
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(DND_MIME)) { e.preventDefault(); e.stopPropagation(); setOver(true) } },
     onDragLeave: () => setOver(false),
-    onDrop: (e: React.DragEvent) => { if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); setOver(false); void onFile(e.dataTransfer.files[0]) } },
+    onDrop: (e: React.DragEvent) => {
+      if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); setOver(false); void onFile(e.dataTransfer.files[0]); return }
+      // a result dragged from another node (or the gallery): use that file here
+      const p = readDrag(e)
+      if (p && 'assetId' in p) {
+        e.preventDefault(); e.stopPropagation(); setOver(false)
+        if (p.type !== kind) { showToast(`这里需要${MEDIA_LABEL[kind]}`); return }
+        setNodeData(id, { assetId: p.assetId, mime: p.mime, label: p.name ?? name })
+      }
+    },
   }
   return (
     <div className="nbody" {...dropProps}>
@@ -271,7 +286,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
 
           {genKind && type !== 'export' && (media.length
             ? <div className={`mwrap${media.length > 1 ? ' nmedia multi' : ''}${isRunning ? ' regen' : ''}`}>
-                {media.map((v, i) => <MediaView key={i} v={v} name={data.label} />)}
+                {media.map((v, i) => <MediaView key={i} v={v} name={data.label} nodeId={id} />)}
                 {isRunning && <div className="regen-overlay" data-testid="node-progress"><span className="orbit" style={{ '--s': '18px' } as React.CSSProperties} aria-hidden="true" />{runState?.progress ?? '重新生成中…'}</div>}
               </div>
             : <Frame aspect={params.aspect_ratio as string | undefined} kind={genKind} running={isRunning} progress={runState?.progress} />)}
