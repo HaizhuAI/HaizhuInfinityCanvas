@@ -16,7 +16,7 @@ import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 
-export const APP_VERSION = '1.0.0-rc.5'
+export const APP_VERSION = '1.0.0-rc.6'
 
 export interface AppOptions {
   store: Store
@@ -263,6 +263,19 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     try {
       const { body: _b, ...meta } = skills.importFiles(skillFilesFromZip(req.body), { kind: kindOf(req.query.kind) })
       return reply.code(201).send(meta)
+    } catch (e) {
+      if (e instanceof SkillError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
+  })
+  app.put<{ Params: { name: string }; Body: { kind?: unknown } }>('/api/skills/:name/kind', async (req, reply) => {
+    const kind = kindOf(req.body?.kind)
+    if (!kind) return reply.code(400).send({ error: 'kind 必须是 director 或 image-reverse' })
+    try {
+      const s = skills.setKind(req.params.name, kind)
+      if (!s) return reply.code(404).send({ error: 'not found' })
+      const { body: _b, ...meta } = s
+      return meta
     } catch (e) {
       if (e instanceof SkillError) return reply.code(400).send({ error: e.message })
       throw e

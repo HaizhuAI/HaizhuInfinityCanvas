@@ -110,7 +110,7 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
 
   // settings: skills + import, appearance switch
   await page.click('[data-testid="open-settings"]')
-  await page.click('.tab:has-text("导演 Skill")')
+  await page.click('.tab:has-text("Skill")')
   await page.waitForSelector('[data-testid="skill-director-short-film"]')
   await page.click('[data-testid="import-skill"]')
   await page.fill('[data-testid="skill-text"]', '---\nname: long-take\ndescription: 长镜头导演，少剪辑多运镜。\nmetadata:\n  hzc-kind: director\n  hzc-label: 长镜头导演\n---\n\n# 长镜头\n\n每个镜头至少 8 秒。\n')

@@ -72,9 +72,13 @@ function PaletteBody() {
       out.push({ key: `p:${p.id}`, group: '我的模型智能体', label: p.name, desc: `${KIND_LABEL[p.kind]} · ${p.model}`, color: KIND_COLOR[p.kind], Icon: KIND_ICON[p.kind],
         run: () => add(KIND_TO_NODE[p.kind], p.id), terms: `${p.name} ${p.model} ${KIND_LABEL[p.kind]}` })
     }
-    for (const s of fits('director') ? skills.filter((x) => x.metadata?.['hzc-kind'] === 'director') : []) {
+    for (const s of fits('director') ? skills.filter((x) => x.kind === 'director') : []) {
       out.push({ key: `s:${s.name}`, group: '导演 Skill', label: s.label, desc: s.description, color: CATEGORY_COLOR.tool, Icon: NODE_ICON.director!,
         run: () => { const id = add('director'); if (id) setNodeParam(id, 'skill', s.name) }, terms: `${s.label} ${s.name} ${s.description} 导演 分镜` })
+    }
+    for (const s of fits('image-reverse') ? skills.filter((x) => x.kind === 'image-reverse') : []) {
+      out.push({ key: `rs:${s.name}`, group: '反推 Skill', label: s.label, desc: s.description, color: CATEGORY_COLOR.tool, Icon: NODE_ICON['image-reverse']!,
+        run: () => { const id = add('image-reverse'); if (id) setNodeParam(id, 'skill', s.name) }, terms: `${s.label} ${s.name} ${s.description} 反推 提示词 reverse prompt` })
     }
     for (const n of NODE_TYPES) {
       if (!fits(n.type)) continue

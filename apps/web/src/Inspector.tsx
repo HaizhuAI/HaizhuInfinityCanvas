@@ -1,6 +1,6 @@
 import { useReactFlow } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
-import { Download, GitCompareArrows, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
+import { Download, GitCompareArrows, Info, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
 import {
   ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS, type PortValue,
 } from '@hzc/core'
@@ -81,8 +81,8 @@ function Params({ node }: { node: CanvasNode }) {
         </div>
       )
     case 'director': {
-      const directors = skills.filter((s) => s.metadata?.['hzc-kind'] === 'director')
-      const others = skills.filter((s) => s.metadata?.['hzc-kind'] !== 'director')
+      const directors = skills.filter((s) => s.kind === 'director')
+      const others = skills.filter((s) => s.kind !== 'director' && s.kind !== 'image-reverse')
       return (
         <>
           <label className="field"><span>导演 Skill</span>
@@ -105,18 +105,40 @@ function Params({ node }: { node: CanvasNode }) {
         </>
       )
     }
-    case 'image-reverse':
+    case 'image-reverse': {
+      // how to reverse: a built-in template, or an imported reverse skill (e.g. image-prompt-reverse)
+      const reverseSkills = skills.filter((s) => s.kind === 'image-reverse')
+      const skillName = typeof p.skill === 'string' && p.skill ? p.skill : undefined
+      const skill = skillName ? skills.find((s) => s.name === skillName) : undefined
       return (
         <>
-          <label className="field"><span>目标风格</span>
-            <select value={String(p.style ?? 'general')} onChange={(e) => set('style', e.target.value)} data-testid="reverse-style">
-              {REVERSE_STYLES.map((s) => <option key={s} value={s}>{REVERSE_STYLE_LABEL[s]}</option>)}
+          <label className="field"><span>反推方式</span>
+            <select value={skillName ? `skill:${skillName}` : String(p.style ?? 'general')} data-testid="reverse-style"
+              onChange={(e) => { const v = e.target.value; if (v.startsWith('skill:')) set('skill', v.slice(6)); else { set('skill', undefined); set('style', v) } }}>
+              <optgroup label="内置模板">{REVERSE_STYLES.map((s) => <option key={s} value={s}>{REVERSE_STYLE_LABEL[s]}</option>)}</optgroup>
+              {reverseSkills.length > 0 && <optgroup label="已导入的反推 Skill">{reverseSkills.map((s) => <option key={s.name} value={`skill:${s.name}`}>{s.label}</option>)}</optgroup>}
+              {skillName && !skill && <option value={`skill:${skillName}`}>{skillName}（已删除）</option>}
             </select>
           </label>
-          <div className="field"><span>输出语言</span><Seg label="输出语言" value={String(p.lang ?? 'zh')} options={REVERSE_LANGS.map((l) => [l, l === 'zh' ? '中文' : 'English'])} onChange={(v) => set('lang', v)} /></div>
-          <label className="field"><span>自定义指令（留空用内置模板）</span><textarea value={String(p.instruction ?? '')} onChange={(e) => set('instruction', e.target.value)} /></label>
+          {skill && (
+            <div className="skill-info" data-testid="reverse-skill-info">
+              <div className="ds">{skill.description}</div>
+              <div className="meta">
+                {skill.references.length > 0 && <span>含 {skill.references.length} 份参考文件</span>}
+                {skill.license && <span className="tag" title="这个 Skill 由你从作者处导入到本机使用，遵循它自己的许可证">{skill.license}</span>}
+                {skill.sourceUrl && <a href={skill.sourceUrl} target="_blank" rel="noreferrer">来源</a>}
+              </div>
+            </div>
+          )}
+          {skillName && !skill && <div className="warn"><TriangleExclamationPoint aria-hidden="true" />找不到这个 Skill，它可能已被删除：请重新选择反推方式</div>}
+          <div className="field"><span>{skillName ? '传给下游的正向提示词' : '输出语言'}</span><Seg label="输出语言" value={String(p.lang ?? 'zh')} options={REVERSE_LANGS.map((l) => [l, l === 'zh' ? '中文' : 'English'])} onChange={(v) => set('lang', v)} /></div>
+          {skillName
+            ? <div className="hint"><Info aria-hidden="true" />负面词从「负面词」端口输出，可连到图片 / 视频生成节点；完整回答在下方结果里。</div>
+            : <label className="field"><span>自定义指令（留空用内置模板）</span><textarea value={String(p.instruction ?? '')} onChange={(e) => set('instruction', e.target.value)} /></label>}
+          <button className="link" style={{ alignSelf: 'flex-start', textAlign: 'left' }} onClick={() => useStore.getState().openSettings({ tab: 'skills' })} data-testid="reverse-import-skill">导入反推 Skill…（例如 GitHub 上的 image-prompt-reverse）</button>
         </>
       )
+    }
     case 'video-reverse':
       return (
         <>
@@ -293,6 +315,17 @@ export function Inspector({ onClose }: { onClose: () => void }) {
             <h3>结果</h3>
             <Values vals={shown} />
             <Downloads vals={shown} name={baseName} />
+            {node.type === 'image-reverse' && !!runState?.outputs?.negative?.length && (
+              <><h3 style={{ marginTop: 12 }}>负面词</h3><Values vals={runState.outputs.negative} /></>
+            )}
+            {node.type === 'image-reverse' && (() => {
+              // the whole answer (e.g. both languages) when only part of it went to the prompt port
+              const full = runState?.outputs?.full?.find((v) => v.type === 'text')
+              const out = shown.find((v) => v.type === 'text')
+              return full && out && full.text.trim() !== out.text.trim()
+                ? <details className="full-answer" data-testid="reverse-full"><summary>完整回答（含另一种语言和负面词）</summary><Values vals={[full]} /></details>
+                : null
+            })()}
             <VersionStrip nodeId={node.id} />
           </section>
         )}

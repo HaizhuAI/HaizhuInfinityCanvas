@@ -268,6 +268,18 @@ export class SkillStore {
     return this.readUser(s.name)!
   }
 
+  /** change what a user skill is used for (the guess on import can be wrong) */
+  setKind(name: string, kind: SkillKind): Skill | undefined {
+    if (!NAME_RE.test(name)) return undefined
+    if (this.builtin.has(name)) throw new SkillError('内置 Skill 的用途不能修改')
+    const dir = join(this.userDir, name)
+    if (!existsSync(join(dir, 'SKILL.md'))) return undefined
+    let side: Sidecar = {}
+    try { side = JSON.parse(readFileSync(join(dir, 'hzc.json'), 'utf8')) as Sidecar } catch { /* none yet */ }
+    writeFileSync(join(dir, 'hzc.json'), JSON.stringify({ ...side, kind }, null, 2))
+    return this.readUser(name)
+  }
+
   remove(name: string): boolean {
     if (!NAME_RE.test(name)) return false
     if (this.builtin.has(name)) throw new SkillError('内置 Skill 不能删除')

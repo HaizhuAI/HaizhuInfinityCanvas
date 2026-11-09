@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, Sparkles, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
 import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -199,6 +199,12 @@ function MediaInput({ id, kind, assetId, mime, name, error }: { id: string; kind
   )
 }
 
+/** On a reverse node that uses an imported skill: which one (the node's own label says what it does). */
+function ReverseSkillChip({ name }: { name: string }) {
+  const label = useStore((s) => s.skills.find((x) => x.name === name)?.label)
+  return <div className={`skill-chip${label ? '' : ' missing'}`} data-testid="reverse-skill-chip" title={label ? `反推方式：${label}（Skill）` : '找不到这个 Skill'}><Sparkles aria-hidden="true" />{label ?? `${name}（已删除）`}</div>
+}
+
 /** Text box that steps aside when an upstream edge supplies the text. */
 function OwnText({ id, port, text, placeholder, testid, rows }: { id: string; port: string; text?: string; placeholder: string; testid: string; rows?: number }) {
   const setNodeData = useStore((s) => s.setNodeData)
@@ -301,10 +307,14 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
           {type === 'tts' && <OwnText id={id} port="in" text={data.text} rows={3} testid="tts-text" placeholder="要朗读的台词或旁白…" />}
           {type === 'director' && <OwnText id={id} port="in" text={data.text} rows={3} testid="director-idea" placeholder="一句创意、一段故事或完整剧本…" />}
           {type === 'llm' && <OwnText id={id} port="in" text={data.text} rows={3} testid="llm-text" placeholder="提示词（或连接上游文本）" />}
+          {type === 'image-reverse' && typeof params.skill === 'string' && params.skill && <ReverseSkillChip name={params.skill} />}
 
           {!genKind && isRunning && runState?.progress && <div className="progress" data-testid="node-progress"><span className="orbit" style={{ '--s': '13px' } as React.CSSProperties} aria-hidden="true" />{runState.progress}</div>}
           {runState?.error && <ErrorBox nodeId={id} error={runState.error} kind={def.modelKind} />}
           {shown && shown.length > 0 && !(genKind && type !== 'export') && <Values vals={shown} />}
+          {type === 'image-reverse' && !!runState?.outputs?.negative?.length && (
+            <div className="neg-out" data-testid="reverse-negative"><span className="lbl">负面词</span><Values vals={runState.outputs.negative} /></div>
+          )}
           {type === 'export' && !media.length && <Frame kind="video" running={isRunning} progress={runState?.progress} aspect={params.aspect_ratio as string | undefined} />}
           {type === 'export' && isRunning && media.length > 0 && <div className="progress" data-testid="node-progress"><span className="orbit" style={{ '--s': '13px' } as React.CSSProperties} aria-hidden="true" />{runState?.progress ?? '合成中…'}</div>}
           {data.compare && <CompareBar id={id} group={data.compare} />}

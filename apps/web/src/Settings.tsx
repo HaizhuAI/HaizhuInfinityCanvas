@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Boxes, ChevronRight, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, Sparkles, Trash, X } from 'lucide-react'
+import { Boxes, ChevronRight, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Sparkles, Trash, X } from 'lucide-react'
 import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
-import { api, getToken, setToken, type ConnTest } from './api'
+import { api, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
 import { useEscape } from './Overlays'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
 import { enterOverlay, motionEnabled, setMotionEnabled } from './motion'
@@ -277,63 +277,124 @@ metadata:
 在这里写给模型的导演指令：镜头结构、景别与运镜偏好、角色一致性要求、提示词写法……
 `
 
+const KIND_NAME: Record<SkillKind, string> = { 'image-reverse': '图片反推', director: '导演分镜' }
+
 function SkillsPane() {
   const { skills, loadSkills, showToast } = useStore()
   const [importing, setImporting] = useState(false)
   const [text, setText] = useState(SKILL_TEMPLATE)
   const [err, setErr] = useState('')
+  const [url, setUrl] = useState('')
+  const [kind, setKind] = useState<SkillKind | ''>('')
+  const [busy, setBusy] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const zipRef = useRef<HTMLInputElement>(null)
 
-  async function save() {
-    setErr('')
-    try {
-      const s = await api.importSkill(text)
-      await loadSkills()
-      showToast(`已导入 Skill「${s.label}」`)
-      setImporting(false); setText(SKILL_TEMPLATE)
-    } catch (e) { setErr((e as Error).message) }
+  const done = async (s: SkillMeta) => {
+    await loadSkills()
+    const bits = [s.kind ? KIND_NAME[s.kind] : '用途未定', s.license, s.references.length ? `${s.references.length} 份参考文件` : ''].filter(Boolean)
+    showToast(`已导入「${s.label}」（${bits.join(' · ')}）`)
+  }
+  async function attempt(key: string, fn: () => Promise<SkillMeta>) {
+    setErr(''); setBusy(key)
+    try { await done(await fn()); return true } catch (e) { setErr((e as Error).message); return false } finally { setBusy(null) }
   }
 
-  async function remove(name: string) {
-    if (!confirm(`删除 Skill「${name}」？使用它的导演节点会提示找不到 Skill。`)) return
-    try { await api.deleteSkill(name); await loadSkills() } catch (e) { showToast((e as Error).message) }
+  async function save() {
+    if (await attempt('paste', () => api.importSkill(text, kind || undefined))) { setImporting(false); setText(SKILL_TEMPLATE) }
+  }
+
+  async function remove(s: SkillMeta) {
+    const uses = s.kind === 'image-reverse' ? '用它的反推节点' : '用它的导演节点'
+    if (!confirm(`删除 Skill「${s.label}」？${uses}会提示找不到 Skill。`)) return
+    try { await api.deleteSkill(s.name); await loadSkills() } catch (e) { showToast((e as Error).message) }
   }
 
   if (importing) return (
     <div className="form import-box">
       <div>
-        <h3>导入 Skill</h3>
-        <div className="muted">粘贴一个 SKILL.md（Agent Skills 开放格式），或选择文件。metadata 里写 <code>hzc-kind: director</code> 会让它出现在导演节点的 Skill 列表最前面。</div>
+        <h3>粘贴 SKILL.md</h3>
+        <div className="muted">粘贴一个 SKILL.md（Agent Skills 开放格式），或选择文件。带参考文件的 Skill 请用 GitHub 链接或压缩包导入。</div>
       </div>
       <input ref={fileRef} type="file" accept=".md,text/markdown,text/plain" hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()) }} />
       <div><button className="btn" onClick={() => fileRef.current?.click()}><FileUp />选择 SKILL.md 文件</button></div>
       <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} data-testid="skill-text" />
       {err && <div className="form-err" role="alert">{err}</div>}
       <div className="form-actions">
-        <button className="btn primary" onClick={() => void save()} data-testid="skill-save">导入</button>
+        <button className="btn primary" disabled={!!busy} onClick={() => void save()} data-testid="skill-save">导入</button>
         <button className="btn" onClick={() => { setImporting(false); setErr('') }}>取消</button>
       </div>
     </div>
   )
 
+  const groups: [string, SkillMeta[]][] = [
+    ['图片反推 Skill', skills.filter((s) => s.kind === 'image-reverse')],
+    ['导演 Skill', skills.filter((s) => s.kind === 'director')],
+    ['其他 Skill', skills.filter((s) => !s.kind)],
+  ]
   return (
     <>
-      <h3>导演 Skill</h3>
-      <p className="muted">Skill 是给模型的一套专业指令（Agent Skills 开放格式）。导演节点会用它把创意拆成分镜。只使用其中的文字指令，不会执行任何脚本。</p>
-      <div className="pcard-list">
-        {skills.map((s) => (
-          <div className="pcard" key={s.name} data-testid={`skill-${s.name}`}>
-            <span className="chip-ico" style={{ '--c': 'var(--c-tool)' } as React.CSSProperties}><Clapperboard /></span>
-            <div className="txt">
-              <div className="nm">{s.label} <span className="muted skill-src">{s.name}</span></div>
-              <div className="ds" title={s.description}>{s.description}</div>
-            </div>
-            <span className={`tag${s.source === 'builtin' ? ' ok' : ''}`}>{s.source === 'builtin' ? '内置' : '我的'}</span>
-            {s.source === 'user' && <button className="btn sm icon ghost" title="删除" aria-label={`删除 ${s.name}`} onClick={() => void remove(s.name)}><Trash /></button>}
-          </div>
-        ))}
+      <h3>Skill</h3>
+      <p className="muted">Skill 是给模型的一套专业指令（Agent Skills 开放格式，SKILL.md + 参考文件）。图片反推节点可以用它把参考图反推成提示词，导演节点用它把创意拆成分镜。只使用其中的文字说明，不会执行或保存任何脚本。</p>
+
+      <div className="skill-import" data-testid="skill-import">
+        <div className="si-row">
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="GitHub 链接，例如 https://github.com/作者/仓库" aria-label="Skill 的 GitHub 链接" data-testid="skill-url"
+            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) void attempt('url', () => api.importSkillUrl(url.trim(), kind || undefined)).then((ok) => ok && setUrl('')) }} />
+          <select value={kind} onChange={(e) => setKind(e.target.value as SkillKind | '')} aria-label="用途" data-testid="skill-kind">
+            <option value="">用途：自动判断</option><option value="image-reverse">用于图片反推</option><option value="director">用于导演分镜</option>
+          </select>
+          <button className="btn primary" disabled={!url.trim() || !!busy} data-testid="skill-url-import"
+            onClick={() => void attempt('url', () => api.importSkillUrl(url.trim(), kind || undefined)).then((ok) => ok && setUrl(''))}>
+            {busy === 'url' ? <LoaderCircle className="spin" /> : <Download />}从 GitHub 导入
+          </button>
+        </div>
+        <div className="si-row">
+          <input ref={zipRef} type="file" accept=".zip,application/zip" hidden data-testid="skill-zip-input"
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void attempt('zip', () => api.importSkillZip(f, kind || undefined)) }} />
+          <button className="btn" disabled={!!busy} onClick={() => zipRef.current?.click()} data-testid="skill-zip">{busy === 'zip' ? <LoaderCircle className="spin" /> : <FileArchive />}上传压缩包（.zip）</button>
+          <button className="btn" onClick={() => { setImporting(true); setErr('') }} data-testid="import-skill"><Plus />粘贴 SKILL.md</button>
+          <span className="muted si-hint">连不上 GitHub 时：在仓库页面点 Code → Download ZIP，再上传。</span>
+        </div>
+        {err && <div className="form-err" role="alert" data-testid="skill-error">{err}</div>}
+        <div className="hint"><Info aria-hidden="true" /><span>导入的 Skill 来自它的作者，遵循作者的许可证（显示在卡片上，例如 GPL-3.0）。它只保存在你这台电脑上，海柱不会把它打包或再分发。</span></div>
       </div>
-      <button className="btn primary" onClick={() => setImporting(true)} data-testid="import-skill"><Plus />导入 Skill</button>
+
+      {groups.map(([title, list]) => list.length > 0 && (
+        <section key={title} className="skill-group">
+          <h4>{title}</h4>
+          <div className="pcard-list">
+            {list.map((s) => (
+              <div className="pcard" key={s.name} data-testid={`skill-${s.name}`}>
+                <span className="chip-ico" style={{ '--c': 'var(--c-tool)' } as React.CSSProperties}>{s.kind === 'image-reverse' ? <ScanSearch /> : <Clapperboard />}</span>
+                <div className="txt">
+                  <div className="nm">{s.label} <span className="muted skill-src">{s.name}</span></div>
+                  <div className="ds" title={s.description}>{s.description}</div>
+                  <div className="pmeta">
+                    {s.license && <span className="lic" title="这个 Skill 的许可证">{s.license}</span>}
+                    {s.references.length > 0 && <span>{s.references.length} 份参考文件</span>}
+                    {s.sourceUrl && <a href={s.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink />来源</a>}
+                  </div>
+                </div>
+                {s.source === 'user' ? (
+                  <select className="kind-pick" value={s.kind ?? ''} aria-label={`${s.label} 的用途`} data-testid={`skill-kind-${s.name}`}
+                    onChange={(e) => { const k = e.target.value as SkillKind; if (k) void api.setSkillKind(s.name, k).then(() => loadSkills(), (er: Error) => showToast(er.message)) }}>
+                    {!s.kind && <option value="">选择用途…</option>}
+                    <option value="image-reverse">图片反推</option><option value="director">导演分镜</option>
+                  </select>
+                ) : <span className="tag ok">内置</span>}
+                {s.sourceUrl && (
+                  <button className="btn sm icon ghost" title="从 GitHub 重新导入最新版" aria-label={`更新 ${s.label}`} disabled={!!busy} data-testid={`skill-update-${s.name}`}
+                    onClick={() => void attempt(`up:${s.name}`, () => api.importSkillUrl(s.sourceUrl!, s.kind))}>
+                    {busy === `up:${s.name}` ? <LoaderCircle className="spin" /> : <RefreshCw />}
+                  </button>
+                )}
+                {s.source === 'user' && <button className="btn sm icon ghost" title="删除" aria-label={`删除 ${s.name}`} onClick={() => void remove(s)}><Trash /></button>}
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
     </>
   )
 }
@@ -381,7 +442,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.5。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.6。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
@@ -412,7 +473,7 @@ export function Settings() {
   useEffect(() => { enterOverlay(panelRef.current, backRef.current) }, [])
   const TABS: { id: Tab; label: string; Icon: typeof Cpu }[] = [
     { id: 'profiles', label: '模型档案', Icon: Cpu },
-    { id: 'skills', label: '导演 Skill', Icon: Clapperboard },
+    { id: 'skills', label: 'Skill', Icon: Clapperboard },
     { id: 'appearance', label: '外观与动效', Icon: Sparkles },
     { id: 'access', label: '访问口令', Icon: KeyRound },
     { id: 'about', label: '关于', Icon: Boxes },

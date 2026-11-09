@@ -1,6 +1,17 @@
 import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, NodeVersion, ProjectGraph, RunEvent } from '@hzc/core'
 
-export interface SkillMeta { name: string; description: string; source: 'builtin' | 'user'; label: string; metadata: Record<string, string>; license?: string }
+export type SkillKind = 'director' | 'image-reverse'
+export interface SkillMeta {
+  name: string; description: string; source: 'builtin' | 'user'; label: string; metadata: Record<string, string>
+  /** frontmatter license, or recognised from the skill's LICENSE file */
+  license?: string
+  /** what the canvas uses it for */
+  kind?: SkillKind
+  /** reference files that go to the model with SKILL.md */
+  references: string[]
+  /** the GitHub link it was imported from (import again to update) */
+  sourceUrl?: string
+}
 
 export interface AssetMeta { id: string; mime: string; size: number; name: string; createdAt: string }
 
@@ -57,6 +68,16 @@ export function bundleUrl(projectId: string) {
 }
 
 export interface BundleImport { project: Project; assets: number; missing: number; results: number }
+
+async function importSkillZip(file: Blob, kind?: SkillKind): Promise<SkillMeta> {
+  const res = await fetch(`/api/skills/import-zip${kind ? `?kind=${kind}` : ''}`, { method: 'POST', headers: { 'content-type': 'application/zip', ...authHeaders() }, body: file })
+  if (!res.ok) {
+    let msg = res.statusText
+    try { msg = ((await res.json()) as { error?: string }).error ?? msg } catch { /* ignore */ }
+    throw new Error(msg)
+  }
+  return res.json()
+}
 
 async function importBundle(file: File): Promise<BundleImport> {
   const res = await fetch('/api/projects/import', { method: 'POST', headers: { 'content-type': 'application/zip', ...authHeaders() }, body: file })
@@ -126,7 +147,10 @@ export const api = {
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
   system: (refresh = false) => req<{ version: string; node: string; platform: string; ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string } }>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
   listSkills: () => req<SkillMeta[]>('GET', '/api/skills'),
-  importSkill: (content: string) => req<SkillMeta>('POST', '/api/skills', { content }),
+  importSkill: (content: string, kind?: SkillKind) => req<SkillMeta>('POST', '/api/skills', { content, kind }),
+  importSkillUrl: (url: string, kind?: SkillKind) => req<SkillMeta>('POST', '/api/skills/import-url', { url, kind }),
+  importSkillZip,
+  setSkillKind: (name: string, kind: SkillKind) => req<SkillMeta>('PUT', `/api/skills/${encodeURIComponent(name)}/kind`, { kind }),
   deleteSkill: (name: string) => req<void>('DELETE', `/api/skills/${encodeURIComponent(name)}`),
   estimate: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<Estimate>('POST', `/api/projects/${projectId}/estimate`, body),
   cancelRun: (runId: string) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/cancel`),

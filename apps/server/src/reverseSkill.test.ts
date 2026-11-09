@@ -200,6 +200,11 @@ describe('image-reverse node with a skill', () => {
     expect(z.statusCode).toBe(201)
     expect(z.json().kind).toBe('director') // the chosen use wins
     expect((await app.inject({ method: 'POST', url: '/api/skills/import-zip', headers: { 'content-type': 'application/zip' }, payload: Buffer.from('nope') })).statusCode).toBe(400)
+    // the use can be changed afterwards (not for built-ins)
+    expect((await app.inject({ method: 'PUT', url: '/api/skills/photo-reverse/kind', payload: { kind: 'image-reverse' } })).json().kind).toBe('image-reverse')
+    expect((await app.inject({ method: 'PUT', url: '/api/skills/director-short-film/kind', payload: { kind: 'image-reverse' } })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PUT', url: '/api/skills/photo-reverse/kind', payload: { kind: 'nonsense' } })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PUT', url: '/api/skills/nope/kind', payload: { kind: 'director' } })).statusCode).toBe(404)
     const listed = (await app.inject({ url: '/api/skills' })).json().find((s: any) => s.name === 'photo-reverse')
     expect(listed.references).toHaveLength(3)
     expect(listed.body).toBeUndefined()
