@@ -49,8 +49,10 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # electron-builder fetches its own Electron
       - run: pnpm build
       # electron-builder downloads Electron and its packaging tools (NSIS, winCodeSign, AppImage) from
-      # GitHub releases; keep them between builds so a slow or failing download host doesn't fail the build
-      - uses: actions/cache@v4
+      # GitHub releases. Keep them between builds — also after a failed build, so the downloads that did
+      # succeed aren't fetched again — so a slow or failing download host doesn't fail the build.
+      - id: dlcache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/electron
@@ -60,15 +62,28 @@ jobs:
           key: electron-dl-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: electron-dl-${{ runner.os }}-
       - name: Package desktop app
+        id: pack
         shell: bash
         run: |
-          # those downloads sometimes time out (HTTP 504); try again before giving up
-          for attempt in 1 2 3; do
+          # those downloads sometimes time out (HTTP 504); finished downloads are kept between attempts
+          for attempt in 1 2 3 4 5; do
             pnpm --filter @hzc/desktop exec electron-builder ${{ matrix.flag }} --publish never && exit 0
-            echo "::warning::packaging attempt $attempt failed; retrying in $((attempt * 45)) s"
-            sleep $((attempt * 45))
+            [ "$attempt" = 5 ] && break
+            echo "::warning::packaging attempt $attempt failed; retrying in $((attempt * 30)) s"
+            sleep $((attempt * 30))
           done
           exit 1
+      - name: Keep downloaded packaging tools
+        if: always() && steps.dlcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          # a failed build saves what it got under a per-run key; restore-keys picks the newest
+          key: electron-dl-${{ runner.os }}-${{ steps.pack.outcome == 'success' && hashFiles('pnpm-lock.yaml') || format('partial-{0}-{1}', github.run_id, github.run_attempt) }}
       # start the packaged app: it must launch its server, load the UI and seal the API-key master key
       - name: Launch test (Linux, virtual display)
         if: runner.os == 'Linux'
