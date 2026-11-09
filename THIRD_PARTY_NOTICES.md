@@ -26,6 +26,12 @@
 | Shotcut | GPL-3.0 | 用户自行安装，用来打开我们导出的剪辑工程（MLT XML 数据文件） |
 | MLT 框架 / `melt` 命令行 | 框架 LGPL-2.1+，`melt` 命令行 GPL-2.0+（Debian 版权文件实测） | 仅在 CI 中安装，用于测试导出的剪辑工程能否正确渲染；不分发、不链接 |
 
+### 用户自行导入的 Skill（不随产品分发）
+
+| Skill | 许可证 | 关系 |
+| --- | --- | --- |
+| [LunarXuan/image-prompt-reverse](https://github.com/LunarXuan/image-prompt-reverse) | GPL-3.0 | 可在「设置 → Skill」用 GitHub 链接或 zip 导入，用作图片反推节点的反推方式。由用户从作者处下载到自己的电脑；本仓库与安装包**不包含**它的任何文件 |
+
 ## B. 摘取代码登记
 
 | 日期 | 本仓库文件 | 来源仓库 / 提交 | 许可证 | 改动说明 |

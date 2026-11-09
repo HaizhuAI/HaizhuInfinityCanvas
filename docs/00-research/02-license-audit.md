@@ -78,9 +78,18 @@
 | Electron safeStorage | MIT（Electron 的一部分） | 桌面版把 API Key 加密密钥交给系统钥匙串 | 🟢 |
 | ZIP 读写 | 自研（Node.js 内置 zlib） | 项目包与剪辑工程 | 🟢 |
 
+## rc.6 新增：用户自行导入的 Skill
+
+| 项目 | 许可证（实测） | 我们怎么用 | 结论 |
+| --- | --- | --- | --- |
+| [LunarXuan/image-prompt-reverse](https://github.com/LunarXuan/image-prompt-reverse)（图片反推提示词 Skill，提交 4dead0a 时查看） | GPL-3.0（仓库 LICENSE 实测） | **不复制、不随包分发、不放进本仓库**。画布提供通用的「导入 Skill」能力（GitHub 链接或 zip），由用户自己从作者处下载到本机数据目录；运行时把它的 Markdown 文本作为提示词发给用户自己的视觉模型。测试使用我们自己写的样例 Skill | 🟢 我们的代码与它是彼此独立的作品；分发义务不涉及我们（我们不分发它）。界面在导入时与卡片上显示其许可证 |
+| 其他用户导入的 Skill | 各自的许可证（自动识别 GPL / AGPL / LGPL / MIT / Apache-2.0 / MPL / BSD / CC，识别不了显示「见 LICENSE 文件」） | 同上：只保存在用户本机，只读取 SKILL.md、references 与 LICENSE / README，**不保存也不执行脚本** | 🟢 |
+
+> 如果将来想把某个 GPL Skill **内置**进安装包：可以作为独立文件随附（GPL 所说的「聚合」），但必须原样附上它的许可证与源码获取方式，且对它的修改同样以 GPL 发布。目前没有这样做，做之前需要你决定。
+
 ## 对我们自己许可证的约束
 
-1. 因为没有引入任何 GPL/AGPL 代码，我们日后**可以自由选择**闭源商业、源码可见或 MIT/Apache 开源。
+1. 因为没有引入任何 GPL/AGPL 代码（用户自行导入到本机的 GPL Skill 不属于我们的代码，也不由我们分发），我们日后**可以自由选择**闭源商业、源码可见或 MIT/Apache 开源。
 2. 我们**不分发**模型权重；桌面安装包不含 FFmpeg。Docker 镜像含发行版 FFmpeg，公开发布前按上表处理。
 3. 任何外部代码摘取必须在 `THIRD_PARTY_NOTICES.md` 登记：来源 URL、提交哈希、许可证、改动说明。
 4. 与 GPL 服务（ComfyUI）的集成严格限于网络 API，且作为可选 provider，默认不启用。

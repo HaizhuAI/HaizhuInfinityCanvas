@@ -2,6 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0-rc.6] — 2026-11-09（候选版，代码完成，未打 tag）
+
+接入 [LunarXuan/image-prompt-reverse](https://github.com/LunarXuan/image-prompt-reverse)：一个图片反推提示词的 Agent Skill（SKILL.md + 三份参考文件，GPL-3.0）。为了不把 GPL 内容带进本项目，做法是给画布加上**导入并使用反推 Skill** 的通用能力：用户一键从 GitHub 导入到自己电脑上，反推节点直接用它；本仓库和安装包不包含它的任何文件（见[许可证审计](./docs/00-research/02-license-audit.md)与[使用指南](./docs/03-guide/model-profiles.md)）。
+
+### Added
+- **导入 Skill**（「设置 → Skill」）：粘贴 GitHub 链接（仓库或 `…/tree/分支/文件夹`）一键导入；连不上 GitHub 时上传「Download ZIP」得到的压缩包；仍可粘贴 SKILL.md。导入时自动判断用途（图片反推 / 导演分镜，可改），识别并显示许可证（GPL / AGPL / LGPL / MIT / Apache-2.0 / MPL / BSD / CC）、参考文件数量和来源链接；有来源的 Skill 可「↻」重新导入最新版。只保存 SKILL.md、`references/` 里的 Markdown 与 LICENSE / README，脚本和其他文件不保存也不执行。
+- **反推节点用 Skill**：属性面板「反推方式」可选内置模板或已导入的反推 Skill（`/` 面板也能直接添加已选好 Skill 的反推节点），节点上显示正在用的 Skill。运行时把 SKILL.md 与全部参考文件一起作为系统提示发给你的视觉模型。
+- **负面词**：反推节点新增「负面词」输出端口，图片 / 视频生成节点新增「负面词」输入端口——Replicate / fal 作为 `negative_prompt` 发送（`_fields.negative` 可改字段名），OpenAI 兼容图片接口在提示词末尾加「Avoid: …」。
+- 反推结果按中文 / English / 负面词拆分：选中的语言进「提示词」端口，负面词进「负面词」端口，属性面板「完整回答」保留全部内容。内置 SDXL 模板的「Negative:」一行同样拆出来（此前会混进提示词）。
+- 服务端：`POST /api/skills/import-url`（只下载 github.com 的归档，跳转只允许到 GitHub 自己的下载域名，20 MB 上限）、`POST /api/skills/import-zip`、`PUT /api/skills/:name/kind`；`/api/skills` 返回用途、许可证、参考文件与来源。导入先写入临时文件夹再替换，失败不会留下半个 Skill。
+
+### Changed
+- 设置里的「导演 Skill」改名为「Skill」，按「图片反推 / 导演 / 其他」分组。
+- 导演 Skill 也会带上它的参考文件；修改 Skill 后用它的节点会重新运行（缓存键包含完整说明）。
+
+### Verified
+- 121 个单元/集成测试（core 29、server 92），新增：GitHub 链接解析（仓库、分支、文件夹；非 GitHub、带空格的路径等被拒绝）、从压缩包取出 Skill 文件夹（跳过 GitHub 的顶层文件夹、找到嵌套 Skill、多个 Skill 时要求指定）、只下载 github.com 且只跟随 GitHub 自己的跳转（指向 169.254.169.254 的跳转被拒绝）、连不上 GitHub / 404 / 超过 20 MB 的提示、许可证识别与用途判断、导入只保留说明 / 参考文件 / 许可证（脚本、图片、agents 配置不保存）、参考文件按正文提及顺序拼接、重新导入即更新、用途可改（内置不可改）、反推节点用 Skill 时系统提示含全部参考文件并带上图片、按语言拆分与负面词端口、Skill 更新后不复用缓存、已删除 Skill 的提示、SDXL 模板拆分、负面词传给 Replicate 与 OpenAI 兼容接口；结果拆分（中英两版、加粗标签、SDXL、单段文字、「Negative space」不被误判）。
+- 十一套 Playwright E2E 全部通过；新增 `e2e/reverse-skill-flow.cjs`：从反推节点进入「设置 → Skill」→ 上传压缩包导入（提示与卡片显示「图片反推 · GPL-3.0 · 2 份参考文件」，非 GitHub 链接被拒绝）→ 反推方式选它，节点与属性面板显示 Skill → 运行图片 → 反推 → 图片生成：模型收到全部参考文件、脚本不在其中，中文提示词进「提示词」、负面词进「负面词」，生成接口收到「提示词 + Avoid: 负面词」，「完整回答」含英文版 → 改选 English 后传英文版 → `/` 面板直接添加已选好 Skill 的反推节点。测试用的是我们自己写的样例 Skill。
+- 用 image-prompt-reverse 本身在本地验证了导入（按 GitHub「Download ZIP」的结构打包上传，**未提交到仓库**）：识别为「图片反推」、许可证 GPL-3.0、三份参考文件全部保留、`agents/openai.yaml` 不保存（只读取其中的显示名「图片反推提示词」）。
+- GitHub Actions：CI_RC6_RESULTS
+
+### Not verified yet
+- 从 GitHub 实际下载：本开发环境的网络不允许下载这个第三方仓库的归档，GitHub 导入只用模拟的下载测试过（压缩包导入用真实文件验证过）。你的电脑上可以直接试；连不上 GitHub 时用「上传压缩包」。
+- 用真实视觉模型跑 image-prompt-reverse 的效果（测试使用本地模拟模型）。它的说明较长（约 2 万字），建议用上下文足够长的视觉模型。
+
 ## [1.0.0-rc.5] — 2026-11-09（候选版，代码完成，未打 tag）
 
 两件 1.0 范围内还没完成的事：路线图 P1 的**多模型 A/B 对比**，以及 beta.8 加固里的**大画布性能**。
