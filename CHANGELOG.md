@@ -21,7 +21,7 @@
 - 121 个单元/集成测试（core 29、server 92），新增：GitHub 链接解析（仓库、分支、文件夹；非 GitHub、带空格的路径等被拒绝）、从压缩包取出 Skill 文件夹（跳过 GitHub 的顶层文件夹、找到嵌套 Skill、多个 Skill 时要求指定）、只下载 github.com 且只跟随 GitHub 自己的跳转（指向 169.254.169.254 的跳转被拒绝）、连不上 GitHub / 404 / 超过 20 MB 的提示、许可证识别与用途判断、导入只保留说明 / 参考文件 / 许可证（脚本、图片、agents 配置不保存）、参考文件按正文提及顺序拼接、重新导入即更新、用途可改（内置不可改）、反推节点用 Skill 时系统提示含全部参考文件并带上图片、按语言拆分与负面词端口、Skill 更新后不复用缓存、已删除 Skill 的提示、SDXL 模板拆分、负面词传给 Replicate 与 OpenAI 兼容接口；结果拆分（中英两版、加粗标签、SDXL、单段文字、「Negative space」不被误判）。
 - 十一套 Playwright E2E 全部通过；新增 `e2e/reverse-skill-flow.cjs`：从反推节点进入「设置 → Skill」→ 上传压缩包导入（提示与卡片显示「图片反推 · GPL-3.0 · 2 份参考文件」，非 GitHub 链接被拒绝）→ 反推方式选它，节点与属性面板显示 Skill → 运行图片 → 反推 → 图片生成：模型收到全部参考文件、脚本不在其中，中文提示词进「提示词」、负面词进「负面词」，生成接口收到「提示词 + Avoid: 负面词」，「完整回答」含英文版 → 改选 English 后传英文版 → `/` 面板直接添加已选好 Skill 的反推节点。测试用的是我们自己写的样例 Skill。
 - 用 image-prompt-reverse 本身在本地验证了导入（按 GitHub「Download ZIP」的结构打包上传，**未提交到仓库**）：识别为「图片反推」、许可证 GPL-3.0、三份参考文件全部保留、`agents/openai.yaml` 不保存（只读取其中的显示名「图片反推提示词」）。
-- GitHub Actions：CI_RC6_RESULTS
+- GitHub Actions：commit f86b90d 的 CI run 42591759249（类型检查、单测、十一套 E2E）与安装包 run 42591759188 一次通过——Windows 安装包与便携版（两个文件都在）、Linux AppImage + deb、Docker 冒烟测试，以及打包后应用在 Windows / Linux 上的启动测试（打包工具的下载缓存生效，Linux 打包 33 秒）。
 
 ### Not verified yet
 - 从 GitHub 实际下载：本开发环境的网络不允许下载这个第三方仓库的归档，GitHub 导入只用模拟的下载测试过（压缩包导入用真实文件验证过）。你的电脑上可以直接试；连不上 GitHub 时用「上传压缩包」。
