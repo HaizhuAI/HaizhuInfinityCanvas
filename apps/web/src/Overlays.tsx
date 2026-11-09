@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, Keyboard, LayoutDashboard, Maximize, Play, Plus, Sparkles, Trash, Undo2, X } from 'lucide-react'
+import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Maximize, Play, Plus, Sparkles, Trash, Undo2, X } from 'lucide-react'
 import { tidyCanvas } from './Chrome'
 import { canPaste, copySelection, duplicateSelection, paste } from './clipboard'
 import { undo } from './history'
@@ -133,7 +133,7 @@ function PreflightBody() {
 
 const SHORTCUTS: [string, [string, string[]][]][] = [
   ['添加与编辑', [['快速添加 / 查找节点', ['/']], ['在某处添加', ['双击空白处']], ['从连线添加', ['连线拖到空白处']], ['撤销', [MOD, 'Z']], ['重做', [MOD, 'Shift', 'Z']], ['复制 / 粘贴', [MOD, 'C', '/', 'V']], ['创建副本', [MOD, 'D']], ['拖动复制', ['Alt', '拖动']], ['全选', [MOD, 'A']], ['取消选择', ['Esc']], ['微移选中 1px', ['←', '↑', '→', '↓']], ['微移 10px', ['Shift', '方向键']], ['删除选中', ['Delete']], ['保存', [MOD, 'S']]]],
-  ['运行与结果', [['运行全部', [MOD, 'Enter']], ['运行单个节点', ['节点上的 ▶']], ['切换版本', ['节点上的 ‹ ›']], ['预览中切换版本', ['←', '/', '→']], ['拖出结果', ['悬停 → 拖动 ⠿']], ['画布助手', ['顶栏「助手」']]]],
+  ['运行与结果', [['运行全部', [MOD, 'Enter']], ['运行单个节点', ['节点上的 ▶']], ['切换版本', ['节点上的 ‹ ›']], ['预览中切换版本', ['←', '/', '→']], ['拖出结果', ['悬停 → 拖动 ⠿']], ['多模型对比', ['右键节点']], ['并排比较结果', ['选中 2–4 个 → 右键']], ['画布助手', ['顶栏「助手」']]]],
   ['画布', [['适应画布', ['Shift', '1']], ['放大查看选中', ['F']], ['整理画布', ['工具条 ▦']], ['平移', ['拖动空白处 / 中键']], ['缩放', [MOD, '滚轮']], ['框选', ['Shift', '拖动']], ['多选', [MOD, '点击']]]],
   ['其他', [['粘贴图片 / 视频', [MOD, 'V']], ['拖入文件', ['拖到画布上']], ['右键菜单', ['右键']], ['关闭弹窗', ['Esc']], ['快捷键', ['?']]]],
 ]
@@ -182,19 +182,20 @@ export function ToastView() {
   )
 }
 
-/** Inside the React Flow provider: centre on a requested node; Shift+1 fits the canvas. */
+/** Inside the React Flow provider: bring requested nodes into view; Shift+1 fits the canvas. */
 export function CanvasHelpers() {
   const req = useStore((s) => s.focusRequest)
   const { fitView } = useReactFlow()
   useEffect(() => {
-    if (req) requestAnimationFrame(() => void fitView({ nodes: [{ id: req.id }], maxZoom: 1, minZoom: 0.5, padding: 0.6, duration: 400 }))
+    // two frames: nodes added in the same tick must be measured first
+    if (req) requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ nodes: req.ids.map((id) => ({ id })), maxZoom: 1, minZoom: req.ids.length > 1 ? 0.2 : 0.5, padding: req.ids.length > 1 ? 0.2 : 0.6, duration: 400 })))
   }, [req, fitView])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
       const st = useStore.getState()
-      if (st.settingsOpen || st.palette.open || st.pendingCheck || st.pendingRun || st.shortcutsOpen || st.projectsOpen || st.lightbox) return
+      if (st.settingsOpen || st.palette.open || st.pendingCheck || st.pendingRun || st.shortcutsOpen || st.projectsOpen || st.lightbox || st.compareSetup || st.compareView) return
       if (e.shiftKey && (e.code === 'Digit1' || e.key === '!')) { e.preventDefault(); void fitView({ padding: 0.2, maxZoom: 1, duration: 300 }); return }
       if (!e.shiftKey && e.key.toLowerCase() === 'f') {
         // zoom to the selection (or everything)
@@ -231,12 +232,22 @@ export function ContextMenu({ menu, onClose }: { menu: NonNullable<CtxMenu>; onC
     </button>
   )
   // keep the menu inside the window
-  const left = Math.min(menu.x, window.innerWidth - 230), top = Math.min(menu.y, window.innerHeight - (menu.nodeId ? 190 : 230))
+  const target = menu.nodeId ? st.nodes.find((n) => n.id === menu.nodeId) : undefined
+  const canCompare = !!target && !!NODE_TYPE_MAP[target.type ?? '']?.modelKind && selected.length <= 1
+  // 2–4 selected nodes with results: look at them side by side
+  const withResults = selected.filter((n) => Object.values(st.runStates[n.id]?.outputs ?? {}).some((v) => v?.length))
+  const canView = selected.length >= 2 && selected.length <= 4 && withResults.length === selected.length
+  const group = target?.data.compare
+  const groupIds = group && selected.length <= 1 ? st.nodes.filter((n) => n.data.compare === group).map((n) => n.id) : []
+  const left = Math.min(menu.x, window.innerWidth - 230), top = Math.min(menu.y, window.innerHeight - (menu.nodeId ? 270 : 230))
   return (
     <div className="menu ctx" role="menu" ref={ref} style={{ left, top }} data-testid="context-menu" onContextMenu={(e) => e.preventDefault()}>
       {menu.nodeId ? (
         <>
           {item(selected.length > 1 ? `运行这 ${selected.length} 个节点` : '运行到这里', Play, () => void st.runNodes(selected.length ? selected.map((n) => n.id) : [menu.nodeId!]), undefined, { testid: 'ctx-run' })}
+          {canCompare && item(group ? '再加一个模型对比…' : '多模型对比…', GitCompareArrows, () => st.openCompareSetup(menu.nodeId!), undefined, { testid: 'ctx-compare' })}
+          {groupIds.length >= 2 && item('并排查看对比', GitCompareArrows, () => st.openCompareView(groupIds), undefined, { testid: 'ctx-compare-group' })}
+          {canView && item(`并排比较这 ${selected.length} 个结果`, GitCompareArrows, () => st.openCompareView(selected.map((n) => n.id)), undefined, { testid: 'ctx-compare-view' })}
           <div className="menu-sep" />
           {item('创建副本', CopyPlus, () => { duplicateSelection() }, `${MOD} D`, { testid: 'ctx-duplicate' })}
           {item('复制', Copy, () => { const n = copySelection(); if (n) st.showToast(`已复制 ${n} 个节点`) }, `${MOD} C`, { testid: 'ctx-copy' })}

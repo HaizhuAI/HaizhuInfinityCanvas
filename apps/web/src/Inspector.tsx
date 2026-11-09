@@ -1,6 +1,6 @@
 import { useReactFlow } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
-import { Download, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
+import { Download, GitCompareArrows, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
 import {
   ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS, type PortValue,
 } from '@hzc/core'
@@ -249,6 +249,7 @@ export function Inspector({ onClose }: { onClose: () => void }) {
               </select>
             </label>
             {profile && <dl className="meta-list"><dt>适配器</dt><dd>{profile.adapter}</dd><dt>模型</dt><dd>{profile.model}</dd>{profile.cost && <><dt>单价</dt><dd>{profile.cost.amount} {profile.cost.currency}/次</dd></>}</dl>}
+            <button className="btn sm" style={{ alignSelf: 'flex-start', marginTop: 8 }} onClick={() => useStore.getState().openCompareSetup(node.id)} data-testid="insp-compare"><GitCompareArrows />{node.data.compare ? '再加一个模型对比…' : '多模型对比…'}</button>
           </section>
         )}
 

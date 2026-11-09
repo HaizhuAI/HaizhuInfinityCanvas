@@ -7,6 +7,7 @@ import { api, assetUrl } from './api'
 import { ASPECT_CSS, CATEGORY_COLOR, KIND_LABEL, NODE_ICON, PORT_COLOR, PORT_LABEL } from './icons'
 import { enterNode, successPulse } from './motion'
 import { VersionSwitch } from './Versions'
+import { CompareBar } from './Compare'
 import { useStore, type CanvasNode } from './store'
 
 export const STATUS: Record<NodeStatus, { label: string; Icon?: typeof Check }> = {
@@ -306,6 +307,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
           {shown && shown.length > 0 && !(genKind && type !== 'export') && <Values vals={shown} />}
           {type === 'export' && !media.length && <Frame kind="video" running={isRunning} progress={runState?.progress} aspect={params.aspect_ratio as string | undefined} />}
           {type === 'export' && isRunning && media.length > 0 && <div className="progress" data-testid="node-progress"><span className="orbit" style={{ '--s': '13px' } as React.CSSProperties} aria-hidden="true" />{runState?.progress ?? '合成中…'}</div>}
+          {data.compare && <CompareBar id={id} group={data.compare} />}
           {!isRunning && <VersionSwitch nodeId={id} />}
           {hasStoryboard && (
             <button className="btn sm block nodrag" disabled={running} onClick={expand} data-testid="expand-storyboard"><LayoutGrid />展开到画布</button>

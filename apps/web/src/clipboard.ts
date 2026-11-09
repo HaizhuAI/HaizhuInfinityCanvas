@@ -7,6 +7,8 @@ import { uid, useStore, type CanvasNode } from './store'
  */
 interface Clip { nodes: CanvasNode[]; edges: Edge[] }
 const KEY = 'hzc.clipboard'
+/** a copy is a node of its own: it doesn't join the comparison the original is in */
+const own = (data: CanvasNode['data']): CanvasNode['data'] => { const { compare: _c, ...rest } = data; return rest }
 let clip: Clip | null = null
 let pasteCount = 0
 
@@ -16,7 +18,7 @@ function selection(): Clip | null {
   if (!picked.length) return null
   const ids = new Set(picked.map((n) => n.id))
   return {
-    nodes: picked.map(({ id, type, position, data }) => ({ id, type, position, data }) as CanvasNode),
+    nodes: picked.map(({ id, type, position, data }) => ({ id, type, position, data: own(data) }) as CanvasNode),
     edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)).map(({ id, source, sourceHandle, target, targetHandle }) => ({ id, source, sourceHandle, target, targetHandle })),
   }
 }
@@ -35,7 +37,7 @@ function insert(c: Clip, offset: number, at?: { x: number; y: number }): number 
   // at a point (right-click paste): the group's top-left lands there; otherwise offset from the originals
   const minX = Math.min(...c.nodes.map((n) => n.position.x)), minY = Math.min(...c.nodes.map((n) => n.position.y))
   const dx = at ? at.x - minX : offset, dy = at ? at.y - minY : offset
-  const nodes = c.nodes.map((n) => ({ ...n, id: map.get(n.id)!, position: { x: n.position.x + dx, y: n.position.y + dy }, data: { ...n.data } }))
+  const nodes = c.nodes.map((n) => ({ ...n, id: map.get(n.id)!, position: { x: n.position.x + dx, y: n.position.y + dy }, data: own(n.data) }))
   const edges = c.edges.map((e) => ({ ...e, id: `e_${uid()}`, source: map.get(e.source)!, target: map.get(e.target)! }))
   useStore.getState().insertGraph(nodes, edges)
   return nodes.length
@@ -60,7 +62,7 @@ export function leaveCopies(ids: string[]): number {
   const picked = nodes.filter((n) => set.has(n.id))
   if (!picked.length) return 0
   const map = new Map(picked.map((n) => [n.id, `n_${uid()}`]))
-  const copies = picked.map(({ id, type, position, data }) => ({ id: map.get(id)!, type, position: { ...position }, data: { ...data } }) as CanvasNode)
+  const copies = picked.map(({ id, type, position, data }) => ({ id: map.get(id)!, type, position: { ...position }, data: own(data) }) as CanvasNode)
   const links = edges.filter((e) => set.has(e.source) && set.has(e.target)).map((e) => ({ id: `e_${uid()}`, source: map.get(e.source)!, sourceHandle: e.sourceHandle, target: map.get(e.target)!, targetHandle: e.targetHandle }))
   useStore.getState().insertGraph(copies, links, false)
   return copies.length

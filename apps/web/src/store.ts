@@ -3,13 +3,13 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, checkConnection, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, pickCompareWinner, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { api, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
 import { setViewPref, viewPref } from './theme'
 
-export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string }
+export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string; /** multi-model comparison group */ compare?: string }
 export type CanvasNode = Node<CanvasNodeData>
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -82,8 +82,11 @@ export interface State {
   ffmpegOk: boolean | null
   /** a run waiting on the pre-run check (missing models, inputs, files) */
   pendingCheck: { nodeIds?: string[]; force?: boolean } | null
-  /** ask the canvas to centre on a node (watched inside the React Flow provider) */
-  focusRequest: { id: string; n: number } | null
+  /** ask the canvas to bring nodes into view (watched inside the React Flow provider) */
+  focusRequest: { ids: string[]; n: number } | null
+  /** multi-model comparison: choosing models for a node, and the side-by-side view */
+  compareSetup: { nodeId: string } | null
+  compareView: { ids: string[] } | null
   shortcutsOpen: boolean
   projectsOpen: boolean
   /** bottom toolbar toggles, remembered per browser */
@@ -126,6 +129,16 @@ export interface State {
   dismissToast: () => void
   /** select a node and centre the canvas on it */
   focusNode: (id: string) => void
+  /** bring these nodes into view (without changing the selection) */
+  showNodes: (ids: string[]) => void
+  openCompareSetup: (nodeId: string | null) => void
+  /** add variants of a node with these models (one undo step); returns every node in the comparison */
+  addCompareModels: (nodeId: string, profileIds: string[]) => string[]
+  /** keep this variant, remove the rest of its comparison (one undo step); returns how many were removed */
+  pickCompare: (winnerId: string) => number
+  /** end a comparison but keep every variant */
+  endCompare: (group: string) => void
+  openCompareView: (ids: string[] | null) => void
   setShortcutsOpen: (o: boolean) => void
   setProjectsOpen: (o: boolean) => void
   toggleView: (k: 'minimap' | 'snap') => void
@@ -183,7 +196,7 @@ export const useStore = create<State>((set, get) => ({
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
-  settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
+  settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
 
   showToast: (text, opts) => {
     const t: Toast = { id: Date.now() + Math.random(), text, tone: opts?.tone, action: opts?.action }
@@ -193,7 +206,27 @@ export const useStore = create<State>((set, get) => ({
   dismissToast: () => set({ toast: null }),
   setSettingsOpen: (o) => set({ settingsOpen: o, settingsIntent: null }),
   openSettings: (intent) => set({ settingsOpen: true, settingsIntent: intent ?? null }),
-  focusNode: (id) => { get().selectNode(id); set((s) => ({ focusRequest: { id, n: (s.focusRequest?.n ?? 0) + 1 } })) },
+  focusNode: (id) => { get().selectNode(id); get().showNodes([id]) },
+  showNodes: (ids) => set((s) => ({ focusRequest: { ids, n: (s.focusRequest?.n ?? 0) + 1 } })),
+  openCompareSetup: (nodeId) => set({ compareSetup: nodeId ? { nodeId } : null }),
+  addCompareModels: (nodeId, profileIds) => {
+    const { nodes, edges, profiles } = get()
+    const variants = profileIds.flatMap((id) => { const p = profiles.find((x) => x.id === id); return p ? [{ profileId: p.id, label: p.name }] : [] })
+    // a run makes nodes taller (media up to 300 px instead of the placeholder, version switch): leave room
+    const type = nodes.find((n) => n.id === nodeId)?.type
+    const r = addCompareVariants(nodes, edges, nodeId, variants, uid, type === 'image-gen' || type === 'video-gen' ? 190 : 140)
+    if (r.added.length) set({ nodes: r.nodes, edges: r.edges, saveState: 'dirty' })
+    const group = r.group || nodes.find((n) => n.id === nodeId)?.data.compare
+    return group ? get().nodes.filter((n) => n.data.compare === group).map((n) => n.id) : [nodeId]
+  },
+  pickCompare: (winnerId) => {
+    const r = pickCompareWinner(get().nodes, get().edges, winnerId)
+    if (!r) return 0
+    set({ nodes: r.nodes, edges: r.edges, saveState: 'dirty', compareView: null })
+    return r.removed.length
+  },
+  endCompare: (group) => set((s) => ({ nodes: dissolveCompare(s.nodes, group), saveState: 'dirty' })),
+  openCompareView: (ids) => set({ compareView: ids && ids.length ? { ids } : null }),
   setShortcutsOpen: (o) => set({ shortcutsOpen: o }),
   setProjectsOpen: (o) => set({ projectsOpen: o }),
   toggleView: (k) => { const on = !get()[k]; setViewPref(k, on); set({ [k]: on } as Pick<State, 'minimap' | 'snap'>) },

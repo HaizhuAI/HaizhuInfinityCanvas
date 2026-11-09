@@ -13,6 +13,7 @@ import { DND_MIME, readDrag } from './dnd'
 import { CATEGORY_COLOR, NODE_ICON, PORT_COLOR } from './icons'
 import { Inspector } from './Inspector'
 import { Assistant } from './Assistant'
+import { CompareSetup, CompareView } from './Compare'
 import { Projects } from './Projects'
 import { Assets, Library, PromptLibrary } from './LeftPanel'
 import { enterMenu, enterOverlay } from './motion'
@@ -26,7 +27,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.4'
+export const APP_VERSION = 'v1.0.0-rc.5'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -480,7 +481,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState()
       const editing = !!(e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')
-      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox
+      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox || st.projectsOpen || !!st.compareSetup || !!st.compareView
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key === 'Enter' && !overlay) { e.preventDefault(); if (!st.runId && st.nodes.length) void st.runNodes(); return }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void st.save().then(() => { if (useStore.getState().saveState === 'saved') st.showToast('已保存') }); return }
@@ -519,7 +520,7 @@ export function App() {
       if (!dir || e.metaKey || e.ctrlKey || e.altKey) return
       const st = useStore.getState()
       if ((e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], .assistant, .lpanel, [role="menu"]')) return
-      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen) return
+      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen || st.compareSetup || st.compareView) return
       const step = st.snap ? 24 : e.shiftKey ? 10 : 1
       if (st.nudge(dir[0] * step, dir[1] * step)) { e.preventDefault(); e.stopPropagation() }
     }
@@ -562,6 +563,8 @@ export function App() {
         <ShortcutsSheet />
         <Projects />
         <Lightbox />
+        <CompareSetup />
+        <CompareView />
         <ToastView />
       </div>
     </>
