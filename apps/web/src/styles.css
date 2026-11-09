@@ -279,6 +279,13 @@ a.btn { text-decoration: none; }
 .node.st-running { border-color: color-mix(in srgb, var(--run) 65%, transparent); box-shadow: 0 0 0 3px rgba(59, 130, 246, .16), 0 0 32px rgba(59, 130, 246, .14); }
 .node.st-error { border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
 .node .pulse-ring { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; box-shadow: 0 0 0 2px var(--ok); opacity: 0; }
+/* zoomed far out (< 40 %): text and controls are unreadable, so they are not painted; media, titles' colour
+   and wires stay as an overview. visibility keeps the layout, so nodes don't change size when zooming. */
+.canvas.far .node { box-shadow: none; transition: none; background: color-mix(in srgb, var(--c) 16%, var(--surface)); border-color: color-mix(in srgb, var(--c) 50%, transparent); }
+.canvas.far .node.selected { border-color: var(--accent); }
+.canvas.far .node .nbody > :not(.mwrap):not(.nmedia):not(.frame), .canvas.far .node .ports .dot,
+.canvas.far .node .nsub, .canvas.far .node .pill, .canvas.far .node .nrun { visibility: hidden; }
+.canvas.far .node .ports .port { color: transparent; } /* handles stay usable */
 .node-head { display: flex; align-items: center; gap: 9px; padding: 10px 10px 8px 12px; }
 .nico { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); flex: none; }
 .nico svg { width: 13px; height: 13px; stroke-width: 2.2; }

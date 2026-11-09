@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge } from '@xyflow/react'
+import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useStore as useFlowStore, type Edge, type NodeMouseHandler, type OnConnectEnd, type OnMove, type OnNodeDrag } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, Keyboard, LayoutGrid, Moon, Sun, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
@@ -17,11 +17,12 @@ import { Projects } from './Projects'
 import { Assets, Library, PromptLibrary } from './LeftPanel'
 import { enterMenu, enterOverlay } from './motion'
 import { Settings } from './Settings'
-import { Starfield } from './Starfield'
+import { Starfield, setParallax } from './Starfield'
 import { TEMPLATES } from './templates'
 import { inspectorPref, setInspectorPref, resolvedTheme, setThemePref } from './theme'
 import { useAddNode } from './useAddNode'
-import { useStore } from './store'
+import { useStore, type CanvasNode, type State } from './store'
+import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
@@ -75,7 +76,8 @@ function ConfirmRun() {
 
 /** Centre of the top bar: the canvas name (inline rename) with a menu to switch or create canvases. */
 function ProjectMenu() {
-  const { projects, projectId, projectName, openProject, newProject, renameProject } = useStore()
+  const { projects, projectId, projectName } = useStore(useShallow((s) => ({ projects: s.projects, projectId: s.projectId, projectName: s.projectName })))
+  const { openProject, newProject, renameProject } = useStore.getState()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -289,8 +291,28 @@ function EmptyState() {
   )
 }
 
+/** ids of running nodes as one string (a stable selector value): their incoming wires animate */
+const runningKey = (st: State) => Object.keys(st.runStates).filter((id) => st.runStates[id]!.status === 'running').sort().join(',')
+const miniColor = (n: { type?: string }) => { const d = NODE_TYPE_MAP[n.type ?? '']; return d ? CATEGORY_COLOR[d.category] : '#555' }
+const MINIMAP_STYLE = { width: 168, height: 112 }
+const FAR_ZOOM = 0.4
+const FIT_ON_OPEN = { maxZoom: 1, minZoom: 0.6, padding: 0.12 }
+const SNAP_GRID: [number, number] = [24, 24]
+const PAN_BUTTONS = [0, 1]
+const DELETE_KEYS = ['Backspace', 'Delete']
+const PRO_OPTIONS = { hideAttribution: true }
+type StyledEdge = { src: Edge; stroke?: string; animated: boolean; out: Edge }
+
 function Canvas() {
-  const s = useStore()
+  // subscribe to what the canvas draws, not the whole store: typing in a node must not re-render the app
+  const nodes = useStore((st) => st.nodes)
+  const rawEdges = useStore((st) => st.edges)
+  const snap = useStore((st) => st.snap)
+  const minimap = useStore((st) => st.minimap)
+  const running = useStore(runningKey)
+  const s = useStore.getState() // actions only (they never change)
+  // zoomed far out the text is unreadable: skip painting it (layout unchanged, so nothing moves)
+  const far = useFlowStore((st) => st.transform[2] < FAR_ZOOM)
   const { screenToFlowPosition } = useReactFlow()
   const [fitOnOpen] = useState(() => useStore.getState().nodes.length > 0)
   const [ctx, setCtx] = useState<CtxMenu>(null)
@@ -307,58 +329,76 @@ function Canvas() {
     else s.addNode(p.type, pos, p.profileId)
   }, [s, screenToFlowPosition])
 
-  // colour each edge by its source port's data type; animate it while its target runs
+  // Handlers passed to React Flow must keep their identity: some (e.g. onNodeContextMenu) are handed to
+  // every node, and a new function each render would re-render all nodes on every keystroke.
+  const onConnectEnd = useCallback<OnConnectEnd>((e, c) => {
+    // a wire dropped on empty canvas: offer the nodes that fit, connect the one picked
+    if (c.toNode || !c.fromNode || !c.fromHandle) return
+    const p = 'changedTouches' in e ? e.changedTouches[0]! : e
+    const at = screenToFlowPosition({ x: p.clientX, y: p.clientY })
+    const out = c.fromHandle.type === 'source'
+    useStore.getState().openPalette({ x: out ? at.x + 10 : at.x - 310, y: at.y - 60 }, { nodeId: c.fromNode.id, handleId: c.fromHandle.id ?? (out ? 'out' : 'in'), handleType: c.fromHandle.type })
+  }, [screenToFlowPosition])
+  const onNodeContextMenu = useCallback<NodeMouseHandler<CanvasNode>>((e, node) => {
+    e.preventDefault()
+    if (!node.selected) useStore.getState().selectNode(node.id)
+    setCtx({ x: e.clientX, y: e.clientY, nodeId: node.id })
+  }, [])
+  const onPaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
+    e.preventDefault()
+    setCtx({ x: e.clientX, y: e.clientY, at: screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }) })
+  }, [screenToFlowPosition])
+  const onMove = useCallback<OnMove>((_, vp) => setParallax(vp.x, vp.y), [])
+  const onNodeDragStart = useCallback<OnNodeDrag<CanvasNode>>((e, _n, dragged) => {
+    if (e.altKey && leaveCopies(dragged.map((d) => d.id))) useStore.getState().showToast('已复制（按住 Alt 拖动）', { action: { label: '撤销', run: () => void undo() } })
+  }, [])
+
+  // colour each edge by its source port's data type; animate it while its target runs. Unchanged edges
+  // keep their object, so editing one node doesn't make React Flow redraw every wire.
+  const edgeCache = useRef(new Map<string, StyledEdge>())
   const edges = useMemo<Edge[]>(() => {
-    const types = new Map(s.nodes.map((n) => [n.id, n.type ?? '']))
-    return s.edges.map((e) => {
+    const types = new Map(nodes.map((n) => [n.id, n.type ?? '']))
+    const live = new Set(running ? running.split(',') : [])
+    const next = new Map<string, StyledEdge>()
+    const out = rawEdges.map((e) => {
       const def = NODE_TYPE_MAP[types.get(e.source) ?? '']
       const port = def?.outputs.find((p) => p.id === (e.sourceHandle ?? 'out'))
       const stroke = port ? PORT_COLOR[port.type] : undefined
-      return { ...e, animated: s.runStates[e.target]?.status === 'running', style: stroke ? { stroke, strokeOpacity: 0.8 } : undefined }
+      const animated = live.has(e.target)
+      const c = edgeCache.current.get(e.id)
+      const hit = c && c.src === e && c.stroke === stroke && c.animated === animated
+        ? c : { src: e, stroke, animated, out: { ...e, animated, style: stroke ? { stroke, strokeOpacity: 0.8 } : undefined } }
+      next.set(e.id, hit)
+      return hit.out
     })
-  }, [s.edges, s.nodes, s.runStates])
+    edgeCache.current = next
+    return out
+  }, [rawEdges, nodes, running])
 
   return (
-    <div className="canvas" onDrop={onDrop} onDragOver={(e) => { if (e.dataTransfer.types.includes(DND_MIME) || e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
+    <div className={`canvas${far ? ' far' : ''}`} onDrop={onDrop} onDragOver={(e) => { if (e.dataTransfer.types.includes(DND_MIME) || e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
       onDoubleClick={(e) => {
         if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return
         s.openPalette(screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }))
       }}>
       <ReactFlow
-        nodes={s.nodes} edges={edges} nodeTypes={nodeTypes}
+        nodes={nodes} edges={edges} nodeTypes={nodeTypes}
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
-        onConnectEnd={(e, c) => {
-          // a wire dropped on empty canvas: offer the nodes that fit, connect the one picked
-          if (c.toNode || !c.fromNode || !c.fromHandle) return
-          const p = 'changedTouches' in e ? e.changedTouches[0]! : e
-          const at = screenToFlowPosition({ x: p.clientX, y: p.clientY })
-          const out = c.fromHandle.type === 'source'
-          s.openPalette({ x: out ? at.x + 10 : at.x - 310, y: at.y - 60 }, { nodeId: c.fromNode.id, handleId: c.fromHandle.id ?? (out ? 'out' : 'in'), handleType: c.fromHandle.type })
-        }}
-        onNodeContextMenu={(e, node) => { e.preventDefault(); if (!node.selected) s.selectNode(node.id); setCtx({ x: e.clientX, y: e.clientY, nodeId: node.id }) }}
-        onPaneContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, at: screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }) }) }}
-        onMove={(_, vp) => {
-          const r = document.documentElement.style
-          r.setProperty('--pan-x', String(vp.x)); r.setProperty('--pan-y', String(vp.y))
-          window.dispatchEvent(new Event('hzc:pan'))
-        }}
-        fitView={fitOnOpen} fitViewOptions={{ maxZoom: 1, minZoom: 0.6, padding: 0.12 }}
-        zoomOnDoubleClick={false} onlyRenderVisibleElements={s.nodes.length > 60}
-        snapToGrid={s.snap} snapGrid={[24, 24]} panOnDrag={[0, 1]}
-        onNodeDragStart={(e, _n, dragged) => { if (e.altKey && leaveCopies(dragged.map((d) => d.id))) s.showToast('已复制（按住 Alt 拖动）', { action: { label: '撤销', run: () => void undo() } }) }}
-        deleteKeyCode={['Backspace', 'Delete']} minZoom={0.1} maxZoom={2}
-        colorMode="system" proOptions={{ hideAttribution: true }}
+        onConnectEnd={onConnectEnd} onNodeContextMenu={onNodeContextMenu} onPaneContextMenu={onPaneContextMenu}
+        onMove={onMove} onNodeDragStart={onNodeDragStart}
+        fitView={fitOnOpen} fitViewOptions={FIT_ON_OPEN}
+        zoomOnDoubleClick={false} onlyRenderVisibleElements={nodes.length > 60}
+        snapToGrid={snap} snapGrid={SNAP_GRID} panOnDrag={PAN_BUTTONS}
+        deleteKeyCode={DELETE_KEYS} minZoom={0.1} maxZoom={2}
+        colorMode="system" proOptions={PRO_OPTIONS}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.3} />
-        {s.nodes.length > 0 && s.minimap && (
-          <MiniMap pannable zoomable nodeBorderRadius={8} style={{ width: 168, height: 112 }}
-            nodeColor={(n) => { const d = NODE_TYPE_MAP[n.type ?? '']; return d ? CATEGORY_COLOR[d.category] : '#555' }} />
-        )}
+        {nodes.length > 0 && minimap && <MiniMap pannable zoomable nodeBorderRadius={8} style={MINIMAP_STYLE} nodeColor={miniColor} />}
       </ReactFlow>
-      {s.nodes.length > 0 && <FloatingToolbar />}
+      {nodes.length > 0 && <FloatingToolbar />}
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
-      {s.nodes.length === 0 && <EmptyState />}
+      {nodes.length === 0 && <EmptyState />}
     </div>
   )
 }
@@ -402,18 +442,31 @@ function ProjectWorkspace({ inspector, setInspector }: { inspector: boolean; set
   )
 }
 
+/** save 0.8 s after the last edit (subscribes outside React: edits must not re-render the app) */
+function useAutosave() {
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined
+    const unsub = useStore.subscribe((st, prev) => {
+      if (st.saveState === prev.saveState && st.nodes === prev.nodes && st.edges === prev.edges && st.projectName === prev.projectName) return
+      clearTimeout(t)
+      if (st.saveState === 'dirty') t = setTimeout(() => void useStore.getState().save(), 800)
+    })
+    return () => { clearTimeout(t); unsub() }
+  }, [])
+}
+
 export function App() {
-  const s = useStore()
+  const settingsOpen = useStore((st) => st.settingsOpen)
+  const runId = useStore((st) => st.runId)
+  const hasNodes = useStore((st) => st.nodes.length > 0)
+  const rightTab = useStore((st) => st.rightTab)
+  const s = useStore.getState() // actions only
   const [inspector, setInspectorState] = useState(inspectorPref())
   const setInspector = (v: boolean) => { setInspectorState(v); setInspectorPref(v) }
 
   useEffect(() => { void s.init().catch((e) => s.showToast(`连接服务失败：${(e as Error).message}`)) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (s.saveState !== 'dirty') return
-    const t = setTimeout(() => void s.save(), 800)
-    return () => clearTimeout(t)
-  }, [s.saveState, s.nodes, s.edges, s.projectName]) // eslint-disable-line react-hooks/exhaustive-deps
+  useAutosave()
 
   useEffect(() => {
     initHistory()
@@ -491,12 +544,12 @@ export function App() {
           <ProjectMenu />
           <div className="tb-right">
             <SaveIndicator />
-            {s.runId && <RunProgress />}
-            {s.runId
+            {runId && <RunProgress />}
+            {runId
               ? <button className="btn danger running sm" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
-              : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={s.nodes.length === 0} data-testid="run-all"><Play />运行全部</button>}
+              : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={!hasNodes} data-testid="run-all"><Play />运行全部</button>}
             <button className="btn ghost sm icon" onClick={() => setInspector(!inspector)} aria-label={inspector ? '收起属性面板' : '打开属性面板'} aria-pressed={inspector} data-testid="toggle-inspector"><PanelRightOpen /></button>
-            <button className={`btn sm${inspector && s.rightTab === 'assistant' ? ' on' : ''}`} onClick={() => { if (inspector && s.rightTab === 'assistant') setInspector(false); else { setInspector(true); s.setRightTab('assistant') } }} aria-pressed={inspector && s.rightTab === 'assistant'} title="画布助手：一句话搭节点" data-testid="open-assistant"><Sparkles />助手</button>
+            <button className={`btn sm${inspector && rightTab === 'assistant' ? ' on' : ''}`} onClick={() => { if (inspector && rightTab === 'assistant') setInspector(false); else { setInspector(true); s.setRightTab('assistant') } }} aria-pressed={inspector && rightTab === 'assistant'} title="画布助手：一句话搭节点" data-testid="open-assistant"><Sparkles />助手</button>
             <ThemeToggle />
             <button className="btn ghost sm icon" onClick={() => s.setShortcutsOpen(true)} aria-label="快捷键" title="快捷键（?）" data-testid="open-shortcuts"><Keyboard /></button>
             <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
@@ -504,7 +557,7 @@ export function App() {
         </header>
         <ErrorBoundary><ProjectWorkspace inspector={inspector} setInspector={setInspector} /></ErrorBoundary>
         <PreflightDialog />
-        {s.settingsOpen && <Settings />}
+        {settingsOpen && <Settings />}
         <ConfirmRun />
         <ShortcutsSheet />
         <Projects />

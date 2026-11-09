@@ -20,6 +20,12 @@ function portFor(def: NodeTypeDef, t: PortType, fromOutput: boolean): string | u
 
 /** "/" (or double-click on empty canvas): search and add any node, model, director skill or template. */
 export function CommandPalette() {
+  // mounted only while open: the body follows every canvas edit, which a closed palette must not
+  const open = useStore((s) => s.palette.open)
+  return open ? <PaletteBody /> : null
+}
+
+function PaletteBody() {
   const { open, at, connect } = useStore((s) => s.palette)
   const canvasNodes = useStore((s) => s.nodes)
   const close = useStore((s) => s.closePalette)

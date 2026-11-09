@@ -5,8 +5,14 @@ import { motionEnabled } from './motion'
  * The page's one effect: a quiet deep-field star ground behind the glass panels.
  * Canvas 2D (no WebGL context), ~30 fps, paused when the tab is hidden; a single static frame
  * when motion is off or the OS asks for reduced motion. Stars sit on three depth layers and
- * shift slightly with canvas panning (parallax) via the `--pan-x/--pan-y` values set by the canvas.
+ * shift slightly with canvas panning (parallax) via `setParallax`, called by the canvas while it pans.
+ * (Not CSS custom properties on <html>: setting those on every pan frame restyles the whole page.)
  */
+const pan = { x: 0, y: 0 }
+let onPan: (() => void) | null = null
+/** the canvas viewport moved: shift the star layers a little */
+export function setParallax(x: number, y: number) { pan.x = x; pan.y = y; onPan?.() }
+
 interface Star { x: number; y: number; z: number; r: number; tw: number; hue: number }
 
 export function Starfield() {
@@ -33,9 +39,7 @@ export function Starfield() {
     }
 
     function draw(t: number) {
-      const root = document.documentElement
-      const px = parseFloat(root.style.getPropertyValue('--pan-x') || '0')
-      const py = parseFloat(root.style.getPropertyValue('--pan-y') || '0')
+      const px = pan.x, py = pan.y
       ctx!.clearRect(0, 0, w, h)
       for (const s of stars) {
         const drift = motionEnabled() ? t * 0.004 * s.z : 0
@@ -70,10 +74,9 @@ export function Starfield() {
     document.addEventListener('visibilitychange', start)
     window.addEventListener('hzc:motion', start)
     window.addEventListener('hzc:theme', start)
-    const onPan = () => { if (!motionEnabled()) draw(0) }
-    window.addEventListener('hzc:pan', onPan)
+    onPan = () => { if (!motionEnabled() && document.documentElement.classList.contains('ambient')) draw(0) }
     return () => {
-      window.removeEventListener('hzc:pan', onPan)
+      onPan = null
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', start)

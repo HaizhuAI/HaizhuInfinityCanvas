@@ -66,7 +66,7 @@ const fromGraph = (g: ProjectGraph) => ({
   edges: g.edges.map((e): Edge => ({ ...e })),
 })
 
-interface State {
+export interface State {
   profiles: ModelProfilePublic[]
   projects: ProjectSummary[]
   projectId: string | null

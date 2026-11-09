@@ -37,6 +37,12 @@ export const MOD = isMac ? '⌘' : 'Ctrl'
 
 /** Before a run: what would fail, with a fix right there (choose a model, add one, locate the node). */
 export function PreflightDialog() {
+  // mounted only while a run waits on it: it follows every canvas edit to update live
+  const open = useStore((s) => !!s.pendingCheck)
+  return open ? <PreflightBody /> : null
+}
+
+function PreflightBody() {
   const pending = useStore((s) => s.pendingCheck)
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
