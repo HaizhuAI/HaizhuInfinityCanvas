@@ -1,6 +1,6 @@
 {
   "name": "@hzc/desktop",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "private": true,
   "description": "Haizhu Infinity Canvas desktop shell (Electron)",
   "author": "Haizhu",
