@@ -6,7 +6,8 @@ import { ADAPTERS, validateProfileInput, type AdapterId, type ProjectGraph } fro
 import type { Store } from './db'
 import type { AssetStore } from './assets'
 import type { Engine } from './engine'
-import { SkillError, type SkillStore } from './skills'
+import { SkillError, isSkillKind, type SkillStore } from './skills'
+import { fetchGitHubSkill, skillFilesFromZip } from './skillImport'
 import { ffmpegInfo } from './media'
 import { testConnection } from './conntest'
 import { runAssistant, type CanvasSummary, type ChatTurn } from './assistant'
@@ -22,6 +23,8 @@ export interface AppOptions {
   assets: AssetStore
   engine: Engine
   skills: SkillStore
+  /** how GitHub archives are downloaded (tests replace it) */
+  skillFetch?: typeof fetch
   /** built web UI directory; if it exists it is served at / */
   webDir?: string
   /**
@@ -220,7 +223,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     try {
       return await runAssistant({
         profile, apiKey, adapter: chatAdapterFor(profile.adapter), message, history, canvas, signal: ctrl.signal,
-        skills: skills.list().filter((x) => x.metadata?.['hzc-kind'] === 'director').map((x) => x.name),
+        skills: skills.list().filter((x) => x.kind === 'director').map((x) => x.name),
         kinds: [...new Set(store.listProfiles().map((p) => p.kind))],
       })
     } catch (e) {
@@ -232,13 +235,37 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   // ---- skills (Agent Skills SKILL.md)
   app.get('/api/skills', async () => skills.list())
   app.get<{ Params: { name: string } }>('/api/skills/:name', async (req, reply) => skills.get(req.params.name) ?? reply.code(404).send({ error: 'not found' }))
-  app.post<{ Body: { content?: unknown } }>('/api/skills', async (req, reply) => {
+  const kindOf = (v: unknown) => (isSkillKind(v) ? v : undefined)
+  app.post<{ Body: { content?: unknown; kind?: unknown } }>('/api/skills', async (req, reply) => {
     if (typeof req.body?.content !== 'string') return reply.code(400).send({ error: 'content (SKILL.md text) is required' })
     try {
-      const { body: _b, ...meta } = skills.import(req.body.content)
+      const { body: _b, ...meta } = skills.import(req.body.content, { kind: kindOf(req.body.kind) })
       return reply.code(201).send(meta)
     } catch (e) {
       return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+  // a skill folder from GitHub (repository or …/tree/<branch>/<folder>); importing again updates it
+  app.post<{ Body: { url?: unknown; kind?: unknown } }>('/api/skills/import-url', async (req, reply) => {
+    if (typeof req.body?.url !== 'string' || !req.body.url.trim()) return reply.code(400).send({ error: '请填写 GitHub 链接' })
+    try {
+      const { files, sourceUrl } = await fetchGitHubSkill(req.body.url, { fetch: opts.skillFetch })
+      const { body: _b, ...meta } = skills.importFiles(files, { kind: kindOf(req.body.kind), sourceUrl })
+      return reply.code(201).send(meta)
+    } catch (e) {
+      if (e instanceof SkillError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
+  })
+  // a skill folder as a .zip (e.g. GitHub's Code → Download ZIP), for when GitHub can't be reached
+  app.post<{ Querystring: { kind?: string }; Body: Buffer }>('/api/skills/import-zip', { bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
+    if (!Buffer.isBuffer(req.body)) return reply.code(415).send({ error: '请上传 zip 压缩包' })
+    try {
+      const { body: _b, ...meta } = skills.importFiles(skillFilesFromZip(req.body), { kind: kindOf(req.query.kind) })
+      return reply.code(201).send(meta)
+    } catch (e) {
+      if (e instanceof SkillError) return reply.code(400).send({ error: e.message })
+      throw e
     }
   })
   app.delete<{ Params: { name: string } }>('/api/skills/:name', async (req, reply) => {

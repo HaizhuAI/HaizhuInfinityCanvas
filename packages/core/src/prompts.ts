@@ -52,3 +52,59 @@ export function videoReverseInstruction(durations: number[], lang: ReverseLang =
 }
 
 export const DEFAULT_VLM_INSTRUCTION = '请详细描述这张图片的内容：主体、场景、构图、光线、色彩与风格。'
+
+/**
+ * A reverse-engineered prompt split into its parts. Reverse skills (and the SDXL template) answer with
+ * a positive prompt — often in Chinese and English — and a negative prompt; downstream nodes need them
+ * apart. `full` is always the whole answer.
+ */
+export interface ReversedPrompt { zh?: string; en?: string; negative?: string; full: string }
+
+const CJK = /[\u3400-\u9fff]/g
+// the label must end the line or be followed by a colon (so "Negative space on the left…" stays in the prompt)
+const NEG_HEAD = /^[ \t>*#-]*(?:\d+\s*[.、)）]\s*)?\**\s*(?:negative(?:\s+prompts?)?|负面(?:提示词|词)?|反向提示词)\s*\**\s*(?:[:：]\s*\**\s*(.*)|$)/im
+const ZH_HEAD = /^[ \t>*-]*\**\s*(?:中文|Chinese)\s*\**\s*[:：]\s*\**\s*/im
+const EN_HEAD = /^[ \t>*-]*\**\s*(?:English|英文)\s*\**\s*[:：]\s*\**\s*/im
+/** a section heading such as "### 1. 正向 Prompt" or "**Positive prompt:**" with nothing else on the line */
+const POS_HEAD = /^[ \t>*#-]*(?:\d+\s*[.、)）]\s*)?\**\s*(?:正向\s*(?:prompt|提示词)?|positive(?:\s+prompts?)?|prompt|提示词)\s*\**\s*[:：]?\s*\**\s*$/gim
+
+const tidy = (t: string | undefined) => {
+  const v = (t ?? '').replace(/^\s*[*_`]+|[*_`]+\s*$/g, '').replace(/\n{3,}/g, '\n\n').trim()
+  return v || undefined
+}
+
+export function splitReversedPrompt(text: string): ReversedPrompt {
+  const full = text.replace(/^```[a-z]*\s*\n?|\n?```\s*$/gi, '').trim()
+  let positive = full
+  let negative: string | undefined
+  const neg = NEG_HEAD.exec(full)
+  if (neg) {
+    positive = full.slice(0, neg.index)
+    // the negative section runs to the end, or to the next heading
+    const rest = (neg[1] ?? '') + full.slice(neg.index + neg[0].length)
+    negative = tidy(rest.split(/\n\s*#{1,6}\s/)[0])
+  }
+  positive = positive.replace(POS_HEAD, '')
+  const zh = ZH_HEAD.exec(positive)
+  const en = EN_HEAD.exec(positive)
+  let zhText: string | undefined
+  let enText: string | undefined
+  if (zh || en) {
+    if (zh) zhText = tidy(positive.slice(zh.index + zh[0].length, en && en.index > zh.index ? en.index : undefined))
+    if (en) enText = tidy(positive.slice(en.index + en[0].length, zh && zh.index > en.index ? zh.index : undefined))
+  } else {
+    const p = tidy(positive)
+    if (p) {
+      // one language only: decide by how much of it is Chinese
+      const cjk = (p.match(CJK) ?? []).length
+      if (cjk / Math.max(1, p.replace(/\s/g, '').length) > 0.2) zhText = p
+      else enText = p
+    }
+  }
+  return { zh: zhText, en: enText, negative, full }
+}
+
+/** the positive prompt in the wanted language, falling back to the other one, then to the whole answer */
+export function pickReversed(r: ReversedPrompt, lang: ReverseLang): string {
+  return (lang === 'en' ? r.en ?? r.zh : r.zh ?? r.en) ?? r.full
+}

@@ -169,7 +169,8 @@ export class Engine {
       data: { text: n.data.text, params: n.data.params, assetId: n.data.assetId, profileId: n.data.profileId },
       profile: p ? { adapter: p.adapter, endpoint: p.endpoint, model: p.model, defaults: p.defaults, updatedAt: p.updatedAt } : null,
       // editing a skill's instructions must invalidate cached director results
-      skill: n.type === 'director' ? (this.skills?.get(String(n.data.params?.skill || DEFAULT_DIRECTOR_SKILL))?.body ?? null) : undefined,
+      skill: n.type === 'director' ? (this.skills?.instructions(String(n.data.params?.skill || DEFAULT_DIRECTOR_SKILL)) ?? null)
+        : n.type === 'image-reverse' && n.data.params?.skill ? (this.skills?.instructions(String(n.data.params.skill)) ?? null) : undefined,
       inputs,
     }
     return createHash('sha256').update(JSON.stringify(material)).digest('hex')

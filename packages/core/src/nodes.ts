@@ -35,12 +35,12 @@ export const NODE_TYPES: NodeTypeDef[] = [
   },
   {
     type: 'image-gen', category: 'model', modelKind: 'image', label: '图片生成', description: '文生图 / 图生图',
-    inputs: [{ id: 'prompt', type: 'text', label: '提示词' }, { id: 'ref', type: 'image', label: '参考图', multiple: true }],
+    inputs: [{ id: 'prompt', type: 'text', label: '提示词' }, { id: 'negative', type: 'text', label: '负面词' }, { id: 'ref', type: 'image', label: '参考图', multiple: true }],
     outputs: [{ id: 'out', type: 'image', label: '图片' }],
   },
   {
     type: 'video-gen', category: 'model', modelKind: 'video', label: '视频生成', description: '文生视频 / 图生视频 / 首尾帧',
-    inputs: [{ id: 'prompt', type: 'text', label: '提示词' }, { id: 'first', type: 'image', label: '首帧' }, { id: 'last', type: 'image', label: '尾帧' }],
+    inputs: [{ id: 'prompt', type: 'text', label: '提示词' }, { id: 'negative', type: 'text', label: '负面词' }, { id: 'first', type: 'image', label: '首帧' }, { id: 'last', type: 'image', label: '尾帧' }],
     outputs: [{ id: 'out', type: 'video', label: '视频' }],
   },
   {
@@ -53,7 +53,7 @@ export const NODE_TYPES: NodeTypeDef[] = [
   {
     type: 'image-reverse', category: 'tool', modelKind: 'vlm', label: '图片提示词反推', description: '图片 → 可复用的生成提示词',
     inputs: [{ id: 'image', type: 'image', label: '图片' }],
-    outputs: [{ id: 'out', type: 'text', label: '提示词' }],
+    outputs: [{ id: 'out', type: 'text', label: '提示词' }, { id: 'negative', type: 'text', label: '负面词' }],
   },
   {
     type: 'video-reverse', category: 'tool', modelKind: 'vlm', label: '视频提示词反推', description: '视频 → 抽帧 → 镜头表',

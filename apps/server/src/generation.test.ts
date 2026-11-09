@@ -121,6 +121,16 @@ describe('image generation', () => {
     expect(req.body).toMatchObject({ model: 'gpt-image-1', prompt: '一只在海边弹吉他的橘猫', size: '1536x1024', n: 1 })
   })
 
+  it('the 负面词 port: replicate gets negative_prompt, the openai images API gets it in words', async () => {
+    const neg = { nodes: [{ id: 'n', type: 'text', position: { x: 0, y: 200 }, data: { text: 'watermark, blurry' } }], edges: [{ id: 'en', source: 'n', sourceHandle: 'out', target: 'g', targetHandle: 'negative' }] }
+    const rp = prof({ kind: 'image', adapter: 'replicate', endpoint: `${M}/rep/v1`, model: 'black-forest-labs/flux-dev' })
+    expect((await run(store.createProject('r', graph('image-gen', rp.id, neg)).id)).end.status).toBe('done')
+    expect(hits.find((h) => h.method === 'POST' && h.url.endsWith('/predictions'))!.body.input).toMatchObject({ prompt: '一只在海边弹吉他的橘猫', negative_prompt: 'watermark, blurry' })
+    const op = prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'gpt-image-1' })
+    expect((await run(store.createProject('o', graph('image-gen', op.id, neg)).id)).end.status).toBe('done')
+    expect(hits.find((h) => h.url === '/v1/images/generations')!.body.prompt).toBe('一只在海边弹吉他的橘猫\n\nAvoid: watermark, blurry')
+  })
+
   it('openai-compat rejects reference images with a clear message', async () => {
     const { id: assetId } = assets.put(PNG, 'image/png')
     const p = store.createProject('t', graph('image-gen', prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'x' }).id, {
