@@ -48,8 +48,27 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # electron-builder fetches its own Electron
       - run: pnpm build
+      # electron-builder downloads Electron and its packaging tools (NSIS, winCodeSign, AppImage) from
+      # GitHub releases; keep them between builds so a slow or failing download host doesn't fail the build
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-dl-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: electron-dl-${{ runner.os }}-
       - name: Package desktop app
-        run: pnpm --filter @hzc/desktop exec electron-builder ${{ matrix.flag }} --publish never
+        shell: bash
+        run: |
+          # those downloads sometimes time out (HTTP 504); try again before giving up
+          for attempt in 1 2 3; do
+            pnpm --filter @hzc/desktop exec electron-builder ${{ matrix.flag }} --publish never && exit 0
+            echo "::warning::packaging attempt $attempt failed; retrying in $((attempt * 45)) s"
+            sleep $((attempt * 45))
+          done
+          exit 1
       # start the packaged app: it must launch its server, load the UI and seal the API-key master key
       - name: Launch test (Linux, virtual display)
         if: runner.os == 'Linux'
