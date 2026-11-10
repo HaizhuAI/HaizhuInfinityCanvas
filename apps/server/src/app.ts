@@ -349,7 +349,18 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
 
   // ---- static web UI (SPA fallback)
   if (opts.webDir && existsSync(opts.webDir)) {
-    await app.register(fastifyStatic, { root: opts.webDir })
+    await app.register(fastifyStatic, {
+      root: opts.webDir,
+      // the build ships .br / .gz next to each text file: send those when the browser accepts them
+      preCompressed: true,
+      cacheControl: false,
+      setHeaders(res, path) {
+        // files under assets/ carry a content hash in their name: cache them for good, never ask again.
+        // Everything else (index.html, icons) is revalidated, so a new version is picked up at once.
+        res.setHeader('cache-control', /[\\/]assets[\\/]/.test(path) ? 'public, max-age=31536000, immutable' : 'no-cache')
+        res.setHeader('vary', 'accept-encoding')
+      },
+    })
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) return reply.code(404).send({ error: 'not found' })
       return reply.sendFile('index.html')

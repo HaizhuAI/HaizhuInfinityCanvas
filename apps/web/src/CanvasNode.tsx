@@ -78,7 +78,7 @@ function MediaView({ v, name, nodeId }: { v: MediaValue; name?: string; nodeId?:
   const drag = (e: React.DragEvent) => { e.stopPropagation(); startDrag(e, { type: v.type, assetId: v.assetId, mime: v.mime, name: name ? `${name}（结果）` : undefined }) }
   return (
     <div className="nmedia" onDoubleClick={open}>
-      {v.type === 'image' ? <img className="media" src={url} alt={name ?? '图片'} draggable={false} /> : <video className="media nodrag" src={url} controls preload="metadata" />}
+      {v.type === 'image' ? <img className="media" src={url} alt={name ?? '图片'} draggable={false} loading="lazy" decoding="async" /> : <video className="media nodrag" src={url} controls preload="metadata" />}
       <div className="media-tools">
         <span className="btn xs icon nodrag grip" draggable onDragStart={drag} role="button" tabIndex={-1} aria-label="拖出这个结果" title={`拖到画布上作为新的${v.type === 'image' ? '图片' : '视频'}节点，或拖到另一个${v.type === 'image' ? '图片' : '视频'}节点上替换`} data-testid="drag-result"><GripVertical /></span>
         <button className="btn xs icon nodrag" onClick={open} aria-label="全屏预览" title="全屏预览（双击也可）"><Expand /></button>
@@ -110,7 +110,7 @@ export function ShotList({ title, shots }: { title?: string; shots: Shot[] }) {
       {title && <div className="sb-title">《{title}》</div>}
       {shots.map((s) => (
         <div className="shot" key={s.index}>
-          {s.keyframe ? <img className="thumb" src={assetUrl(s.keyframe.assetId)} alt={`镜头 ${s.index} 关键帧`} /> : <span className="no">{s.index}</span>}
+          {s.keyframe ? <img className="thumb" src={assetUrl(s.keyframe.assetId)} alt={`镜头 ${s.index} 关键帧`} loading="lazy" decoding="async" /> : <span className="no">{s.index}</span>}
           <div style={{ minWidth: 0 }}>
             <div className="t">{s.keyframe ? `${s.index}. ${s.title}` : s.title}<span>{s.duration}s</span></div>
             {s.visual && <div className="v">{s.visual}</div>}

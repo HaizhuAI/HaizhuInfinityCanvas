@@ -42,7 +42,7 @@ function Thumb({ v }: { v: NodeVersion }) {
   const all = Object.values(v.outputs).flat()
   const media = all.find((x) => x.type === 'image' || x.type === 'video' || x.type === 'audio' || x.type === 'file')
   if (media && 'assetId' in media) {
-    if (media.type === 'image') return <img src={assetUrl(media.assetId)} alt="" loading="lazy" />
+    if (media.type === 'image') return <img src={assetUrl(media.assetId)} alt="" loading="lazy" decoding="async" />
     if (media.type === 'video') return <video src={assetUrl(media.assetId)} preload="metadata" muted />
     return media.type === 'audio' ? <Music aria-hidden="true" /> : <FileArchive aria-hidden="true" />
   }

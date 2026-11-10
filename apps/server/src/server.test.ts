@@ -157,3 +157,38 @@ describe('prompt library', () => {
     expect((await app.inject({ method: 'DELETE', url: `/api/prompts/${a.id}` })).statusCode).toBe(404)
   })
 })
+
+describe('web UI files', () => {
+  it('serves precompressed assets cached for good, index.html revalidated, and falls back to the app for deep links', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const { brotliCompressSync, gzipSync, brotliDecompressSync } = await import('node:zlib')
+    const web = join(dir, 'web')
+    mkdirSync(join(web, 'assets'), { recursive: true })
+    const js = Buffer.from('console.log("' + 'x'.repeat(4000) + '")')
+    writeFileSync(join(web, 'assets', 'index-abc123.js'), js)
+    writeFileSync(join(web, 'assets', 'index-abc123.js.br'), brotliCompressSync(js))
+    writeFileSync(join(web, 'assets', 'index-abc123.js.gz'), gzipSync(js))
+    writeFileSync(join(web, 'index.html'), '<!doctype html><div id="root"></div>')
+    const ui = await buildApp({ store, assets: new AssetStore(dir, store), engine, skills: new SkillStore(BUILTIN_SKILLS, dir), webDir: web })
+    try {
+      const br = await ui.inject({ url: '/assets/index-abc123.js', headers: { 'accept-encoding': 'gzip, deflate, br' } })
+      expect(br.headers['content-encoding']).toBe('br')
+      expect(br.headers['cache-control']).toBe('public, max-age=31536000, immutable')
+      expect(br.headers.vary).toMatch(/accept-encoding/i)
+      expect(brotliDecompressSync(br.rawPayload).equals(js)).toBe(true)
+      expect((await ui.inject({ url: '/assets/index-abc123.js', headers: { 'accept-encoding': 'gzip' } })).headers['content-encoding']).toBe('gzip')
+      const plain = await ui.inject({ url: '/assets/index-abc123.js' })
+      expect(plain.headers['content-encoding']).toBeUndefined()
+      expect(plain.rawPayload.equals(js)).toBe(true)
+      for (const url of ['/', '/some/deep/link']) {
+        const r = await ui.inject({ url })
+        expect(r.statusCode).toBe(200)
+        expect(r.headers['cache-control']).toBe('no-cache')   // a new version is picked up at once
+        expect(r.body).toContain('id="root"')
+      }
+      const api = await ui.inject({ url: '/api/nope' })
+      expect(api.statusCode).toBe(404)
+      expect(api.json()).toEqual({ error: 'not found' })
+    } finally { await ui.close() }
+  })
+})
