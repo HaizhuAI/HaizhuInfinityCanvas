@@ -229,11 +229,13 @@ function ThemeToggle() {
 function RunProgress() {
   const ids = useStore((s) => s.runNodeIds)
   const done = useStore((s) => ids.filter((id) => ['done', 'cached', 'error', 'skipped', 'cancelled'].includes(s.runStates[id]?.status ?? '')).length)
+  // independent nodes run at the same time: say how many are going right now
+  const active = useStore((s) => ids.filter((id) => s.runStates[id]?.status === 'running').length)
   if (!ids.length) return null
   return (
-    <span className="run-progress" role="status" data-testid="run-progress">
+    <span className="run-progress" role="status" data-testid="run-progress" title={active > 1 ? `${active} 个节点正在同时运行` : undefined}>
       <span className="bar" style={{ '--p': `${Math.round((done / ids.length) * 100)}%` } as React.CSSProperties} aria-hidden="true" />
-      运行中 {done} / {ids.length}
+      运行中 {done} / {ids.length}{active > 1 && <span className="par" data-testid="run-parallel">· 同时 {active} 个</span>}
     </span>
   )
 }

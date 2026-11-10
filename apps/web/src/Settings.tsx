@@ -177,12 +177,29 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
                 <input value={form.endpoint} onChange={(e) => { set({ endpoint: e.target.value }); setTest({ status: 'idle' }) }} placeholder="https://…/v1" data-testid="pf-endpoint" />
               </label>
             </div>
+            {(() => {
+              // 同时运行 lives in the defaults JSON as _concurrency (a canvas setting, never sent to the provider)
+              let obj: Record<string, unknown> | null = null
+              try { const v = JSON.parse(form.defaultsText || '{}') as unknown; if (v && typeof v === 'object' && !Array.isArray(v)) obj = v as Record<string, unknown> } catch { /* invalid JSON: edit it below */ }
+              const cur = obj && typeof obj._concurrency === 'number' ? String(obj._concurrency) : ''
+              const local = form.adapter === 'ollama'
+              return (
+                <label className="field"><span>同时运行</span>
+                  <select value={cur} disabled={!obj} data-testid="pf-concurrency"
+                    onChange={(e) => { const next = { ...obj! }; if (e.target.value) next._concurrency = Number(e.target.value); else delete next._concurrency; set({ defaultsText: JSON.stringify(next, null, 2) }) }}>
+                    <option value="">自动（{local ? '本机模型一次 1 个' : '最多 3 个'}）</option>
+                    {[1, 2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>{n === 1 ? '一次 1 个（逐个运行）' : `最多 ${n} 个`}</option>)}
+                  </select>
+                  <span className="help">画布上互不依赖的节点会同时运行（例如分镜的各个镜头）。服务商提示请求过于频繁（429）时调小；{local ? '本机显卡通常一次只能跑一个任务。' : '额度充足时可以调大。'}所有模型合计最多同时 {useStore.getState().maxParallel} 个。</span>
+                </label>
+              )
+            })()}
             <label className="field"><span>默认参数（JSON，可选）</span>
               <textarea value={form.defaultsText} onChange={(e) => set({ defaultsText: e.target.value })} spellCheck={false} data-testid="pf-defaults" />
               <span className="help">
                 会合并进每次请求，例如 {'{"temperature": 0.7}'}。以 _ 开头的键是适配器配置、不会发给服务商：
                 {' '}<code>_fields</code> 映射输入字段名（如 {'{"_fields": {"image": "input_image", "first": "start_image"}}'}），
-                {' '}<code>_timeoutSec</code> 设置最长等待秒数。
+                {' '}<code>_timeoutSec</code> 设置最长等待秒数，<code>_concurrency</code> 即上面的「同时运行」。
               </span>
             </label>
           </div>

@@ -29,7 +29,8 @@ const assets = new AssetStore(dataDir, store)
 // built-in skills sit next to the bundle (dist/skills) or, in dev, at apps/server/skills
 const builtinSkills = process.env.HZC_SKILLS_DIR ?? [resolve(here, 'skills'), resolve(here, '../skills')].find((d) => existsSync(d))
 const skills = new SkillStore(builtinSkills, dataDir)
-const engine = new Engine(store, assets, { skills })
+// HZC_MAX_PARALLEL: how many model calls may run at once (1–8, default 4; 1 = one node at a time)
+const engine = new Engine(store, assets, { skills, maxParallel: process.env.HZC_MAX_PARALLEL ? Number(process.env.HZC_MAX_PARALLEL) : undefined })
 const app = await buildApp({ store, assets, engine, skills, webDir, accessToken })
 
 await app.listen({ port, host })

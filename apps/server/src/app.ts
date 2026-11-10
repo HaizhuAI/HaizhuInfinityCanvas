@@ -63,7 +63,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   /** environment status for Settings: FFmpeg availability (video reverse / export need it) */
   app.get<{ Querystring: { refresh?: string } }>('/api/system', async (req) => {
     const f = await ffmpegInfo(req.query.refresh === '1')
-    return { version: APP_VERSION, node: process.versions.node, platform: process.platform, ffmpeg: { ok: f.ok, version: f.version, h264: f.h264, aac: f.aac, error: f.error } }
+    return { version: APP_VERSION, node: process.versions.node, platform: process.platform, maxParallel: engine.maxParallel, ffmpeg: { ok: f.ok, version: f.version, h264: f.h264, aac: f.aac, error: f.error } }
   })
 
   // ---- model profiles

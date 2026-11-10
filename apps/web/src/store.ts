@@ -80,6 +80,8 @@ export interface State {
   settingsIntent: SettingsIntent | null
   /** FFmpeg availability, for the pre-run check (null until known) */
   ffmpegOk: boolean | null
+  /** how many model calls the server runs at once, over all models */
+  maxParallel: number
   /** a run waiting on the pre-run check (missing models, inputs, files) */
   pendingCheck: { nodeIds?: string[]; force?: boolean } | null
   /** ask the canvas to bring nodes into view (watched inside the React Flow provider) */
@@ -196,7 +198,7 @@ export const useStore = create<State>((set, get) => ({
   saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
-  settingsIntent: null, ffmpegOk: null, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
+  settingsIntent: null, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
 
   showToast: (text, opts) => {
     const t: Toast = { id: Date.now() + Math.random(), text, tone: opts?.tone, action: opts?.action }
@@ -442,7 +444,7 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     void get().loadSkills().catch(() => undefined)
-    void api.system().then((sys) => set({ ffmpegOk: sys.ffmpeg.ok })).catch(() => undefined)
+    void api.system().then((sys) => set({ ffmpegOk: sys.ffmpeg.ok, maxParallel: sys.maxParallel ?? 4 })).catch(() => undefined)
     void get().loadAssets().catch(() => undefined)
     void get().loadPrompts().catch(() => undefined)
     await get().loadProfiles()

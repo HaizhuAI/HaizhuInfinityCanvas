@@ -145,7 +145,7 @@ export const api = {
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
-  system: (refresh = false) => req<{ version: string; node: string; platform: string; ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string } }>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
+  system: (refresh = false) => req<{ version: string; node: string; platform: string; maxParallel?: number; ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string } }>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
   listSkills: () => req<SkillMeta[]>('GET', '/api/skills'),
   importSkill: (content: string, kind?: SkillKind) => req<SkillMeta>('POST', '/api/skills', { content, kind }),
   importSkillUrl: (url: string, kind?: SkillKind) => req<SkillMeta>('POST', '/api/skills/import-url', { url, kind }),

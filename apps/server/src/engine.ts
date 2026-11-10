@@ -29,6 +29,14 @@ export interface StartOptions {
   force?: boolean
 }
 
+export const DEFAULT_MAX_PARALLEL = 4
+export const DEFAULT_PER_MODEL = 3
+export const MAX_PARALLEL_CAP = 8
+const clampInt = (v: unknown, min: number, max: number) => {
+  const n = typeof v === 'string' && v.trim() ? Number(v) : v
+  return typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : undefined
+}
+
 /** Node types that never call a provider — always recomputed, never "cached" in the UI sense. */
 const TRIVIAL = new Set(['text', 'image', 'video', 'audio', 'preview'])
 
@@ -63,15 +71,34 @@ export class Engine {
   private chatAdapter?: HandlerCtx['chatAdapter']
   private pollDelays?: number[]
   private skills?: SkillStore
+  /** provider calls that may be in flight at once, over all models (1 = one node at a time) */
+  readonly maxParallel: number
 
   constructor(
     private store: Store,
     private assets: AssetStore,
-    opts: { chatAdapter?: HandlerCtx['chatAdapter']; /** test hook: provider polling schedule */ pollDelays?: number[]; skills?: SkillStore } = {},
+    opts: { chatAdapter?: HandlerCtx['chatAdapter']; /** test hook: provider polling schedule */ pollDelays?: number[]; skills?: SkillStore; maxParallel?: number } = {},
   ) {
     this.chatAdapter = opts.chatAdapter
     this.pollDelays = opts.pollDelays
     this.skills = opts.skills
+    this.maxParallel = clampInt(opts.maxParallel, 1, MAX_PARALLEL_CAP) ?? DEFAULT_MAX_PARALLEL
+  }
+
+  /**
+   * How many calls of this node's kind may run at once, and what they share the limit with:
+   * - a model profile: `defaults._concurrency` (1–8) when set, else 3;
+   * - Ollama: 1 per server address — a local GPU serves one request at a time, and two models
+   *   taking turns would keep reloading each other;
+   * - nodes without a model (Export: FFmpeg on this computer): one at a time.
+   */
+  private limitFor(node: GraphNode): { key: string; max: number } {
+    const p = node.data.profileId ? this.store.getProfile(node.data.profileId) : undefined
+    if (!p) return { key: 'local', max: 1 }
+    const own = clampInt(p.defaults?._concurrency, 1, MAX_PARALLEL_CAP)
+    if (own) return { key: `p:${p.id}`, max: own }
+    if (p.adapter === 'ollama') return { key: `ollama:${p.endpoint.replace(/\/+$/, '').toLowerCase()}`, max: 1 }
+    return { key: `p:${p.id}`, max: DEFAULT_PER_MODEL }
   }
 
   /**
@@ -193,27 +220,20 @@ export class Engine {
     const edgesInOrder = canvasOrderedEdges(graph)
     let anyError = false
 
-    for (const nodeId of order) {
-      const node = graph.nodes.find((n) => n.id === nodeId)!
-      if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); continue }
+    // Independent nodes run at the same time (a storyboard's shots, the variants of a comparison),
+    // within limits: `maxParallel` provider calls overall, and a few per model so one provider isn't
+    // flooded. A node starts once everything upstream of it has settled; ties go in canvas order.
+    const nodeOf = new Map(graph.nodes.map((n) => [n.id, n]))
+    const inRun = new Set(order)
+    const preds = new Map(order.map((id) => [id, [...new Set(graph.edges.filter((e) => e.target === id && inRun.has(e.source)).map((e) => e.source))]]))
+    const pending = new Set(order)
+    const settled = new Set<string>()
+    const busy = new Map<string, number>() // limit key -> calls in flight
+    let slots = 0                          // provider calls in flight (trivial nodes don't count)
+    let inFlight = 0
 
-      const upstreamFailed = graph.edges.some((e) => e.target === nodeId && failed.has(e.source))
-      if (upstreamFailed) {
-        failed.add(nodeId)
-        this.setNode(run, nodeId, { status: 'skipped', error: '上游节点未成功' })
-        continue
-      }
-
-      const inputs = collectInputs(edgesInOrder, nodeId, outputs)
-      const key = this.cacheKey(graph, nodeId, inputs)
-      const force = opts.force && (!targets || targets.has(nodeId))
-      const cached = this.store.getNodeOutput(run.projectId, nodeId)
-      if (!TRIVIAL.has(node.type) && !force && cached?.cacheKey === key) {
-        outputs.set(nodeId, cached.outputs)
-        this.setNode(run, nodeId, { status: 'cached', outputs: cached.outputs, finishedAt: cached.finishedAt })
-        continue
-      }
-
+    /** one node from "running" to its final state; never throws */
+    const runNode = async (nodeId: string, node: GraphNode, inputs: ReturnType<typeof collectInputs>, key: string, force: boolean) => {
       const startedAt = new Date().toISOString()
       this.setNode(run, nodeId, { status: 'running', startedAt })
       try {
@@ -229,7 +249,7 @@ export class Engine {
           node, inputs, profile,
           apiKey: profile ? this.store.getApiKey(profile.id) : undefined,
           assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter, skills: this.skills, graph,
-          job: { store: this.store, projectId: run.projectId, nodeId, cacheKey: key, force: !!force, report, pollDelays: this.pollDelays },
+          job: { store: this.store, projectId: run.projectId, nodeId, cacheKey: key, force, report, pollDelays: this.pollDelays },
         })
         outputs.set(nodeId, out)
         this.store.setNodeOutput(run.projectId, nodeId, key, out)
@@ -237,12 +257,56 @@ export class Engine {
         this.setNode(run, nodeId, { status: 'done', outputs: out, startedAt, finishedAt: new Date().toISOString(), versions })
       } catch (e) {
         failed.add(nodeId)
-        if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); continue }
+        if (run.ctrl.signal.aborted) { this.setNode(run, nodeId, { status: 'cancelled' }); return }
         anyError = true
         const known = e instanceof NodeError || e instanceof ProviderError || e instanceof SecretError
         this.setNode(run, nodeId, { status: 'error', error: known ? (e as Error).message : `内部错误：${(e as Error).message}`, startedAt, finishedAt: new Date().toISOString() })
       }
     }
+
+    await new Promise<void>((resolve) => {
+      const pump = () => {
+        // settle or start everything that is ready; repeat while that makes more nodes ready
+        for (let progressed = true; progressed;) {
+          progressed = false
+          for (const nodeId of order) {
+            if (!pending.has(nodeId) || !preds.get(nodeId)!.every((p) => settled.has(p))) continue
+            const node = nodeOf.get(nodeId)!
+            const settle = (state?: NodeRunState) => { pending.delete(nodeId); settled.add(nodeId); if (state) this.setNode(run, nodeId, state); progressed = true }
+            if (run.ctrl.signal.aborted) { failed.add(nodeId); settle({ status: 'cancelled' }); continue }
+            if (preds.get(nodeId)!.some((p) => failed.has(p))) { failed.add(nodeId); settle({ status: 'skipped', error: '上游节点未成功' }); continue }
+
+            const inputs = collectInputs(edgesInOrder, nodeId, outputs)
+            const key = this.cacheKey(graph, nodeId, inputs)
+            const force = !!opts.force && (!targets || targets.has(nodeId))
+            const trivial = TRIVIAL.has(node.type)
+            if (!trivial && !force) {
+              const cached = this.store.getNodeOutput(run.projectId, nodeId)
+              if (cached?.cacheKey === key) {
+                outputs.set(nodeId, cached.outputs)
+                settle({ status: 'cached', outputs: cached.outputs, finishedAt: cached.finishedAt })
+                continue
+              }
+            }
+            const limit = trivial ? undefined : this.limitFor(node)
+            if (limit && (slots >= this.maxParallel || (busy.get(limit.key) ?? 0) >= limit.max)) continue // waits for a free slot
+            pending.delete(nodeId)
+            if (limit) { slots++; busy.set(limit.key, (busy.get(limit.key) ?? 0) + 1) }
+            inFlight++
+            void runNode(nodeId, node, inputs, key, force).then(() => {
+              if (limit) { slots--; busy.set(limit.key, busy.get(limit.key)! - 1) }
+              inFlight--
+              settled.add(nodeId)
+              pump()
+            })
+          }
+        }
+        if (!pending.size && !inFlight) resolve()
+      }
+      // stopping: nodes still waiting are marked at once, without waiting for the calls in flight
+      run.ctrl.signal.addEventListener('abort', pump, { once: true })
+      pump()
+    })
     this.finish(run, run.ctrl.signal.aborted ? 'cancelled' : anyError ? 'error' : 'done')
   }
 

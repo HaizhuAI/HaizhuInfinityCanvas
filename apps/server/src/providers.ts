@@ -26,8 +26,9 @@ function joinUrl(base: string, path: string) {
   return b.endsWith(path) ? b : b + path
 }
 
+/** request parameters from the profile; keys starting with _ configure the canvas (never sent) */
 function pickDefaults(d: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(d ?? {}).filter(([k]) => !RESERVED.has(k)))
+  return Object.fromEntries(Object.entries(d ?? {}).filter(([k]) => !RESERVED.has(k) && !k.startsWith('_')))
 }
 
 async function postJson(url: string, body: unknown, headers: Record<string, string>, signal: AbortSignal, apiKey?: string) {
