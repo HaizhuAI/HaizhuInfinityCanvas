@@ -352,6 +352,18 @@ const REVERSED = '### 1. 正向 Prompt\n\n中文：清晨的高山湖泊，三�
   await shot('light-theme', '浅色主题（同一个画布，含三个对比节点）')
   await page.click('[data-testid="theme-toggle"]')
 
+  // 8. the public front page
+  await page.goto(BASE + '/welcome')
+  await page.waitForSelector('[data-testid="landing"]')
+  await page.waitForFunction(() => document.querySelector('.lp-frame img')?.complete)
+  await shot('landing', '公开首页 /welcome：产品介绍，点「开始创作」进入画布')
+  await page.locator('#features').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(900)
+  await shot('landing-features', '首页的功能区（使用真实界面截图）')
+  await page.evaluate(() => document.querySelector('.lp').scrollTo(0, 0))
+  await page.click('[data-testid="landing-enter"]')
+  await page.waitForSelector('[data-testid="save-state"]')
+
   console.log('console/page errors:', errors.length ? errors : 'none')
   assert.equal(errors.length, 0)
   await browser.close()

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import Root from './App'
 import '@fontsource-variable/inter'
@@ -18,4 +18,9 @@ if (urlToken) {
 initTheme()
 initMotion()
 
-createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)
+// /welcome is the public front page; everything else is the canvas
+const landing = location.pathname.replace(/\/+$/, '') === '/welcome'
+const Landing = lazy(() => import('./Landing').then((m) => ({ default: m.Landing })))
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>{landing ? <Suspense fallback={null}><Landing onEnter={() => { location.href = '/' }} /></Suspense> : <Root />}</StrictMode>,
+)

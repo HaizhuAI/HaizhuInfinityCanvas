@@ -16,7 +16,7 @@ import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 
-export const APP_VERSION = '1.0.0-rc.7'
+export const APP_VERSION = '1.0.0-rc.8'
 
 export interface AppOptions {
   store: Store
