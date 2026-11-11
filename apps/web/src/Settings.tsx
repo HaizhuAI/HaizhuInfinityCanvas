@@ -452,14 +452,22 @@ function AppearancePane() {
 function AboutPane() {
   const [sys, setSys] = useState<Awaited<ReturnType<typeof api.system>> | null>(null)
   const [busy, setBusy] = useState(false)
+  const [backing, setBacking] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
   const load = (refresh = false) => { setBusy(true); void api.system(refresh).then(setSys).catch(() => setSys(null)).finally(() => setBusy(false)) }
   useEffect(() => { load() }, [])
+  const backupNow = () => {
+    setBacking('busy')
+    void api.backupNow().then(() => { setBacking('done'); load() }).catch(() => setBacking('error'))
+  }
   const f = sys?.ffmpeg
+  const b = sys?.backups
+  const r = sys?.recovery
+  const when = (iso?: string) => (iso ? new Date(iso).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
   return (
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.8。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.9。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
@@ -474,6 +482,26 @@ function AboutPane() {
           </span>
         )}
       </div>
+      {b && (
+        <div className="field"><span>数据备份（画布、模型档案、生成记录）</span>
+          <div className="status-line" data-testid="backup-status" style={{ '--c': b.count ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
+            <span className="dot" aria-hidden="true" />
+            {b.count ? `自动备份 · 每 ${b.everyHours} 小时 · 保留最近 ${b.keep} 份 · 最近一次 ${when(b.latest)}` : '还没有备份'}
+            <button className="btn xs" disabled={backing === 'busy'} onClick={backupNow} data-testid="backup-now">{backing === 'busy' ? '备份中…' : '立即备份'}</button>
+          </div>
+          <span className="help">{backing === 'error' ? '备份失败，请检查数据目录的磁盘空间。' : '备份在数据目录的 backups 文件夹里。数据文件损坏时，下次启动会自动换成最近一份完好的备份。'}</span>
+        </div>
+      )}
+      {r && (
+        <div className="hint warn" data-testid="recovery-note" role="alert">
+          <CircleAlert aria-hidden="true" />
+          <span>
+            {when(r.at)} 启动时发现数据文件损坏（{r.problem}），
+            {r.restoredFrom ? `已自动从备份 ${r.restoredFrom} 恢复；那之后的修改没有包含在内。` : '没有可用的备份，已用空数据启动。'}
+            {r.keptAs && `损坏的文件保留为 ${r.keptAs}，可交给技术支持尝试找回。`}
+          </span>
+        </div>
+      )}
       {sys && <dl className="meta-list"><dt>运行环境</dt><dd>Node {sys.node} · {sys.platform}</dd></dl>}
       <div className="hint"><Info aria-hidden="true" /><span>项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。</span></div>
     </div>

@@ -359,5 +359,8 @@ export class Store {
     return this.db.prepare('DELETE FROM projects WHERE id = ?').run(id).changes > 0
   }
 
+  /** consistent copy of the whole database into a new file (which must not exist yet) */
+  backupTo(file: string) { this.db.prepare('VACUUM INTO ?').run(file) }
+
   close() { this.db.close() }
 }

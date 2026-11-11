@@ -8,6 +8,7 @@ import { api, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, 
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
 import { setViewPref, viewPref } from './theme'
+import { clearDraft, readDraft, sameGraph, writeDraft } from './draft'
 
 export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string; /** multi-model comparison group */ compare?: string }
 export type CanvasNode = Node<CanvasNodeData>
@@ -74,6 +75,10 @@ export interface State {
   nodes: CanvasNode[]
   edges: Edge[]
   saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
+  /** consecutive failed saves (autosave retries with growing pauses; 0 after a success) */
+  saveFailures: number
+  /** the last failed save cannot succeed by retrying (the canvas was deleted, or is invalid / too large) */
+  saveBlocked: boolean
   toast: Toast | null
   settingsOpen: boolean
   /** where Settings should open (tab, or straight into "add a model" of a kind) */
@@ -125,6 +130,8 @@ export interface State {
   newProject: () => Promise<void>
   renameProject: (name: string) => void
   save: () => Promise<void>
+  /** keep the current canvas in this browser (page closing with unsaved edits) */
+  keepDraft: () => void
   setSettingsOpen: (o: boolean) => void
   openSettings: (intent?: SettingsIntent) => void
   showToast: (text: string, opts?: { action?: Toast['action']; tone?: Toast['tone']; ms?: number }) => void
@@ -195,7 +202,7 @@ export interface State {
 
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
-  saveState: 'idle', toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
+  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
   settingsIntent: null, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
@@ -444,7 +451,11 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     void get().loadSkills().catch(() => undefined)
-    void api.system().then((sys) => set({ ffmpegOk: sys.ffmpeg.ok, maxParallel: sys.maxParallel ?? 4 })).catch(() => undefined)
+    void api.system().then((sys) => {
+      set({ ffmpegOk: sys.ffmpeg.ok, maxParallel: sys.maxParallel ?? 4 })
+      // the database was damaged and replaced at startup: changes after that backup are missing
+      if (sys.recovery) get().showToast(sys.recovery.restoredFrom ? '数据文件损坏，已自动从最近的备份恢复。详情见 设置 → 关于' : '数据文件损坏且没有可用备份，已用空数据启动。详情见 设置 → 关于', { tone: 'error', ms: 15_000, action: { label: '查看', run: () => get().openSettings({ tab: 'about' }) } })
+    }).catch(() => undefined)
     void get().loadAssets().catch(() => undefined)
     void get().loadPrompts().catch(() => undefined)
     await get().loadProfiles()
@@ -458,7 +469,23 @@ export const useStore = create<State>((set, get) => ({
     const [p, outs] = await Promise.all([api.getProject(id), api.outputs(id)])
     const runStates: Record<string, NodeRunState> = {}
     for (const o of outs) runStates[o.nodeId] = { status: 'done', outputs: o.outputs, finishedAt: o.finishedAt, versions: o.versions }
-    set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', runStates, runId: null, versionLists: {}, runNodeIds: [], assistantTurns: loadTurns(p.id), assistantBusy: false })
+    set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', saveFailures: 0, saveBlocked: false, runStates, runId: null, versionLists: {}, runNodeIds: [], assistantTurns: loadTurns(p.id), assistantBusy: false })
+    // edits that never reached the server last time (it was down, or the page closed first)
+    const draft = readDraft(p.id)
+    if (draft && (draft.name !== p.name || !sameGraph(draft.graph, p.graph))) {
+      const when = new Date(draft.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      get().showToast(`发现 ${when} 未保存到服务的修改`, {
+        ms: 30_000,
+        action: {
+          label: '恢复',
+          run: () => {
+            if (get().projectId !== p.id) return
+            set({ projectName: draft.name, ...fromGraph(draft.graph), saveState: 'dirty' })
+            get().showToast('已恢复未保存的修改')
+          },
+        },
+      })
+    } else if (draft) clearDraft(p.id)
   },
 
   async newProject() {
@@ -472,14 +499,31 @@ export const useStore = create<State>((set, get) => ({
   async save() {
     const { projectId, projectName, nodes, edges } = get()
     if (!projectId) return
+    const graph = toGraph(nodes, edges)
     set({ saveState: 'saving' })
     try {
-      await api.saveProject(projectId, { name: projectName, graph: toGraph(nodes, edges) })
-      set({ saveState: 'saved' })
+      await api.saveProject(projectId, { name: projectName, graph })
+      clearDraft(projectId)
+      const recovered = get().saveFailures > 0
+      // an edit made while this save was on its way marked the canvas dirty again: keep it that way
+      set({ saveState: get().saveState === 'dirty' ? 'dirty' : 'saved', saveFailures: 0, saveBlocked: false })
+      // replaces the "save failed" message, which would otherwise still be on screen
+      if (recovered) get().showToast('连接已恢复，修改已保存')
     } catch (e) {
-      set({ saveState: 'error' })
-      get().showToast(`保存失败：${(e as Error).message}`)
+      // the work is kept in this browser until a save succeeds
+      const kept = get().projectId === projectId && writeDraft(projectId, projectName, graph)
+      const status = (e as { status?: number }).status ?? 0
+      const blocked = status === 400 || status === 404 || status === 413
+      const failures = get().saveFailures + 1
+      set({ saveState: 'error', saveFailures: failures, saveBlocked: blocked })
+      // one message per streak of failures (autosave keeps retrying quietly)
+      if (failures === 1 || blocked) get().showToast(`保存失败：${(e as Error).message}${kept ? '。修改已保存在本浏览器，' + (blocked ? '可导出备份' : '会自动重试') : ''}`, { tone: 'error', ms: 6000 })
     }
+  },
+
+  keepDraft: () => {
+    const { projectId, projectName, nodes, edges, saveState } = get()
+    if (projectId && (saveState === 'dirty' || saveState === 'saving' || saveState === 'error')) writeDraft(projectId, projectName, toGraph(nodes, edges))
   },
 
   onNodesChange: (c) => {

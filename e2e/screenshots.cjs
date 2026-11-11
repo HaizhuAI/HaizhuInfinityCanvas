@@ -155,7 +155,8 @@ const REVERSED = '### 1. 正向 Prompt\n\n中文：清晨的高山湖泊，三�
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: SCALE, colorScheme: 'dark' })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
-  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })
+  let offline = false // while the server is made unreachable on purpose, the browser logs the failed requests
+  page.on('console', (m) => { if (m.type() === 'error' && !(offline && /Failed to load resource/.test(m.text()))) errors.push('console: ' + m.text()) })
   let n = 0
   const shot = async (name, note) => {
     await page.waitForTimeout(450) // let enter animations and toasts settle
@@ -362,7 +363,30 @@ const REVERSED = '### 1. 正向 Prompt\n\n中文：清晨的高山湖泊，三�
   await shot('landing-features', '首页的功能区（使用真实界面截图）')
   await page.evaluate(() => document.querySelector('.lp').scrollTo(0, 0))
   await page.click('[data-testid="landing-enter"]')
-  await page.waitForSelector('[data-testid="save-state"]')
+  await page.waitForSelector('[data-testid="save-state"]:has-text("已保存")')
+  await page.waitForFunction(() => [...document.querySelectorAll('.react-flow__node img.media')].every((i) => i.complete))
+
+  // 9. redundancy: the server stops answering -> edits are kept in the browser and saved once it is back
+  offline = true
+  await page.route('**/api/projects/*', (route) => (route.request().method() === 'PUT' ? route.abort('connectionrefused') : route.continue()))
+  const nameBox = page.locator('input[aria-label="画布名称"]')
+  const oldName = await nameBox.inputValue()
+  await nameBox.fill(oldName + ' · 第二版')
+  await page.waitForSelector('[data-testid="save-state"]:has-text("保存失败 · 自动重试")')
+  await page.waitForSelector('.toast:has-text("修改已保存在本浏览器")')
+  await shot('save-retry', '服务暂时连不上：修改先存在浏览器里，顶栏显示「保存失败 · 自动重试」，恢复后自动保存')
+  await page.unroute('**/api/projects/*')
+  await page.waitForSelector('[data-testid="save-state"]:has-text("已保存")', { timeout: 20_000 })
+  await page.waitForSelector('.toast:has-text("连接已恢复，修改已保存")')
+  await page.waitForSelector('.toast', { state: 'detached' })
+  offline = false
+  await page.click('[data-testid="open-settings"]')
+  await page.click('.tab:has-text("关于")')
+  await page.click('[data-testid="backup-now"]')
+  await page.waitForSelector('[data-testid="backup-status"]:has-text("最近一次")')
+  await page.waitForSelector('[data-testid="backup-now"]:has-text("立即备份")')
+  await shot('backups', '设置 → 关于：数据库自动备份（每 6 小时、保留 14 份），可立即备份；数据文件损坏时启动会自动恢复')
+  await page.keyboard.press('Escape')
 
   console.log('console/page errors:', errors.length ? errors : 'none')
   assert.equal(errors.length, 0)

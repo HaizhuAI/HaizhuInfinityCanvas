@@ -16,8 +16,9 @@ import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 import { installSecurity } from './security'
+import type { Backups, RecoveryNote } from './backup'
 
-export const APP_VERSION = '1.0.0-rc.8'
+export const APP_VERSION = '1.0.0-rc.9'
 
 export interface AppOptions {
   store: Store
@@ -40,6 +41,10 @@ export interface AppOptions {
   hsts?: boolean
   /** HZC_TRUST_PROXY=1 behind a reverse proxy: take the client address from X-Forwarded-For */
   trustProxy?: boolean
+  /** database backups (absent in tests that don't need them) */
+  backups?: Backups
+  /** set when the database was damaged at startup and restored from a backup */
+  recovery?: RecoveryNote
 }
 
 /** strip internal fields from a profile before sending to clients */
@@ -61,7 +66,20 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   /** environment status for Settings: FFmpeg availability (video reverse / export need it) */
   app.get<{ Querystring: { refresh?: string } }>('/api/system', async (req) => {
     const f = await ffmpegInfo(req.query.refresh === '1')
-    return { version: APP_VERSION, node: process.versions.node, platform: process.platform, maxParallel: engine.maxParallel, ffmpeg: { ok: f.ok, version: f.version, h264: f.h264, aac: f.aac, error: f.error } }
+    const latest = opts.backups?.list()[0]
+    return {
+      version: APP_VERSION, node: process.versions.node, platform: process.platform, maxParallel: engine.maxParallel,
+      ffmpeg: { ok: f.ok, version: f.version, h264: f.h264, aac: f.aac, error: f.error },
+      backups: opts.backups ? { count: opts.backups.list().length, latest: latest?.createdAt, keep: opts.backups.keep, everyHours: opts.backups.intervalMs / 3600_000 } : undefined,
+      recovery: opts.recovery,
+    }
+  })
+
+  // ---- database backups (Settings → 关于 → 数据备份)
+  app.get('/api/backups', async (_req, reply) => (opts.backups ? opts.backups.list() : reply.code(404).send({ error: '未启用备份' })))
+  app.post('/api/backups', async (_req, reply) => {
+    if (!opts.backups) return reply.code(404).send({ error: '未启用备份' })
+    return reply.code(201).send(opts.backups.create(store))
   })
 
   // ---- model profiles

@@ -140,7 +140,9 @@ async function startServer() {
       HZC_WEB_DIR: webDir,
       ...(master.key ? { HZC_MASTER_KEY: master.key } : {}),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // the IPC channel lets the app ask the server to stop cleanly (Windows has no SIGTERM), and lets
+    // the server notice when the app is gone
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   })
   serverProc.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`))
   serverProc.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`))
@@ -174,10 +176,20 @@ function watchServer(proc) {
   })
 }
 
+/** Ask the server to finish its requests and close the database; force it after 8 s. */
 function stopServer() {
   quitting = true
-  if (serverProc && serverProc.exitCode === null) serverProc.kill()
+  const proc = serverProc
   serverProc = null
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return
+  try {
+    if (proc.connected) {
+      proc.send({ type: 'shutdown' })
+      setTimeout(() => { if (proc.exitCode === null && proc.signalCode === null) proc.kill() }, 8000).unref()
+      return
+    }
+  } catch { /* channel already closed */ }
+  proc.kill()
 }
 
 async function createWindow() {
@@ -196,6 +208,9 @@ async function createWindow() {
   mainWindow.webContents.on('will-navigate', (e, url) => { if (leaving(url)) { e.preventDefault(); if (/^https?:\/\//.test(url)) void shell.openExternal(url) } })
   mainWindow.webContents.on('will-redirect', (e, url) => { if (leaving(url)) e.preventDefault() })
   mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
+  // the page asks before closing with unsaved edits (a browser shows a prompt); it has already kept them
+  // for restoring next time, so the app window closes / reloads without a prompt Electron can't show
+  mainWindow.webContents.on('will-prevent-unload', (e) => e.preventDefault())
   // the web app reads ?token=… once, stores it, and strips it from the URL
   await mainWindow.loadURL(`${o}/?token=${token}`)
   if (process.env.HZC_SMOKE === '1') {

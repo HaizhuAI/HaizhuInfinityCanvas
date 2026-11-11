@@ -27,6 +27,16 @@ export interface AssistantRequest {
   canvas: { nodes: { id: string; type: string; label?: string; text?: string }[]; edges: { source: string; sourceHandle?: string; target: string; targetHandle?: string }[] }
 }
 
+export interface BackupInfo { name: string; size: number; createdAt: string }
+export interface SystemInfo {
+  version: string; node: string; platform: string; maxParallel?: number
+  ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string }
+  /** automatic database backups */
+  backups?: { count: number; latest?: string; keep: number; everyHours: number }
+  /** the database was damaged at startup: what was restored */
+  recovery?: { at: string; problem: string; restoredFrom?: string; keptAs?: string }
+}
+
 export interface SavedPrompt { id: string; title: string; text: string; createdAt: string }
 
 export interface ProjectSummary { id: string; name: string; createdAt: string; updatedAt: string; nodeCount?: number; cover?: { assetId: string; mime: string } }
@@ -36,16 +46,26 @@ const TOKEN_KEY = 'hzc.token'
 export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) ?? '' } catch { return '' } }
 export const setToken = (t: string) => { try { localStorage.setItem(TOKEN_KEY, t) } catch { /* ignore */ } }
 
+/** an API call that failed; `status` is 0 when the server could not be reached */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['content-type'] = 'application/json'
   const token = getToken()
   if (token) headers['x-hzc-token'] = token
-  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  let res: Response
+  try {
+    res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  } catch {
+    throw new ApiError('连接不上服务（网络中断或服务未运行）', 0)
+  }
   if (!res.ok) {
     let msg = res.statusText
     try { msg = ((await res.json()) as { error?: string }).error ?? msg } catch { /* ignore */ }
-    throw new Error(`${res.status} ${msg}`)
+    throw new ApiError(`${res.status} ${msg}`, res.status)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
@@ -145,7 +165,9 @@ export const api = {
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
-  system: (refresh = false) => req<{ version: string; node: string; platform: string; maxParallel?: number; ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string } }>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
+  system: (refresh = false) => req<SystemInfo>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
+  backups: () => req<BackupInfo[]>('GET', '/api/backups'),
+  backupNow: () => req<BackupInfo>('POST', '/api/backups'),
   listSkills: () => req<SkillMeta[]>('GET', '/api/skills'),
   importSkill: (content: string, kind?: SkillKind) => req<SkillMeta>('POST', '/api/skills', { content, kind }),
   importSkillUrl: (url: string, kind?: SkillKind) => req<SkillMeta>('POST', '/api/skills/import-url', { url, kind }),

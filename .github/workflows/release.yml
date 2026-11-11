@@ -130,10 +130,33 @@ jobs:
         run: docker build -t haizhu-infinity-canvas:ci .
       - name: Smoke test image (non-loopback bind requires a token)
         run: |
-          docker run -d --name hzc -e HZC_TOKEN=ci-token -p 8787:8787 haizhu-infinity-canvas:ci
+          # run hardened the way docker-compose.yml does: read-only root, no capabilities, no privilege gain
+          docker run -d --name hzc --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -v hzc-ci-data:/data -e HZC_TOKEN=ci-token-0123456789abcdef -e HZC_BLOCK_PRIVATE_NETWORK=1 -p 8787:8787 haizhu-infinity-canvas:ci
           for i in $(seq 1 30); do curl -sf localhost:8787/api/health && break; sleep 1; done
           curl -sf localhost:8787/api/health
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8787/api/profiles)" = 401
-          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-hzc-token: ci-token' localhost:8787/api/profiles)" = 200
-          # without a token the container must refuse to start
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-hzc-token: wrong' localhost:8787/api/profiles)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8787/api/profiles)" = 200
+          # security headers on the page; requests from another site are refused even with the token
+          curl -sI localhost:8787/ | tee /tmp/headers.txt
+          grep -qi '^content-security-policy:' /tmp/headers.txt
+          grep -qi '^x-frame-options: DENY' /tmp/headers.txt
+          grep -qi '^x-content-type-options: nosniff' /tmp/headers.txt
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'x-hzc-token: ci-token-0123456789abcdef' -H 'origin: https://evil.example' -H 'content-type: application/json' -d '{}' localhost:8787/api/projects)" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'x-hzc-token: ci-token-0123456789abcdef' -H 'content-type: application/json' -d '{"name":"ci"}' localhost:8787/api/projects)" = 201
+          # redundancy: a startup backup exists, a manual one works, and `docker stop` shuts down cleanly
+          curl -sf -X POST -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8787/api/backups
+          test "$(curl -s -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8787/api/backups | grep -o '"name"' | wc -l)" -ge 2
+          docker stop -t 20 hzc
+          docker logs hzc 2>&1 | tail -5
+          docker logs hzc 2>&1 | grep -q 'shutting down (SIGTERM)'
+          test "$(docker inspect -f '{{.State.ExitCode}}' hzc)" = 0
+          # the data survives a restart
+          docker start hzc
+          for i in $(seq 1 30); do curl -sf localhost:8787/api/health >/dev/null && break; sleep 1; done
+          curl -s -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8787/api/projects | grep -q '"name":"ci"'
+          # without a token, or with a weak / example one, the container must refuse to start
           ! docker run --rm haizhu-infinity-canvas:ci
+          ! docker run --rm -e HZC_TOKEN=short haizhu-infinity-canvas:ci
+          ! docker run --rm -e HZC_TOKEN=change-me-to-a-long-random-string haizhu-infinity-canvas:ci

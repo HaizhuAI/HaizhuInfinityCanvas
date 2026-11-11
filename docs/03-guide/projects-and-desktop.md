@@ -30,7 +30,7 @@
 ## WebUI / Docker 部署
 
 ```bash
-cp .env.example .env     # 设置 HZC_TOKEN（必填，非回环地址监听时没有令牌会拒绝启动）
+cp .env.example .env     # 设置 HZC_TOKEN（必填，至少 16 个随机字符；没有令牌或令牌太弱时拒绝启动）
 docker compose up -d --build
 ```
 
@@ -42,7 +42,34 @@ docker compose up -d --build
 | `HZC_MASTER_KEY` | 可选：64 位十六进制的加密密钥（例如来自密钥管理服务）。设置后不再读写 `master.key` 文件；更换它会使已保存的 API Key 无法解密 |
 | `HZC_FFMPEG` / `HZC_FFPROBE` | 可选：FFmpeg 可执行文件路径 |
 
-访问令牌只在请求头里有效；素材和项目包的下载链接可以带 `?t=令牌`（因为 `<img>`、`<video>` 和下载链接无法发送请求头），其余接口不接受网址里的令牌。
+| `HZC_ALLOWED_HOSTS` | 用域名访问时填写（逗号分隔，如 `canvas.example.com`）。没有令牌时只接受 localhost / 127.0.0.1；有令牌且填写了它，则只接受这些域名 |
+| `HZC_BLOCK_PRIVATE_NETWORK` | `1`：模型接口与结果链接不能指向本机或内网地址（公网 / 多人部署请开启；`docker-compose.yml` 默认开启）。模型跑在本机或局域网（Ollama 等）时设为 `0` |
+| `HZC_TRUST_PROXY` | `1`：前面有反向代理时，用 `X-Forwarded-For` 识别访问者地址（错误次数锁定按访问者计算）。没有代理时不要开启，否则访问者可以伪造地址 |
+| `HZC_HSTS` | `1`：通过 HTTPS 访问时让浏览器以后只用 HTTPS |
+| `HZC_BACKUP_HOURS` / `HZC_BACKUP_KEEP` | 数据库自动备份的间隔（小时，默认 6）与保留份数（默认 14） |
+| `HZC_MAX_PARALLEL` | 同时运行的模型调用数（1–8，默认 4） |
+
+访问令牌只在请求头里有效；素材和项目包的下载链接可以带 `?t=令牌`（因为 `<img>`、`<video>` 和下载链接无法发送请求头），其余接口不接受网址里的令牌。同一地址 10 分钟内令牌错误 10 次会被锁定 10 分钟。
+
+### 安全部署清单
+
+放到公网或给多人使用时：
+
+1. **令牌**：`HZC_TOKEN` 用足够长的随机字符串（例如 `openssl rand -hex 24`），不要复用其他密码。
+2. **HTTPS**：在前面放反向代理（Caddy、Nginx 等）终结 HTTPS，容器端口只绑定本机（`127.0.0.1:8787:8787`）；然后设置 `HZC_ALLOWED_HOSTS=你的域名`、`HZC_TRUST_PROXY=1`、`HZC_HSTS=1`。
+3. **内网隔离**：保持 `HZC_BLOCK_PRIVATE_NETWORK=1`，服务器就不会替别人访问云主机元数据或你的内网。
+4. **容器**：用仓库里的 `docker-compose.yml`——非 root 用户、只读根文件系统、去掉全部 capabilities、禁止提权、健康检查、异常退出自动重启。
+5. **备份**：数据卷里的 `backups/` 是自动备份；再定期把整个数据卷（含 `master.key`，否则备份里的 API Key 无法解密）复制到另一台机器或对象存储，防止整块磁盘损坏。
+6. **更新**：关注 CHANGELOG 的 Security 一节，及时更新镜像。
+
+服务已经内置的保护：拒绝来自其他网站的修改请求（跨站请求伪造）、拒绝冒充本机的域名（DNS 重绑定）、内容安全策略与禁止嵌入、素材文件沙箱、令牌恒定时间比较与错误锁定、出站请求地址检查（含每次跳转）、压缩炸弹限制、内部错误不外泄。
+
+### 数据备份与恢复
+
+- **自动备份**：数据目录下 `backups/hzc-<时间>.sqlite`，启动时（距上次超过间隔）与每 6 小时一次，保留 14 份；「设置 → 关于」可以立即备份。备份包含画布、模型档案（API Key 仍是加密的）与生成记录；素材文件本身在 `assets/` 里，不重复备份。
+- **自动恢复**：启动时如果数据文件损坏，会改名为 `hzc.sqlite.damaged-<时间>` 保留，换上最近一份完好的备份，并在界面提示。
+- **手动恢复**：停止服务（`docker compose stop` 或退出桌面版），把 `hzc.sqlite` 改名备用、删除旁边的 `hzc.sqlite-wal` / `hzc.sqlite-shm`，把想要的备份复制为 `hzc.sqlite`，再启动。
+- **未保存的修改**：服务暂时连不上时，修改保存在浏览器里并自动重试；刷新或下次打开该画布时会提示恢复。
 
 ## 隐私与网络
 

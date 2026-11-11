@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Store } from './db'
+import { writeAtomic } from './fsutil'
 
 /** Accepted upload types. Video/audio arrive with later betas but are already storable. */
 export const MIME_EXT: Record<string, string> = {
@@ -55,7 +56,8 @@ export class AssetStore {
     if (mime.startsWith('image/') && !sniffImage(bytes, mime)) throw new Error('file content does not match its image type')
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const file = join(this.dir, `${sha256}.${ext}`)
-    if (!existsSync(file)) writeFileSync(file, bytes)
+    // a file left half-written by a crash (older versions wrote in place) has the wrong size: rewrite it
+    if (!existsSync(file) || statSync(file).size !== bytes.length) writeAtomic(file, bytes)
     return { sha256, mime }
   }
 

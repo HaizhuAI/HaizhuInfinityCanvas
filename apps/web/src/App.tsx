@@ -27,7 +27,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.8'
+export const APP_VERSION = 'v1.0.0-rc.9'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -242,9 +242,10 @@ function RunProgress() {
 
 function SaveIndicator() {
   const state = useStore((s) => s.saveState)
-  const label = { idle: '', dirty: '未保存', saving: '保存中…', saved: '已保存', error: '保存失败' }[state]
+  const blocked = useStore((s) => s.saveBlocked)
+  const label = { idle: '', dirty: '未保存', saving: '保存中…', saved: '已保存', error: blocked ? '保存失败' : '保存失败 · 自动重试' }[state]
   return (
-    <span className={`save ${state}`} data-testid="save-state" role="status">
+    <span className={`save ${state}`} data-testid="save-state" role="status" title={state === 'error' ? '修改已保存在本浏览器；服务恢复后会自动保存' : undefined}>
       {state === 'saving' && <LoaderCircle className="spin" aria-hidden="true" />}
       {state === 'saved' && <CloudCheck aria-hidden="true" />}
       {state === 'error' && <TriangleExclamationPoint aria-hidden="true" />}
@@ -445,16 +446,39 @@ function ProjectWorkspace({ inspector, setInspector }: { inspector: boolean; set
   )
 }
 
-/** save 0.8 s after the last edit (subscribes outside React: edits must not re-render the app) */
+/** pauses between automatic save retries after failures (then every 60 s) */
+const SAVE_RETRY_S = [2, 5, 10, 20, 30, 60]
+
+/**
+ * Save 0.8 s after the last edit (subscribes outside React: edits must not re-render the app).
+ * A failed save is retried with growing pauses, and at once when the network comes back; until one
+ * succeeds the canvas is also kept in this browser (see draft.ts). Closing the page with unsaved
+ * edits keeps them too, and asks first.
+ */
 function useAutosave() {
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | undefined
     const unsub = useStore.subscribe((st, prev) => {
       if (st.saveState === prev.saveState && st.nodes === prev.nodes && st.edges === prev.edges && st.projectName === prev.projectName) return
+      if (st.saveState === 'error' && prev.saveState === 'error') return // already scheduled
       clearTimeout(t)
       if (st.saveState === 'dirty') t = setTimeout(() => void useStore.getState().save(), 800)
+      else if (st.saveState === 'error' && !st.saveBlocked) {
+        const wait = SAVE_RETRY_S[Math.min(st.saveFailures, SAVE_RETRY_S.length) - 1] ?? 60
+        t = setTimeout(() => { if (useStore.getState().saveState === 'error') void useStore.getState().save() }, wait * 1000)
+      }
     })
-    return () => { clearTimeout(t); unsub() }
+    const online = () => { const st = useStore.getState(); if (st.saveState === 'error' && !st.saveBlocked) { clearTimeout(t); void st.save() } }
+    const leaving = (e: BeforeUnloadEvent) => {
+      const st = useStore.getState()
+      if (st.saveState !== 'dirty' && st.saveState !== 'saving' && st.saveState !== 'error') return
+      st.keepDraft()
+      e.preventDefault()
+      e.returnValue = '' // older browsers need this to ask
+    }
+    window.addEventListener('online', online)
+    window.addEventListener('beforeunload', leaving)
+    return () => { clearTimeout(t); unsub(); window.removeEventListener('online', online); window.removeEventListener('beforeunload', leaving) }
   }, [])
 }
 

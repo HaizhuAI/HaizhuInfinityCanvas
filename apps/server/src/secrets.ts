@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, chmodSync } from 'node:fs'
+import { writeAtomic } from './fsutil'
 import { dirname } from 'node:path'
 
 /** A stored secret cannot be decrypted (the master key changed). The message is shown to the user. */
@@ -24,7 +25,8 @@ export class SecretBox {
     } else {
       mkdirSync(dirname(keyPath), { recursive: true })
       this.key = randomBytes(32)
-      writeFileSync(keyPath, this.key.toString('hex'), { mode: 0o600 })
+      // atomic: a crash while creating it must not leave an empty key that locks every stored API key away
+      writeAtomic(keyPath, this.key.toString('hex'), 0o600)
       try { chmodSync(keyPath, 0o600) } catch { /* best effort on Windows */ }
     }
   }
