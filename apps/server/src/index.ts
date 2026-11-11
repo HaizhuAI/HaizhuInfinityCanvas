@@ -31,7 +31,9 @@ const builtinSkills = process.env.HZC_SKILLS_DIR ?? [resolve(here, 'skills'), re
 const skills = new SkillStore(builtinSkills, dataDir)
 // HZC_MAX_PARALLEL: how many model calls may run at once (1–8, default 4; 1 = one node at a time)
 const engine = new Engine(store, assets, { skills, maxParallel: process.env.HZC_MAX_PARALLEL ? Number(process.env.HZC_MAX_PARALLEL) : undefined })
-const app = await buildApp({ store, assets, engine, skills, webDir, accessToken })
+// security settings for WebUI deployments (see docs/03-guide/projects-and-desktop.md)
+const allowedHosts = (process.env.HZC_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean)
+const app = await buildApp({ store, assets, engine, skills, webDir, accessToken, allowedHosts, hsts: process.env.HZC_HSTS === '1', trustProxy: process.env.HZC_TRUST_PROXY === '1' })
 
 await app.listen({ port, host })
 console.log(`[hzc] Haizhu Infinity Canvas listening on http://${host}:${port}  (data: ${dataDir})`)

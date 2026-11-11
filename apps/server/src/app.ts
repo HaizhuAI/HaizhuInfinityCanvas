@@ -15,6 +15,7 @@ import { chatAdapterFor, ProviderError } from './providers'
 import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
+import { installSecurity } from './security'
 
 export const APP_VERSION = '1.0.0-rc.8'
 
@@ -33,6 +34,12 @@ export interface AppOptions {
    * <img>/<video> tags and plain download links cannot send headers.
    */
   accessToken?: string
+  /** host names besides loopback this server may be reached by (HZC_ALLOWED_HOSTS) */
+  allowedHosts?: string[]
+  /** HZC_HSTS=1 behind HTTPS */
+  hsts?: boolean
+  /** HZC_TRUST_PROXY=1 behind a reverse proxy: take the client address from X-Forwarded-For */
+  trustProxy?: boolean
 }
 
 /** strip internal fields from a profile before sending to clients */
@@ -43,20 +50,11 @@ function publicProfile<T extends { secretRef: string }>(p: T): Omit<T, 'secretRe
 
 /** project bundles are read into memory; keep well under what a desktop machine can hold */
 export const BUNDLE_LIMIT = 2 * 1024 ** 3
-const TOKEN_IN_QUERY = /^\/api\/(assets\/[^/?]+|projects\/[^/?]+\/bundle)(\?|$)/
 
 export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   const { store, assets, engine, skills } = opts
-  const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 })
-
-  if (opts.accessToken) {
-    app.addHook('onRequest', async (req, reply) => {
-      if (!req.url.startsWith('/api/') || req.url === '/api/health') return
-      if (req.headers['x-hzc-token'] === opts.accessToken) return
-      if (req.method === 'GET' && TOKEN_IN_QUERY.test(req.url) && (req.query as { t?: string })?.t === opts.accessToken) return
-      return reply.code(401).send({ error: 'unauthorized' })
-    })
-  }
+  const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024, trustProxy: !!opts.trustProxy })
+  installSecurity(app, { accessToken: opts.accessToken, allowedHosts: opts.allowedHosts, hsts: opts.hsts })
 
   app.get('/api/health', async () => ({ ok: true, name: 'haizhu-infinity-canvas', version: APP_VERSION }))
 

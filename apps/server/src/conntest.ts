@@ -1,3 +1,4 @@
+import { checkUrl } from './netguard'
 import type { AdapterId } from '@hzc/core'
 
 /**
@@ -17,6 +18,7 @@ const DEFAULT_ENDPOINT: Partial<Record<AdapterId, string>> = {
 }
 
 async function getJson(url: string, apiKey: string | undefined, signal?: AbortSignal): Promise<{ status: number; json: unknown; text: string }> {
+  await checkUrl(url) // NetGuardError is explained like any other connection failure
   const res = await fetch(url, {
     headers: apiKey ? { authorization: `Bearer ${apiKey}`, accept: 'application/json' } : { accept: 'application/json' },
     redirect: 'error',

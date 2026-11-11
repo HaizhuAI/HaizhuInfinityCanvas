@@ -3,6 +3,8 @@ import type { ModelProfile } from '@hzc/core'
 import { MIME_ALIAS, MIME_EXT, type AssetStore } from './assets'
 import type { JobRow, Store } from './db'
 import { ProviderError } from './providers'
+import { checkUrl, guardedGet, NetGuardError } from './netguard'
+import { attempts, retryDelay, retryError, retryStatus, sleepFor, type RetryPolicy } from './retry'
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -24,19 +26,30 @@ function sameOrigin(url: string | undefined, baseUrl: string): string | undefine
   try { return new URL(url).origin === new URL(baseUrl).origin ? url : undefined } catch { return undefined }
 }
 
-async function call(url: string, init: RequestInit & { apiKey?: string }, signal: AbortSignal): Promise<{ status: number; json: any; text: string }> {
-  let res: Response
-  try {
-    res = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]) })
-  } catch (e) {
-    if (signal.aborted) throw e
-    const err = e as Error & { cause?: { code?: string } }
-    throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? '超时' : (err.cause?.code ?? err.message)}`)
+/**
+ * One provider request: checked against the outbound guard, retried per `retry` (see retry.ts):
+ * reads are retried on transient failures; starting a paid generation only when it surely was not
+ * processed.
+ */
+async function call(url: string, init: RequestInit & { apiKey?: string }, signal: AbortSignal, retry: RetryPolicy = 'none'): Promise<{ status: number; json: any; text: string }> {
+  try { await checkUrl(url) } catch (e) { throw new ProviderError((e as Error).message) }
+  const tries = attempts(retry)
+  for (let attempt = 0; ; attempt++) {
+    let res: Response
+    try {
+      res = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]) })
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (attempt + 1 < tries && retryError(retry, e)) { await sleepFor(retryDelay(attempt), signal); continue }
+      const err = e as Error & { cause?: { code?: string } }
+      throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? '超时' : (err.cause?.code ?? err.message)}`)
+    }
+    if (attempt + 1 < tries && retryStatus(retry, res.status)) { await res.text().catch(() => ''); await sleepFor(retryDelay(attempt, res.headers.get('retry-after')), signal); continue }
+    const text = await res.text()
+    let json: any
+    try { json = text ? JSON.parse(text) : {} } catch { json = undefined }
+    return { status: res.status, json, text: init.apiKey ? text.split(init.apiKey).join('***') : text }
   }
-  const text = await res.text()
-  let json: any
-  try { json = text ? JSON.parse(text) : {} } catch { json = undefined }
-  return { status: res.status, json, text: init.apiKey ? text.split(init.apiKey).join('***') : text }
 }
 
 function fail(status: number, text: string): never {
@@ -56,7 +69,13 @@ export function extractMediaUrls(output: unknown): string[] {
 }
 
 /** Download a provider result into the local asset store (provider URLs expire). */
-export async function downloadToAsset(url: string, assets: AssetStore, want: 'image' | 'video' | 'audio', signal: AbortSignal) {
+/**
+ * Download a generated result into the asset store. The URL comes from the provider, so it goes
+ * through the outbound guard (every connection and redirect); private addresses only when the model
+ * itself is on the local network (`allowPrivate`). Retried on network errors and 5xx / 429 — the result
+ * is already paid for, losing it to a blip would mean paying again.
+ */
+export async function downloadToAsset(url: string, assets: AssetStore, want: 'image' | 'video' | 'audio', signal: AbortSignal, opts: { allowPrivate?: boolean } = {}) {
   if (url.startsWith('data:')) {
     const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(url)
     if (!m) throw new ProviderError('无法解析模型返回的 data URL')
@@ -64,19 +83,23 @@ export async function downloadToAsset(url: string, assets: AssetStore, want: 'im
     return assets.put(bytes, m[1]!.toLowerCase(), `generated.${MIME_EXT[m[1]!.toLowerCase()] ?? 'bin'}`)
   }
   if (!/^https?:\/\//i.test(url)) throw new ProviderError('模型返回了不支持的结果地址')
-  let res: Response
-  try {
-    res = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(10 * 60_000)]) })
-  } catch (e) {
-    if (signal.aborted) throw e
-    throw new ProviderError(`下载生成结果失败：${(e as Error).message}`)
+  const tries = attempts('idempotent')
+  let res: Awaited<ReturnType<typeof guardedGet>> | undefined
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await guardedGet(url, { signal, maxBytes: MAX_DOWNLOAD, allowPrivate: !!opts.allowPrivate })
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (e instanceof NetGuardError) throw new ProviderError(`结果地址被拒绝：${e.message}`)
+      if (attempt + 1 < tries && retryError('idempotent', e)) { await sleepFor(retryDelay(attempt), signal); continue }
+      throw new ProviderError(`下载生成结果失败：${(e as Error).message}`)
+    }
+    if (attempt + 1 < tries && retryStatus('idempotent', res.status)) { await sleepFor(retryDelay(attempt, res.headers['retry-after']), signal); continue }
+    break
   }
-  if (!res.ok) throw new ProviderError(`下载生成结果失败：HTTP ${res.status}`)
-  const declared = Number(res.headers.get('content-length') ?? 0)
-  if (declared > MAX_DOWNLOAD) throw new ProviderError('生成结果超过大小上限')
-  const buf = Buffer.from(await res.arrayBuffer())
-  if (buf.length > MAX_DOWNLOAD) throw new ProviderError('生成结果超过大小上限')
-  let mime = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+  if (res.status < 200 || res.status >= 300) throw new ProviderError(`下载生成结果失败：HTTP ${res.status}`)
+  const buf = res.body
+  let mime = (res.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase()
   mime = MIME_ALIAS[mime] ?? mime
   if (!MIME_EXT[mime]) {
     const ext = new URL(url).pathname.split('.').pop()?.toLowerCase() ?? ''
@@ -99,7 +122,7 @@ export async function openaiImages(profile: ModelProfile, apiKey: string | undef
     method: 'POST', apiKey,
     headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
     body: JSON.stringify(body),
-  }, req.signal)
+  }, req.signal, 'paid')
   if (r.status < 200 || r.status >= 300) fail(r.status, r.text)
   const data = (r.json?.data ?? []) as { b64_json?: string; url?: string }[]
   const urls = data.map((d) => (d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url)).filter((u): u is string => !!u)
@@ -128,18 +151,24 @@ export async function openaiSpeech(
   if (fmt === 'pcm') throw new ProviderError('response_format=pcm 是无封装的原始音频，无法直接播放，请改用 mp3 / wav / flac')
   const b = profile.endpoint.replace(/\/+$/, '')
   const url = b.endsWith('/audio/speech') ? b : `${b}/audio/speech`
-  let res: Response
-  try {
-    res = await fetch(url, {
-      method: 'POST', redirect: 'error',
-      headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
-      body: JSON.stringify(body),
-      signal: AbortSignal.any([req.signal, AbortSignal.timeout(180_000)]),
-    })
-  } catch (e) {
-    if (req.signal.aborted) throw e
-    const err = e as Error & { cause?: { code?: string } }
-    throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? '超时' : (err.cause?.code ?? err.message)}`)
+  try { await checkUrl(url) } catch (e) { throw new ProviderError((e as Error).message) }
+  let res!: Response
+  for (let attempt = 0, tries = attempts('paid'); ; attempt++) {
+    try {
+      res = await fetch(url, {
+        method: 'POST', redirect: 'error',
+        headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+        body: JSON.stringify(body),
+        signal: AbortSignal.any([req.signal, AbortSignal.timeout(180_000)]),
+      })
+    } catch (e) {
+      if (req.signal.aborted) throw e
+      if (attempt + 1 < tries && retryError('paid', e)) { await sleepFor(retryDelay(attempt), req.signal); continue }
+      const err = e as Error & { cause?: { code?: string } }
+      throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? '超时' : (err.cause?.code ?? err.message)}`)
+    }
+    if (attempt + 1 < tries && retryStatus('paid', res.status)) { await res.text().catch(() => ''); await sleepFor(retryDelay(attempt, res.headers.get('retry-after')), req.signal); continue }
+    break
   }
   if (!res.ok) {
     const t = await res.text()
@@ -182,13 +211,13 @@ export const replicate: AsyncProvider = {
     const [ref, version] = profile.model.split(':')
     const url = version ? `${b}/predictions` : `${b}/models/${ref!.split('/').map(encodeURIComponent).join('/')}/predictions`
     const body = version ? { version, input } : { input }
-    const r = await call(url, { method: 'POST', apiKey, headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify(body) }, signal)
+    const r = await call(url, { method: 'POST', apiKey, headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }, body: JSON.stringify(body) }, signal, 'paid')
     if (r.status < 200 || r.status >= 300 || !r.json?.id) fail(r.status, r.text)
     return { remoteId: String(r.json.id) }
   },
   async poll(profile, apiKey, job, signal) {
     const b = base(profile, 'https://api.replicate.com/v1')
-    const r = await call(`${b}/predictions/${encodeURIComponent(job.remoteId)}`, { apiKey, headers: { authorization: `Bearer ${apiKey}` } }, signal)
+    const r = await call(`${b}/predictions/${encodeURIComponent(job.remoteId)}`, { apiKey, headers: { authorization: `Bearer ${apiKey}` } }, signal, 'idempotent')
     if (r.status < 200 || r.status >= 300) fail(r.status, r.text)
     const st = String(r.json?.status ?? '')
     if (st === 'succeeded') return { state: 'succeeded', output: r.json.output }
@@ -208,7 +237,7 @@ export const fal: AsyncProvider = {
     const b = base(profile, 'https://queue.fal.run')
     const r = await call(`${b}/${profile.model.split('/').map(encodeURIComponent).join('/')}`, {
       method: 'POST', apiKey, headers: { 'content-type': 'application/json', authorization: `Key ${apiKey}` }, body: JSON.stringify(input),
-    }, signal)
+    }, signal, 'paid')
     if (r.status < 200 || r.status >= 300 || !r.json?.request_id) fail(r.status, r.text)
     // only follow URLs on the configured host so the key is never sent elsewhere
     return {
@@ -222,12 +251,12 @@ export const fal: AsyncProvider = {
     const b = base(profile, 'https://queue.fal.run')
     const reqBase = `${b}/${profile.model.split('/').map(encodeURIComponent).join('/')}/requests/${encodeURIComponent(job.remoteId)}`
     const headers = { authorization: `Key ${apiKey}` }
-    const s = await call(job.pollUrl ?? `${reqBase}/status`, { apiKey, headers }, signal)
+    const s = await call(job.pollUrl ?? `${reqBase}/status`, { apiKey, headers }, signal, 'idempotent')
     if (s.status < 200 || s.status >= 300) fail(s.status, s.text)
     const st = String(s.json?.status ?? '')
     if (st === 'IN_QUEUE') return { state: 'queued', progress: typeof s.json?.queue_position === 'number' ? `排队中（第 ${s.json.queue_position + 1} 位）` : undefined }
     if (st !== 'COMPLETED') return { state: 'running' }
-    const r = await call(job.resultUrl ?? reqBase, { apiKey, headers }, signal)
+    const r = await call(job.resultUrl ?? reqBase, { apiKey, headers }, signal, 'idempotent')
     if (r.status < 200 || r.status >= 300) return { state: 'failed', error: `fal 返回 ${r.status}：${r.text.slice(0, 400)}` }
     if (!extractMediaUrls(r.json).length && r.json?.detail) return { state: 'failed', error: JSON.stringify(r.json.detail).slice(0, 400) }
     return { state: 'succeeded', output: r.json }
@@ -256,6 +285,9 @@ export interface JobCtx {
   pollDelays?: number[]
 }
 
+/** polls in a row that may fail before the run reports the job as lost (it can still be resumed) */
+const MAX_POLL_FAILURES = 5
+
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
   const t = setTimeout(resolve, ms)
   signal.addEventListener('abort', () => { clearTimeout(t); reject(signal.reason ?? new Error('aborted')) }, { once: true })
@@ -272,6 +304,9 @@ export async function runJob(
 ): Promise<unknown> {
   let job: (Submitted & { id: string }) | undefined
   const existing: JobRow | undefined = ctx.force ? undefined : ctx.store.findActiveJob(ctx.projectId, ctx.nodeId, ctx.cacheKey)
+  // finished and paid for, but its results never made it here (download failed, app stopped): use it
+  const finished = ctx.force || existing ? undefined : ctx.store.takeFinishedJob(ctx.projectId, ctx.nodeId, ctx.cacheKey)
+  if (finished) { ctx.report('使用已完成的任务结果…'); return finished.output }
   if (existing) {
     job = { id: existing.id, remoteId: existing.remoteId, pollUrl: existing.pollUrl, resultUrl: existing.resultUrl, cancelUrl: existing.cancelUrl }
     ctx.report('恢复进行中的任务…')
@@ -285,10 +320,21 @@ export async function runJob(
   const started = Date.now()
   const delays = ctx.pollDelays ?? [1500, 2000, 3000, 4000, 5000]
   let i = 0
+  let fails = 0 // consecutive polls that failed (each already retried a few times)
   try {
     for (;;) {
-      const r = await provider.poll(profile, apiKey, job, ctx.signal)
-      if (r.state === 'succeeded') { ctx.store.updateJob(job.id, { status: 'succeeded' }); return r.output }
+      let r: PollResult
+      try {
+        r = await provider.poll(profile, apiKey, job, ctx.signal)
+        fails = 0
+      } catch (e) {
+        // the job keeps running at the provider: a shaky connection is no reason to give it up
+        if (ctx.signal.aborted || !(e instanceof ProviderError) || ++fails >= MAX_POLL_FAILURES) throw e
+        ctx.report(`连接服务商不稳定，继续等待（${fails}/${MAX_POLL_FAILURES}）…`)
+        await sleep(delays[Math.min(i++, delays.length - 1)]! * 2, ctx.signal)
+        continue
+      }
+      if (r.state === 'succeeded') { ctx.store.updateJob(job.id, { status: 'succeeded', output: r.output }); return r.output }
       if (r.state === 'failed') { ctx.store.updateJob(job.id, { status: 'failed', error: r.error }); throw new ProviderError(`生成失败：${r.error}`) }
       ctx.store.updateJob(job.id, { status: 'running' })
       const secs = Math.round((Date.now() - started) / 1000)

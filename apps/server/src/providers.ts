@@ -1,4 +1,6 @@
 import type { AdapterId, ModelProfile } from '@hzc/core'
+import { checkUrl } from './netguard'
+import { attempts, retryDelay, retryError, retryStatus, sleepFor } from './retry'
 
 export interface ChatImage { mime: string; base64: string }
 
@@ -31,27 +33,34 @@ function pickDefaults(d: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(d ?? {}).filter(([k]) => !RESERVED.has(k) && !k.startsWith('_')))
 }
 
+/** Chat calls: checked against the outbound guard, retried on transient failures (a chat is cheap and has no side effects). */
 async function postJson(url: string, body: unknown, headers: Record<string, string>, signal: AbortSignal, apiKey?: string) {
-  let res: Response
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-      redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
-    })
-  } catch (e) {
-    if (signal.aborted) throw e
-    const err = e as Error & { cause?: { code?: string } }
-    throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? `超时（${TIMEOUT_MS / 1000}s）` : (err.cause?.code ?? err.message)}`)
+  try { await checkUrl(url) } catch (e) { throw new ProviderError((e as Error).message) }
+  const tries = attempts('idempotent')
+  for (let attempt = 0; ; attempt++) {
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        redirect: 'error',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
+      })
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (attempt + 1 < tries && retryError('idempotent', e)) { await sleepFor(retryDelay(attempt), signal); continue }
+      const err = e as Error & { cause?: { code?: string } }
+      throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? `超时（${TIMEOUT_MS / 1000}s）` : (err.cause?.code ?? err.message)}`)
+    }
+    const text = await res.text()
+    if (!res.ok) {
+      if (attempt + 1 < tries && retryStatus('idempotent', res.status)) { await sleepFor(retryDelay(attempt, res.headers.get('retry-after')), signal); continue }
+      const safe = (apiKey ? text.split(apiKey).join('***') : text).slice(0, 500)
+      throw new ProviderError(`模型服务返回 ${res.status}${attempt ? `（已重试 ${attempt} 次）` : ''}：${safe}`)
+    }
+    try { return JSON.parse(text) as unknown } catch { throw new ProviderError('模型服务返回了非 JSON 内容') }
   }
-  const text = await res.text()
-  if (!res.ok) {
-    const safe = (apiKey ? text.split(apiKey).join('***') : text).slice(0, 500)
-    throw new ProviderError(`模型服务返回 ${res.status}：${safe}`)
-  }
-  try { return JSON.parse(text) as unknown } catch { throw new ProviderError('模型服务返回了非 JSON 内容') }
 }
 
 /** OpenAI-compatible Chat Completions (OpenAI, DeepSeek, Qwen/DashScope compat, OpenRouter, vLLM, LM Studio …). */

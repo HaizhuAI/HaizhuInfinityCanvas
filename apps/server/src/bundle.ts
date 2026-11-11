@@ -58,7 +58,9 @@ export function planBundle(store: Store, assets: AssetStore, projectId: string, 
 
 /** Creates a new project from a bundle. Unsupported or missing files are counted, not fatal. */
 export function importBundle(store: Store, assets: AssetStore, buf: Buffer) {
-  const files = new Map(readZip(buf).map((e) => [e.name, e.data]))
+  // our bundles store files uncompressed; a crafted zip must not expand far beyond its own size
+  const maxTotal = Math.min(4 * 1024 ** 3, buf.length * 2 + 256 * 1024 * 1024)
+  const files = new Map(readZip(buf, { maxEntries: 20_000, maxTotal }).map((e) => [e.name, e.data]))
   const raw = files.get('project.json')
   if (!raw) throw new BundleError('不是 Haizhu 项目包（缺少 project.json）')
   let m: Partial<Manifest>

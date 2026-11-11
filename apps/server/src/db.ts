@@ -38,7 +38,8 @@ export interface JobRow {
   pollUrl?: string
   resultUrl?: string
   cancelUrl?: string
-  status: 'submitted' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  /** consumed: a finished job whose results were downloaded (or handed out once for a retry) */
+  status: 'submitted' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'consumed'
   error?: string
   createdAt: string
   updatedAt: string
@@ -61,6 +62,8 @@ export class Store {
     this.db = new DatabaseSync(path)
     this.db.exec(`
       PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS profiles (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, adapter TEXT NOT NULL,
         endpoint TEXT NOT NULL, model TEXT NOT NULL, defaults TEXT NOT NULL,
@@ -97,6 +100,8 @@ export class Store {
     // migrations for databases created by earlier betas
     const cols = (this.db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]).map((c) => c.name)
     if (!cols.includes('cost')) this.db.exec('ALTER TABLE profiles ADD COLUMN cost TEXT')
+    const jobCols = (this.db.prepare('PRAGMA table_info(jobs)').all() as { name: string }[]).map((c) => c.name)
+    if (!jobCols.includes('output')) this.db.exec('ALTER TABLE jobs ADD COLUMN output TEXT')
   }
 
   // ---------- provider jobs (long-running remote generations; survive restarts, never double-submitted)
@@ -109,13 +114,33 @@ export class Store {
 
   insertJob(j: Omit<JobRow, 'createdAt' | 'updatedAt' | 'error'>) {
     const now = new Date().toISOString()
-    this.db.prepare('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    this.db.prepare('INSERT INTO jobs (id, project_id, node_id, cache_key, adapter, remote_id, poll_url, result_url, cancel_url, status, error, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
       j.id, j.projectId, j.nodeId, j.cacheKey, j.adapter, j.remoteId, j.pollUrl ?? null, j.resultUrl ?? null, j.cancelUrl ?? null, j.status, null, now, now,
     )
   }
 
-  updateJob(id: string, patch: { status: JobRow['status']; error?: string }) {
+  updateJob(id: string, patch: { status: JobRow['status']; error?: string; output?: unknown }) {
+    if (patch.output !== undefined) this.db.prepare('UPDATE jobs SET output = ? WHERE id = ?').run(JSON.stringify(patch.output), id)
     this.db.prepare('UPDATE jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?').run(patch.status, patch.error ?? null, new Date().toISOString(), id)
+  }
+
+  /**
+   * A job that finished (and was paid for) but whose results were never downloaded — the download
+   * failed or the app stopped. Handed out once, so a retry uses it instead of generating again.
+   */
+  takeFinishedJob(projectId: string, nodeId: string, cacheKey: string, maxAgeMs = 2 * 3600_000): { id: string; output: unknown } | undefined {
+    const since = new Date(Date.now() - maxAgeMs).toISOString()
+    const r = this.db.prepare(
+      "SELECT id, output FROM jobs WHERE project_id = ? AND node_id = ? AND cache_key = ? AND status = 'succeeded' AND output IS NOT NULL AND updated_at >= ? ORDER BY updated_at DESC LIMIT 1",
+    ).get(projectId, nodeId, cacheKey, since) as { id: string; output: string } | undefined
+    if (!r) return undefined
+    this.updateJob(r.id, { status: 'consumed' })
+    try { return { id: r.id, output: JSON.parse(r.output) } } catch { return undefined }
+  }
+
+  /** the results of these finished jobs are safely stored: never hand them out again */
+  consumeFinishedJobs(projectId: string, nodeId: string, cacheKey: string) {
+    this.db.prepare("UPDATE jobs SET status = 'consumed', updated_at = ? WHERE project_id = ? AND node_id = ? AND cache_key = ? AND status = 'succeeded'").run(new Date().toISOString(), projectId, nodeId, cacheKey)
   }
 
   // ---------- assets (file bytes live on disk; see assets.ts)

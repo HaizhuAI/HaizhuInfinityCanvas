@@ -4,7 +4,7 @@
  * used by the WebUI (as a child process running on Electron's own Node runtime), then
  * opens a window on it. Server listens on loopback only, with a random access token.
  */
-const { app, BrowserWindow, shell, dialog, safeStorage } = require('electron')
+const { app, BrowserWindow, shell, dialog, safeStorage, session } = require('electron')
 const { spawn } = require('node:child_process')
 const { createHash, randomBytes } = require('node:crypto')
 const fs = require('node:fs')
@@ -22,6 +22,11 @@ const webDir = isPackaged ? path.join(process.resourcesPath, 'web') : path.join(
 let serverProc = null
 let mainWindow = null
 let origin = ''
+let quitting = false
+/** times the background server ended on its own (restarted at most 3 times in 5 minutes) */
+let restarts = []
+/** windows reloaded after a server restart (the smoke test waits for this) */
+let reloads = 0
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -139,12 +144,38 @@ async function startServer() {
   })
   serverProc.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`))
   serverProc.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`))
+  watchServer(serverProc)
   origin = `http://127.0.0.1:${port}`
   await waitHealthy(origin, token)
   return { origin, token }
 }
 
+/**
+ * The window is useless without its server: if the server ends unexpectedly (a crash, killed by the
+ * system), start a new one and reload the window. Work is safe — the canvas autosaves and keeps
+ * unsaved edits in the window, running provider jobs are resumed. Gives up after 3 restarts in 5 min.
+ */
+function watchServer(proc) {
+  proc.once('exit', (code, signal) => {
+    if (quitting || proc !== serverProc) return
+    const now = Date.now()
+    restarts = restarts.filter((t) => now - t < 5 * 60_000)
+    restarts.push(now)
+    smokeLog(`[server] exited unexpectedly (${signal || code}); restart ${restarts.length}/3`)
+    if (restarts.length > 3) {
+      if (process.env.HZC_SMOKE !== '1') dialog.showErrorBox('后台服务多次意外退出', '海柱无限画布的后台服务在 5 分钟内意外退出了 3 次以上。你的画布已自动保存。请重新打开应用；如果仍然出现，请把日志发给我们。')
+      app.exit(1)
+      return
+    }
+    startServer()
+      .then(({ origin: o, token }) => mainWindow?.loadURL(`${o}/?token=${token}`))
+      .then(() => { reloads++; smokeLog(`[server] restarted, window reloaded`) })
+      .catch((err) => { smokeLog(`[server] restart failed: ${err && err.message}`); if (process.env.HZC_SMOKE !== '1') dialog.showErrorBox('后台服务无法重新启动', String(err && err.message ? err.message : err)); app.exit(1) })
+  })
+}
+
 function stopServer() {
+  quitting = true
   if (serverProc && serverProc.exitCode === null) serverProc.kill()
   serverProc = null
 }
@@ -159,14 +190,26 @@ async function createWindow() {
   })
   mainWindow.setMenuBarVisibility(false)
   // external links open in the system browser; never navigate the app window away from our origin
+  // (the current one: it changes if the server has to be restarted)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) void shell.openExternal(url); return { action: 'deny' } })
-  mainWindow.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(o)) { e.preventDefault(); if (/^https?:\/\//.test(url)) void shell.openExternal(url) } })
+  const leaving = (url) => !(url === origin || url.startsWith(`${origin}/`))
+  mainWindow.webContents.on('will-navigate', (e, url) => { if (leaving(url)) { e.preventDefault(); if (/^https?:\/\//.test(url)) void shell.openExternal(url) } })
+  mainWindow.webContents.on('will-redirect', (e, url) => { if (leaving(url)) e.preventDefault() })
+  mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
   // the web app reads ?token=… once, stores it, and strips it from the URL
   await mainWindow.loadURL(`${o}/?token=${token}`)
   if (process.env.HZC_SMOKE === '1') {
     // headless smoke test hook: report and quit
     const title = await mainWindow.webContents.executeJavaScript(`new Promise(r => setTimeout(() => r(document.querySelector('.topbar .brand')?.textContent ?? 'NO-UI'), 1500))`)
     smokeLog(`[smoke] window ready, brand="${title}", master key: ${keySource}${keyPrint ? ` (${keyPrint})` : ''}`)
+    if (process.env.HZC_SMOKE_RESTART === '1') {
+      // kill the server on purpose: the app must bring it back and show its UI again
+      const seen = reloads
+      serverProc.kill('SIGKILL')
+      for (let i = 0; i < 90 && reloads === seen; i++) await new Promise((r) => setTimeout(r, 500))
+      const again = await mainWindow.webContents.executeJavaScript(`new Promise(r => setTimeout(() => r(document.querySelector('.topbar .brand')?.textContent ?? 'NO-UI'), 1500))`)
+      smokeLog(`[smoke] after server restart, brand="${again}"`)
+    }
     app.quit()
   }
 }
@@ -175,7 +218,14 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus() } })
-  app.whenReady().then(createWindow).catch((err) => {
+  app.whenReady().then(() => {
+    // the app needs no camera, microphone, location, notifications…: refuse every permission request
+    // except putting text on the clipboard (copy buttons) and going full screen (videos)
+    const ok = new Set(['clipboard-sanitized-write', 'fullscreen'])
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(ok.has(permission)))
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => ok.has(permission))
+    return createWindow()
+  }).catch((err) => {
     const msg = String(err && err.message ? err.message : err)
     // headless smoke runs have nobody to close a dialog
     if (process.env.HZC_SMOKE === '1') smokeLog(`[smoke] startup failed: ${msg}`)

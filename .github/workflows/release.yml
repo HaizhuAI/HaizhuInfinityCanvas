@@ -89,21 +89,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb)
-          export HZC_SMOKE=1 HZC_SMOKE_OUT="$RUNNER_TEMP/smoke.txt" XDG_CONFIG_HOME="$(mktemp -d)"
-          timeout 120 xvfb-run -a apps/desktop/release/linux-unpacked/haizhu-infinity-canvas --no-sandbox || true
+          export HZC_SMOKE=1 HZC_SMOKE_RESTART=1 HZC_SMOKE_OUT="$RUNNER_TEMP/smoke.txt" XDG_CONFIG_HOME="$(mktemp -d)"
+          timeout 150 xvfb-run -a apps/desktop/release/linux-unpacked/haizhu-infinity-canvas --no-sandbox || true
           cat "$HZC_SMOKE_OUT"
           grep -q 'window ready, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
+          # the server was killed on purpose: the app restarted it and showed its UI again
+          grep -q 'after server restart, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
       - name: Launch test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:HZC_SMOKE = '1'; $env:HZC_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.txt'
+          $env:HZC_SMOKE = '1'; $env:HZC_SMOKE_RESTART = '1'; $env:HZC_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.txt'
           $exe = Get-ChildItem apps/desktop/release/win-unpacked -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall|elevate' } | Select-Object -First 1
           Write-Host "starting $($exe.FullName)"
           $p = Start-Process -FilePath $exe.FullName -PassThru
-          if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force; Write-Host 'app did not quit within 120 s' }
+          if (-not $p.WaitForExit(150000)) { Stop-Process -Id $p.Id -Force; Write-Host 'app did not quit within 120 s' }
           if (Test-Path $env:HZC_SMOKE_OUT) { Get-Content $env:HZC_SMOKE_OUT } else { throw 'no smoke output' }
           if (-not (Select-String -Path $env:HZC_SMOKE_OUT -Pattern 'window ready, brand="Haizhu Infinity Canvas' -Quiet)) { throw 'the app did not show its UI' }
+          if (-not (Select-String -Path $env:HZC_SMOKE_OUT -Pattern 'after server restart, brand="Haizhu Infinity Canvas' -Quiet)) { throw 'the app did not recover from a server crash' }
       - name: Both Windows packages exist (installer and portable must not overwrite each other)
         if: runner.os == 'Windows'
         shell: pwsh

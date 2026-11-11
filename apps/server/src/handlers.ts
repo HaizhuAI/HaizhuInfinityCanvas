@@ -10,9 +10,15 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { detectScenes, extractFrame, MediaError, probe, segmentsFromCuts, withTemp } from './media'
 import { editorPackage, exportFilm } from './exporter'
+import { endpointIsPrivate, privateNetworkBlocked } from './netguard'
 import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
 
 export class NodeError extends Error {}
+
+/** results may come from a private address only when the model itself is on this computer / network */
+async function resultsMayBePrivate(profile: ModelProfile) {
+  return !privateNetworkBlocked() && await endpointIsPrivate(profile.endpoint)
+}
 
 export interface HandlerCtx {
   node: GraphNode
@@ -123,11 +129,14 @@ async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; 
   const urls = extractMediaUrls(output)
   if (!urls.length) throw new ProviderError(`模型完成了任务，但结果里没有找到${WANT_LABEL[want]}地址`)
   ctx.job.report('下载结果…')
+  const allowPrivate = await resultsMayBePrivate(profile)
   const assets = []
   for (const u of urls) {
-    try { assets.push(await downloadToAsset(u, ctx.assets, want, ctx.signal)) } catch (e) { if (ctx.signal.aborted || urls.length === 1) throw e }
+    try { assets.push(await downloadToAsset(u, ctx.assets, want, ctx.signal, { allowPrivate })) } catch (e) { if (ctx.signal.aborted || urls.length === 1) throw e }
   }
   if (!assets.length) throw new ProviderError(`结果中没有可用的${WANT_LABEL[want]}`)
+  // the results are stored: the finished job must not be handed out again
+  ctx.job.store.consumeFinishedJobs(ctx.job.projectId, ctx.job.nodeId, ctx.job.cacheKey)
   return assets.map((a) => ({ type: want, assetId: a.id, mime: a.mime }) as PortValue)
 }
 
@@ -210,7 +219,8 @@ export const HANDLERS: Record<string, Handler> = {
       const urls = await openaiImages(profile, ctx.apiKey, { prompt: neg ? `${genPrompt(ctx)}\n\nAvoid: ${neg}` : genPrompt(ctx), aspect: ctx.node.data.params?.aspect_ratio as string | undefined, signal: ctx.signal })
       ctx.job.report('保存结果…')
       const out: PortValue[] = []
-      for (const u of urls) { const a = await downloadToAsset(u, ctx.assets, 'image', ctx.signal); out.push({ type: 'image', assetId: a.id, mime: a.mime }) }
+      const allowPrivate = await resultsMayBePrivate(profile)
+      for (const u of urls) { const a = await downloadToAsset(u, ctx.assets, 'image', ctx.signal, { allowPrivate }); out.push({ type: 'image', assetId: a.id, mime: a.mime }) }
       return { out }
     }
     return { out: await generate(ctx, 'image', { image: refs.map((r) => dataUri(ctx, r.assetId)) }, genPrompt(ctx), genNegative(ctx)) }
