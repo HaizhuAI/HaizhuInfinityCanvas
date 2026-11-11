@@ -24,16 +24,19 @@ describe('multi-model comparison', () => {
     // each variant gets the node's inputs, not its outputs
     for (const v of r.added) expect(r.edges.filter((e) => e.target === v)).toEqual([expect.objectContaining({ source: 'txt', targetHandle: 'prompt' })])
     expect(r.edges.filter((e) => e.source !== 'txt' && r.added.includes(e.source))).toEqual([])
-    // placed below, skipping the node that sits there (400,360 .. 660)
-    const ys = members.map((m) => m.position.y)
-    expect(ys[1]).toBeGreaterThanOrEqual(360 + 300 + 40)
-    expect(ys[2]).toBeGreaterThanOrEqual(ys[1]! + 300 + 40)
-    expect(members.every((m) => m.position.x === 400 && m.selected)).toBe(true)
-    // room for results to grow
+    // a row under the starting node; the slot where another node sits (400,360) is skipped
+    const pos = members.slice(1).map((m) => [m.position.x, m.position.y])
+    expect(pos).toEqual([[400 + 376, 340], [400 + 2 * 376, 340]])
+    expect(members.every((m) => m.selected)).toBe(true)
+    // room for results to grow: the row starts lower, and a taller slot reaches the node below sooner
     const roomy = addCompareVariants(g.nodes, g.edges, 'gen', [{ profileId: 'p2', label: 'B' }], id, 200)
     const v = roomy.nodes.find((x) => x.id === roomy.added[0])!
-    expect(v.position.y).toBeGreaterThanOrEqual(360 + 300 + 40)                          // still clear of 'below'
-    expect(v.position.y - 0).toBeGreaterThanOrEqual(300 + 200 + 40)
+    expect(v.position.y).toBe(300 + 200 + 40)
+    expect(v.position.x).toBe(400 + 376)                                                // (400, 540) would overlap 'below'
+    // nothing in the way: the first variant sits right under the starting node
+    const free = g.nodes.filter((x) => x.id !== 'below')
+    const clear = addCompareVariants(free, g.edges, 'gen', [{ profileId: 'p2', label: 'B' }, { profileId: 'p3', label: 'C' }, { profileId: 'p4', label: 'D' }], id)
+    expect(compareMembers(clear.nodes, clear.group).slice(1).map((m) => [m.position.x, m.position.y])).toEqual([[400, 340], [776, 340], [1152, 340]])
     expect(r.nodes.find((x) => x.id === 'txt')!.selected).toBe(false)
   })
 

@@ -1,6 +1,6 @@
 {
   "name": "haizhu-infinity-canvas",
-  "version": "1.0.0-rc.6",
+  "version": "1.0.0-rc.7",
   "private": true,
   "description": "Haizhu Infinity Canvas - creative agent workshop on an infinite canvas",
   "packageManager": "pnpm@10.28.0",

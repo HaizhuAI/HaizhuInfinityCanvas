@@ -27,25 +27,18 @@ export function compareMembers<N extends CompareNode>(nodes: N[], group: string 
   return group ? nodes.filter((n) => n.data.compare === group) : []
 }
 
-/** first y at or below `y` where a w×h box at x overlaps no node (other than `ignore`) */
-function freeY(nodes: CompareNode[], x: number, y: number, w: number, h: number, ignore: Set<string>): number {
-  for (let guard = 0; guard < 200; guard++) {
-    const hit = nodes.find((n) => {
-      if (ignore.has(n.id)) return false
-      const s = size(n)
-      return x < n.position.x + s.w && n.position.x < x + w && y < n.position.y + s.h && n.position.y < y + h
-    })
-    if (!hit) return y
-    y = hit.position.y + size(hit).h + GAP
-  }
-  return y
-}
+/** whether a w×h box at (x, y) overlaps any of the nodes */
+const collides = (nodes: CompareNode[], x: number, y: number, w: number, h: number) => nodes.some((n) => {
+  const s = size(n)
+  return x < n.position.x + s.w + GAP / 2 && n.position.x < x + w + GAP / 2 && y < n.position.y + s.h + GAP / 2 && n.position.y < y + h + GAP / 2
+})
 
 /**
  * Add one variant of `nodeId` per model in `variants` (same type, text, parameters and inputs).
  * Models already in the comparison are skipped; the total is capped at MAX_COMPARE.
- * `grow` reserves room below each node for what a run adds (a taller result, the version switch), so
- * the variants don't overlap once their results arrive.
+ * The variants go in a row under the starting node (left to right, a new row when one is taken), so
+ * the whole comparison stays on one screen at a readable zoom. `grow` reserves room under each node
+ * for what a run adds (a taller result, the version switch), so nothing overlaps once results arrive.
  * Returns the whole new graph; `added` are the new node ids (empty when nothing changed).
  */
 export function addCompareVariants<N extends CompareNode, E extends CompareEdge>(
@@ -60,26 +53,33 @@ export function addCompareVariants<N extends CompareNode, E extends CompareEdge>
   const todo = variants.filter((v, i, all) => !have.has(v.profileId) && all.findIndex((x) => x.profileId === v.profileId) === i).slice(0, room)
   if (!todo.length) return { nodes, edges, group: base.data.compare ?? '', added: [] }
 
-  const { w } = size(base)
-  const h = size(base).h + grow
-  const placed: CompareNode[] = [...nodes]
-  const ignore = new Set<string>()
-  let y = Math.max(...members.map((m) => m.position.y + size(m).h + grow)) + GAP
+  // slots: a grid under the starting node, three across; a slot is free when nothing overlaps it
+  const anchor = members[0]!
+  const { w } = size(anchor)
+  const h = size(anchor).h + grow
+  const top = anchor.position.y + h + GAP
+  const placed: CompareNode[] = nodes.filter((n) => n.id !== anchor.id)
+  let slot = 0
   const fresh: N[] = []
   const wires: E[] = []
   const incoming = edges.filter((e) => e.target === base.id)
   for (const v of todo) {
     const id = `n_${newId()}`
-    y = freeY(placed, base.position.x, y, w, h, ignore)
+    let x = anchor.position.x, y = top
+    for (; slot < 60; slot++) {
+      x = anchor.position.x + (slot % 3) * (w + GAP)
+      y = top + Math.floor(slot / 3) * (h + GAP)
+      if (!collides(placed, x, y, w, h)) break
+    }
+    slot++
     const node = {
-      ...base, id, selected: true, position: { x: base.position.x, y },
+      ...base, id, selected: true, position: { x, y },
       data: { ...base.data, profileId: v.profileId, label: v.label, compare: group },
       measured: base.measured ? { ...base.measured } : undefined,
     } as N
     fresh.push(node)
-    placed.push(node)
+    placed.push({ ...node, measured: { width: w, height: h } })
     for (const e of incoming) wires.push({ ...e, id: `e_${newId()}`, target: id } as E)
-    y += h + GAP
   }
   const out = nodes.map((n) => {
     const selected = members.some((m) => m.id === n.id)

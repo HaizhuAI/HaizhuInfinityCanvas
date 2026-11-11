@@ -39,6 +39,19 @@ jobs:
             HZC_E2E_OUT="$RUNNER_TEMP" node "e2e/$suite.cjs"
             kill $SERVER; wait $SERVER 2>/dev/null || true
           done
+      - name: Screenshots of the main screens (demo providers; also a smoke test of every screen)
+        run: |
+          export HZC_DATA_DIR="$(mktemp -d)" PORT=8788
+          node apps/server/dist/index.mjs & SERVER=$!
+          for i in $(seq 1 30); do curl -sf localhost:8788/api/health >/dev/null && break; sleep 1; done
+          HZC_SHOTS_OUT="$RUNNER_TEMP/screenshots" node e2e/screenshots.cjs
+          kill $SERVER; wait $SERVER 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/screenshots/*.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:

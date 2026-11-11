@@ -597,7 +597,7 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .palette-connect svg { width: 14px; height: 14px; color: var(--accent-hi); flex: none; }
 
 /* run progress in the top bar */
-.run-progress { display: inline-flex; align-items: center; gap: 8px; font: 600 12px var(--mono); color: var(--text-2); }
+.run-progress { white-space: nowrap; flex: none; display: inline-flex; align-items: center; gap: 8px; font: 600 12px var(--mono); color: var(--text-2); }
 .run-progress .bar { width: 64px; height: 4px; border-radius: 999px; background: var(--surface-3); overflow: hidden; position: relative; }
 .run-progress .par { color: var(--run); font-weight: 600; }
 .run-progress .bar::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--p); background: var(--accent); border-radius: inherit; transition: width var(--t); }
@@ -718,7 +718,7 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .cmp-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line-2)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .cmp-tag { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; font: 600 11.5px var(--mono); color: var(--accent); white-space: nowrap; }
 .cmp-tag svg { width: 13px; height: 13px; }
-.lightbox.compare { background: rgba(9, 9, 11, .97); }
+.lightbox.compare { background: #09090b; }
 .compare .cmp-stage { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 14px; padding: 4px 18px 18px; min-height: 0; }
 .cmp-col { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .1); border-radius: 12px; overflow: hidden; color: #e4e4e7; }
 .cmp-col header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, .08); }

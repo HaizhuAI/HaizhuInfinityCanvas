@@ -187,8 +187,9 @@ export function CanvasHelpers() {
   const req = useStore((s) => s.focusRequest)
   const { fitView } = useReactFlow()
   useEffect(() => {
-    // two frames: nodes added in the same tick must be measured first
-    if (req) requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ nodes: req.ids.map((id) => ({ id })), maxZoom: 1, minZoom: req.ids.length > 1 ? 0.2 : 0.5, padding: req.ids.length > 1 ? 0.2 : 0.6, duration: 400 })))
+    // two frames: nodes added in the same tick must be measured first. Never zoom out so far that the
+    // nodes' text and buttons stop being drawn (below 40 %).
+    if (req) requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ nodes: req.ids.map((id) => ({ id })), maxZoom: 1, minZoom: req.ids.length > 1 ? 0.42 : 0.5, padding: req.ids.length > 1 ? 0.12 : 0.6, duration: 400 })))
   }, [req, fitView])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

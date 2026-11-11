@@ -27,7 +27,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.6'
+export const APP_VERSION = 'v1.0.0-rc.7'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
