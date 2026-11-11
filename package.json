@@ -22,7 +22,12 @@
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "tsup>esbuild": "^0.28.2",
+      "app-builder-lib>minimatch": "^11.0.8",
+      "@electron/universal>minimatch": "^11.0.8"
+    }
   },
   "devDependencies": {
     "playwright": "1.63.0"

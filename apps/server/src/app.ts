@@ -354,11 +354,11 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
       // the build ships .br / .gz next to each text file: send those when the browser accepts them
       preCompressed: true,
       cacheControl: false,
-      setHeaders(res, path) {
+      setHeaders(reply, path) {
         // files under assets/ carry a content hash in their name: cache them for good, never ask again.
         // Everything else (index.html, icons) is revalidated, so a new version is picked up at once.
-        res.setHeader('cache-control', /[\\/]assets[\\/]/.test(path) ? 'public, max-age=31536000, immutable' : 'no-cache')
-        res.setHeader('vary', 'accept-encoding')
+        reply.header('cache-control', /[\\/]assets[\\/]/.test(path) ? 'public, max-age=31536000, immutable' : 'no-cache')
+        reply.header('vary', 'accept-encoding')
       },
     })
     app.setNotFoundHandler((req, reply) => {
