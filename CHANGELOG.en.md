@@ -15,6 +15,9 @@ From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlie
 - **Storyboard table**: 「分镜表」 on a director / video-reverse node opens a full-screen table — edit title, visual, shot and camera, dialogue, duration, image / video prompts in place; move up / down, duplicate, delete, add shots; show or hide columns (remembered); `Ctrl/⌘ S` saves. Saving makes a new version of that node's result (no model call; downstream and expansion use it); tick rows to expand only those shots. Video reverse's prompt-text output is updated with the table.
 - API: `PUT /api/projects/:id/nodes/:nodeId/storyboard` (every field checked and capped, at most 60 shots, keyframes only from the storyboard's own).
 
+### Fixed
+- (Caught by the first CI run) typing straight after picking an `@` suggestion could, on a slower machine, have the caret moved back a frame later, so later characters landed in front ("坐在礁石上" became "礁石上坐在"). The caret is now placed as the inserted text renders, never deferred; the E2E checks the typing order under 6× CPU throttling.
+
 ### Changed
 - Roadmap: the **timeline** and **groups** move to rc.16 (with the batch node: "Timeline, groups and batches"), consistency and review becomes rc.17, agent and apps rc.18 — timeline and groups touch canvas layout, copy and paste, project bundles and undo, so they get a version of their own.
 - New E2E suite story-flow; CI now runs sixteen suites.

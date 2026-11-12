@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { SUBJECT_KIND_LABEL, isSubjectName, type SubjectKind } from '@hzc/core'
 import { assetUrl } from './api'
@@ -31,6 +31,13 @@ export const MentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function M
   const ref = useRef<HTMLTextAreaElement>(null)
   useImperativeHandle(outer, () => ref.current!)
   const [query, setQuery] = useState<string | null>(null)
+  // where the caret goes once an inserted mention is on screen: set before any further keystroke is
+  // handled (deferring it to the next frame let fast typing land in front of the caret)
+  const caret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && caret.current !== null && el.value === value) { el.setSelectionRange(caret.current, caret.current); caret.current = null }
+  }, [value])
   const [active, setActive] = useState(0)
   const matches = query === null ? [] : options.filter((o) => o.name.toLowerCase().startsWith(query.toLowerCase())).slice(0, 6)
   const open = matches.length > 0
@@ -45,12 +52,13 @@ export const MentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function M
   function insert(o: Option) {
     const el = ref.current
     if (!el) return
-    const caret = el.selectionStart ?? value.length
-    const before = value.slice(0, caret).replace(/@([^\s@]{0,24})$/, `@${o.name} `)
-    const next = before + value.slice(caret)
+    const at = el.selectionStart ?? value.length
+    const before = value.slice(0, at).replace(/@([^\s@]{0,24})$/, `@${o.name} `)
+    const next = before + value.slice(at)
+    caret.current = before.length
     onValue(next)
     setQuery(null)
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(before.length, before.length) })
+    el.focus()
   }
 
   return (
