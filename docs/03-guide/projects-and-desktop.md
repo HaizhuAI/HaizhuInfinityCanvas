@@ -17,15 +17,27 @@
 
 ## 桌面版
 
-- 数据保存在本机：Windows `%APPDATA%\HaizhuInfinityCanvas\data`，Linux `~/.config/HaizhuInfinityCanvas/data`（画布数据库、素材、Skill）。备份可以直接复制这个文件夹，或者逐个导出项目包。
+### 安装包（rc.16 起覆盖三个系统）
+
+| 系统 | 文件 | 说明 |
+| --- | --- | --- |
+| Windows 10 / 11（x64） | `…-win-x64-setup.exe`（安装版）、`…-win-x64-portable.exe`（便携版） | Windows on ARM 设备可以直接运行 x64 版（系统自带转译）。接入 Claude Code 请用安装版 |
+| macOS 12+（Apple 芯片 / Intel） | `…-mac-arm64.dmg` / `…-mac-x64.dmg`（另有同名 `.zip`） | 没有 Apple 开发者证书，只做了临时签名、没有公证：第一次打开时右键 → 打开，或「系统设置 → 隐私与安全性 → 仍要打开」 |
+| Linux（x64 / arm64） | `.AppImage`、`.deb` | AppImage 需要执行权限（`chmod +x`）；deb 安装到 `/opt/HaizhuInfinityCanvas` |
+
+安装包由 GitHub Actions 的「Build installers」流水线构建，每个系统都会真正启动一次应用做冒烟测试（界面、后台服务崩溃后自动恢复、Agent 桥接）。
+
+- 数据保存在本机：Windows `%APPDATA%\HaizhuInfinityCanvas\data`，macOS `~/Library/Application Support/HaizhuInfinityCanvas/data`，Linux `~/.config/HaizhuInfinityCanvas/data`（画布数据库、素材、Skill）。备份可以直接复制这个文件夹，或者逐个导出项目包。
 - 应用内置服务只监听本机回环地址，每次启动使用随机端口和随机访问令牌。
 - **API Key 的保护**：Key 用 AES-256-GCM 加密后存进数据库，浏览器界面永远拿不到明文。加密用的密钥：
   - Windows：交给系统钥匙串（DPAPI）保管，只有当前 Windows 用户能解开；
+  - macOS：交给「钥匙串访问」保管；
   - Linux：有钥匙串服务（GNOME Keyring / KWallet）时交给它保管；没有时保存在数据目录中权限为 0600 的 `master.key` 文件里。
   - 从旧版本升级时，原来的 `master.key` 会自动移入钥匙串并删除明文文件，已保存的 Key 照常可用。
   - 如果某次启动时钥匙串打不开（例如更换了系统用户或桌面环境），应用会询问：**退出**（恢复钥匙串后再打开，Key 不丢）或**重置已保存的 API Key 并继续**（画布、素材、结果都保留，Key 需要重新填写）。原来的封存文件会改名保留，不会删除。
 - 复制数据文件夹到另一台电脑时，已保存的 API Key 无法解密（这是预期的保护）。运行时会提示「请在设置 → 模型档案里重新填写 Key」。
 - FFmpeg 需要另行安装，见[视频反推与导出](./video-and-export.md)。
+- 让 Claude Code 等 Agent 操作画布：见 [Agent 接入（MCP）](./agent-mcp.md)。
 
 ## WebUI / Docker 部署
 

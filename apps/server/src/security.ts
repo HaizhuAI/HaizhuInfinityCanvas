@@ -28,7 +28,7 @@ export interface SecurityOptions {
   windowMs?: number
 }
 
-const LOOPBACK = ['localhost', '127.0.0.1', '::1', '[::1]']
+export const LOOPBACK = ['localhost', '127.0.0.1', '::1', '[::1]']
 
 /** The canvas page: everything from this server; inline style attributes (React, motion) allowed. */
 export const APP_CSP = [
@@ -153,7 +153,7 @@ export function installSecurity(app: FastifyInstance, opts: SecurityOptions) {
 }
 
 /** the Origin header names this same server (same host and port), or an operator-listed host */
-function sameOrigin(origin: string, host: string | undefined, allowed: Set<string>): boolean {
+export function sameOrigin(origin: string, host: string | undefined, allowed: Set<string>): boolean {
   let o: URL
   try { o = new URL(origin) } catch { return false } // includes "null" (sandboxed frames, file://)
   if (o.protocol !== 'http:' && o.protocol !== 'https:') return false

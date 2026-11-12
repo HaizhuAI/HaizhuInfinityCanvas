@@ -180,6 +180,15 @@ export class Engine {
 
   isFinished(runId: string) { return this.runs.get(runId)?.finished ?? true }
 
+  /** the run going on in a project, if any */
+  activeRun(projectId: string): string | undefined { return this.active.get(projectId) }
+
+  /** a run's project and events so far (agents follow runs by id) */
+  runInfo(runId: string): { projectId: string; finished: boolean; events: RunEvent[] } | undefined {
+    const r = this.runs.get(runId)
+    return r ? { projectId: r.projectId, finished: r.finished, events: r.events } : undefined
+  }
+
   /** resolves when the run finishes (tests / CLI) */
   wait(runId: string): Promise<RunEvent[]> {
     return new Promise((resolve) => {

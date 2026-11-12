@@ -907,3 +907,12 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .sbt .sbt-ops { width: 120px; white-space: nowrap; }
 .sbt-kf { width: 96px; border-radius: var(--r-sm); display: block; }
 @media (max-width: 720px) { .sbt-back { padding: 0; } .sbt { height: 100%; border-radius: 0; } }
+
+/* 设置 → Agent 接入 */
+.copy-block { position: relative; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface); }
+.copy-block pre { margin: 0; padding: 9px 76px 9px 11px; font: 11.5px/1.6 var(--mono); color: var(--text-2); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow: auto; }
+.copy-block .btn { position: absolute; top: 6px; right: 6px; }
+.row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.key-code { font: 12px var(--mono); color: var(--text-2); padding: 4px 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface); }
+.link-btn { background: none; border: 0; padding: 0 0 0 6px; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.link-btn:disabled { opacity: .5; cursor: default; }

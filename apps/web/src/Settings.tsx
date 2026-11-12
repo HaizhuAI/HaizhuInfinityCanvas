@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, Palette, ShieldCheck, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Trash, X } from 'lucide-react'
+import { Bot, Check, Copy, Eye, EyeOff, Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, Palette, ShieldCheck, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Trash, X } from 'lucide-react'
 import { ADAPTER_LABEL, ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
 import { GROUP_LABEL, PRESETS, presetOf, type Preset, type PresetGroup, type PresetTarget } from './presets'
-import { api, auth, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
+import { api, auth, getToken, setToken, type AgentAccessState, type ConnTest, type SkillKind, type SkillMeta } from './api'
 import { useEscape } from './Overlays'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
 import { enterOverlay, motionEnabled, setMotionEnabled } from './motion'
@@ -307,6 +307,100 @@ function AccessPane() {
   )
 }
 
+/** a command or config to paste somewhere, with a copy button; `shown` is what is on screen (key masked) */
+function CopyBlock({ text, shown, testid }: { text: string; shown?: string; testid: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="copy-block">
+      <pre data-testid={testid}>{shown ?? text}</pre>
+      <button className="btn xs" onClick={() => { void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }).catch(() => undefined) }} data-testid={`${testid}-copy`}>
+        {copied ? <Check /> : <Copy />}{copied ? '已复制' : '复制'}
+      </button>
+    </div>
+  )
+}
+
+const MCP_NAME = 'haizhu-canvas'
+const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`
+
+/** 设置 → Agent 接入: let Claude Code (or any MCP client) build and run workflows on this canvas */
+function AgentPane() {
+  const showToast = useStore((s) => s.showToast)
+  const [st, setSt] = useState<AgentAccessState | null>(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [reveal, setReveal] = useState(false)
+  useEffect(() => { void api.agentAccess().then(setSt).catch((e) => setErr((e as Error).message)) }, [])
+  const act = async (fn: () => Promise<AgentAccessState | void>, done?: string) => {
+    setBusy(true)
+    try { const r = await fn(); setSt(r ?? (await api.agentAccess())); if (done) showToast(done) } catch (e) { showToast((e as Error).message, { tone: 'error' }) } finally { setBusy(false) }
+  }
+  if (err) return <div className="form"><h3>Agent 接入</h3><div className="muted">{err}</div></div>
+  if (!st) return <div className="form"><h3>Agent 接入</h3><div className="muted">读取中…</div></div>
+  const key = st.token ?? ''
+  const mask = (t: string) => (reveal || !key ? t : t.split(key).join(`${key.slice(0, 8)}••••••••`))
+  const url = `${location.origin}/mcp`
+  const http = `claude mcp add --transport http --scope user ${MCP_NAME} ${url} --header ${q(`Authorization: Bearer ${key}`)}`
+  const d = st.desktop
+  const stdio = d ? `claude mcp add --env ELECTRON_RUN_AS_NODE=1 --transport stdio --scope user ${MCP_NAME} -- ${q(d.exe)} ${q(d.bridge)}` : ''
+  const json = d
+    ? JSON.stringify({ mcpServers: { [MCP_NAME]: { type: 'stdio', command: d.exe, args: [d.bridge], env: { ELECTRON_RUN_AS_NODE: '1' } } } }, null, 2)
+    : JSON.stringify({ mcpServers: { [MCP_NAME]: { type: 'http', url, headers: { Authorization: `Bearer ${key}` } } } }, null, 2)
+  return (
+    <div className="form" data-testid="agent-pane">
+      <div>
+        <h3>Agent 接入（MCP）</h3>
+        <div className="muted">让 Claude Code 等支持 MCP 的 Agent 直接在你的画布上搭节点、写提示词、预估费用、运行并查看结果。画布会实时显示 Agent 的改动，你可以同时编辑。</div>
+      </div>
+      {st.mode === 'local' ? (
+        <label className="switch">
+          <input type="checkbox" checked={st.enabled} disabled={busy} onChange={(e) => void act(() => (e.target.checked ? api.setAgentAccess('enable') : api.disableAgentAccess()), e.target.checked ? '已允许 Agent 访问' : '已关闭 Agent 访问')} data-testid="agent-switch" />
+          <span className="track"><span className="knob" /></span>
+          <span>允许 Agent 访问这台电脑上的画布</span>
+        </label>
+      ) : (
+        <div className="field"><span>访问密钥</span>
+          <div className="row-actions">
+            <button className="btn sm" disabled={busy} onClick={() => void act(() => api.setAgentAccess('rotate'), st.enabled ? '已生成新密钥，旧密钥失效' : '已生成密钥')} data-testid="agent-make-key"><KeyRound />{st.enabled ? '重新生成' : '生成密钥'}</button>
+            {st.enabled && <button className="btn sm ghost" disabled={busy} onClick={() => void act(() => api.disableAgentAccess(), '已停用密钥')}>停用</button>}
+          </div>
+          {st.enabled && !key && <div className="hint"><Info aria-hidden="true" /><span>已有密钥（生成于 {new Date(st.createdAt!).toLocaleString('zh-CN')}{st.lastUsed ? `，最近使用 ${new Date(st.lastUsed).toLocaleString('zh-CN')}` : '，还没有用过'}）。密钥只在生成时显示一次；忘了就重新生成。</span></div>}
+        </div>
+      )}
+      {st.enabled && key && (
+        <>
+          {d && (
+            <div className="field"><span>添加到 Claude Code（推荐：随 Claude Code 启动，应用没开时会自动打开）</span>
+              <CopyBlock text={stdio} testid="agent-cmd-desktop" />
+              {d.kind === 'portable' && <div className="hint warn"><CircleAlert aria-hidden="true" /><span>便携版每次启动都会解压到新的临时目录，这个路径下次会失效。接入 Claude Code 请使用安装版。</span></div>}
+              {d.kind === 'appimage' && <div className="hint"><Info aria-hidden="true" /><span>命令里是 AppImage 文件的位置；移动或改名后需要重新复制。</span></div>}
+            </div>
+          )}
+          {!d && (
+            <div className="field"><span>添加到 Claude Code</span>
+              <CopyBlock text={http} shown={mask(http)} testid="agent-cmd-http" />
+            </div>
+          )}
+          <div className="field"><span>{d ? '或写进项目的 .mcp.json' : '或写进项目的 .mcp.json（不要把密钥提交到代码仓库）'}</span>
+            <CopyBlock text={json} shown={mask(json)} testid="agent-json" />
+          </div>
+          {!d && (
+            <div className="field"><span>密钥</span>
+              <div className="row-actions">
+                <code className="key-code" data-testid="agent-key">{reveal ? key : `${key.slice(0, 8)}••••••••••••`}</code>
+                <button className="btn xs ghost" onClick={() => setReveal(!reveal)} aria-label={reveal ? '隐藏' : '显示'}>{reveal ? <EyeOff /> : <Eye />}</button>
+                {st.mode === 'local' && <button className="btn xs ghost" disabled={busy} onClick={() => void act(() => api.setAgentAccess('rotate'), '已更换密钥：已接入的 Agent 需要用新命令重新添加')} data-testid="agent-rotate"><RefreshCw />更换</button>}
+              </div>
+            </div>
+          )}
+          {d && <div className="hint"><Info aria-hidden="true" /><span>桌面版每次启动端口都会变，所以不要直接填 HTTP 地址；上面的命令会自动找到正在运行的应用。<button className="link-btn" disabled={busy} onClick={() => void act(() => api.setAgentAccess('rotate'), '已更换密钥')} data-testid="agent-rotate">更换密钥</button></span></div>}
+          <div className="hint"><Bot aria-hidden="true" /><span>添加后在 Claude Code 里直接说，例如「在海柱画布里新建一个画布，用 Seedance 做一条 5 秒的橘猫短片」。Claude 会先预估费用，得到你同意后才会调用付费模型。{st.localFiles ? '它也能直接使用你电脑上的图片和视频文件。' : ''}</span></div>
+        </>
+      )}
+    </div>
+  )
+}
+
 const mb = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(n < 10 * 1024 ** 2 ? 1 : 0)} MB` : `${Math.ceil(Math.max(0, n) / 1024)} KB`)
 
 /** Accounts mode: who is signed in, storage, password, sign out, delete the account. */
@@ -565,7 +659,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.15。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.16。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
@@ -621,6 +715,7 @@ export function Settings() {
     { id: 'skills', label: 'Skill', Icon: Clapperboard },
     { id: 'appearance', label: '外观与动效', Icon: Palette },
     accounts ? { id: 'account', label: '账号', Icon: CircleUser } : { id: 'access', label: '访问口令', Icon: KeyRound },
+    { id: 'agent', label: 'Agent 接入', Icon: Bot },
     { id: 'about', label: '关于', Icon: Boxes },
   ]
   return (
@@ -633,13 +728,14 @@ export function Settings() {
         <div className="modal-body">
           <nav className="tabs">
             {TABS.map((t) => (
-              <button key={t.id} className={`tab${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}><t.Icon />{t.label}</button>
+              <button key={t.id} className={`tab${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)} data-testid={`settings-tab-${t.id}`}><t.Icon />{t.label}</button>
             ))}
           </nav>
           <div className="pane">
             {tab === 'profiles' && <ProfilesPane addKind={intent?.addKind} />}
             {tab === 'access' && <AccessPane />}
             {tab === 'account' && <AccountPane />}
+            {tab === 'agent' && <AgentPane />}
             {tab === 'skills' && <SkillsPane />}
             {tab === 'appearance' && <AppearancePane />}
             {tab === 'about' && <AboutPane />}

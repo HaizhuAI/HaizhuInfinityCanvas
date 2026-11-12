@@ -57,7 +57,8 @@ function toJob(r: Record<string, unknown>): JobRow {
 export class Store {
   private db: DatabaseSyncType
 
-  constructor(path: string, private secrets: SecretBox) {
+  constructor(readonly file: string, private secrets: SecretBox) {
+    const path = file
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = new DatabaseSync(path)
     this.db.exec(`
@@ -353,8 +354,10 @@ export class Store {
   saveProject(id: string, patch: { name?: string; graph?: ProjectGraph }) {
     const cur = this.getProject(id)
     if (!cur) return undefined
+    // updated_at is the canvas's revision (pages send it back to detect edits made elsewhere): always moves forward
+    const now = Math.max(Date.now(), Date.parse(cur.updatedAt) + 1)
     this.db.prepare('UPDATE projects SET name=?, graph=?, updated_at=? WHERE id=?').run(
-      patch.name ?? cur.name, JSON.stringify(patch.graph ?? cur.graph), new Date().toISOString(), id,
+      patch.name ?? cur.name, JSON.stringify(patch.graph ?? cur.graph), new Date(now).toISOString(), id,
     )
     return this.getProject(id)!
   }

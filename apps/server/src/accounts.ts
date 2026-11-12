@@ -113,6 +113,10 @@ export class AccountStore {
         created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS agent_tokens (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, last_used TEXT
+      );
       CREATE TABLE IF NOT EXISTS usage (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         bytes INTEGER NOT NULL DEFAULT 0, runs INTEGER NOT NULL DEFAULT 0, last_run TEXT, updated_at TEXT
@@ -315,6 +319,28 @@ export class AccountStore {
     if (now - Date.parse(s.last_seen) > 10 * 60_000) {
       this.db.prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?').run(new Date(now).toISOString(), new Date(now + SESSION_DAYS * 86400_000).toISOString(), id)
     }
+    return u
+  }
+
+  // ---------- agent access (MCP): one key per account, only its SHA-256 stored; shown once when made
+  createAgentToken(userId: string): string {
+    const token = `hzc_${randomBytes(32).toString('base64url')}`
+    this.db.prepare('INSERT INTO agent_tokens (user_id, hash, created_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET hash = excluded.hash, created_at = excluded.created_at, last_used = NULL')
+      .run(userId, sha(token), nowIso())
+    return token
+  }
+  agentTokenInfo(userId: string): { createdAt: string; lastUsed?: string } | undefined {
+    const r = this.db.prepare('SELECT created_at, last_used FROM agent_tokens WHERE user_id = ?').get(userId) as { created_at: string; last_used: string | null } | undefined
+    return r ? { createdAt: r.created_at, lastUsed: r.last_used ?? undefined } : undefined
+  }
+  revokeAgentToken(userId: string) { this.db.prepare('DELETE FROM agent_tokens WHERE user_id = ?').run(userId) }
+  /** the (enabled) account an agent key belongs to */
+  agentTokenUser(token: string | undefined): User | undefined {
+    if (!token || token.length > 200) return undefined
+    const r = this.db.prepare('SELECT user_id, last_used FROM agent_tokens WHERE hash = ?').get(sha(token)) as { user_id: string; last_used: string | null } | undefined
+    const u = r ? this.getUser(r.user_id) : undefined
+    if (!u || u.disabled) return undefined
+    if (!r!.last_used || Date.now() - Date.parse(r!.last_used) > 10 * 60_000) this.db.prepare('UPDATE agent_tokens SET last_used = ? WHERE user_id = ?').run(nowIso(), u.id)
     return u
   }
 

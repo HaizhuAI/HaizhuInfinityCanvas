@@ -16,12 +16,14 @@ import { chatAdapterFor, ProviderError } from './providers'
 import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
-import { installSecurity } from './security'
+import { FailureThrottle, LOOPBACK, installSecurity, sameOrigin } from './security'
+import { AgentAccess, hubFor } from './agent'
+import { MCP_PROTOCOLS, handleMcpMessage } from './mcp'
 import type { Backups, RecoveryNote } from './backup'
 import { installAuth, type AuthConfig } from './auth'
 import type { Workspace } from './workspaces'
 
-export const APP_VERSION = '1.0.0-rc.15'
+export const APP_VERSION = '1.0.0-rc.16'
 
 export interface AppOptions {
   /** single-user mode (desktop app, one WebUI): the one workspace. Absent in accounts mode. */
@@ -51,6 +53,12 @@ export interface AppOptions {
   recovery?: RecoveryNote
   /** multi-user mode (HZC_ACCOUNTS=1): sign-in, one isolated workspace per user */
   accounts?: AuthConfig
+  /** single-user mode: the agent (MCP) access key, kept in the data folder */
+  agentAccess?: AgentAccess
+  /** this server runs on the person's own machine: MCP tools may read local files and show file paths */
+  localFiles?: boolean
+  /** the desktop app: how an MCP client starts its bridge (shown in 设置 → Agent 接入) */
+  desktop?: { exe: string; bridge: string; kind: string }
 }
 
 /** what a request works on: the signed-in user's workspace, or the single workspace */
@@ -169,10 +177,18 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   app.get<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) =>
     ws(req).store.getProject(req.params.id) ?? reply.code(404).send({ error: 'not found' }))
 
-  app.put<{ Params: { id: string }; Body: { name?: string; graph?: unknown } }>('/api/projects/:id', async (req, reply) => {
+  // `baseRev` (the updatedAt the page last saw): refused with the current canvas when it changed elsewhere
+  // in the meantime (an agent, another tab), so the page can merge instead of overwriting it
+  app.put<{ Params: { id: string }; Body: { name?: string; graph?: unknown; baseRev?: unknown } }>('/api/projects/:id', async (req, reply) => {
     if (req.body?.graph !== undefined && !isGraph(req.body.graph)) return reply.code(400).send({ error: 'invalid graph' })
-    const p = ws(req).store.saveProject(req.params.id, { name: req.body?.name, graph: req.body?.graph as ProjectGraph | undefined })
-    return p ?? reply.code(404).send({ error: 'not found' })
+    const { store } = ws(req)
+    const cur = store.getProject(req.params.id)
+    if (!cur) return reply.code(404).send({ error: 'not found' })
+    if (typeof req.body?.baseRev === 'string' && req.body.baseRev !== cur.updatedAt) return reply.code(409).send({ error: '画布在别处被修改了', project: cur })
+    const p = store.saveProject(req.params.id, { name: req.body?.name, graph: req.body?.graph as ProjectGraph | undefined })!
+    const client = req.headers['x-hzc-client']
+    hubFor(store).emit({ kind: 'project', projectId: p.id, rev: p.updatedAt, source: typeof client === 'string' ? client.slice(0, 64) : undefined })
+    return p
   })
 
   app.post<{ Params: { id: string }; Body: { name?: unknown } }>('/api/projects/:id/duplicate', async (req, reply) => {
@@ -431,6 +447,10 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     return reply.code(202).send({ runId })
   })
 
+  // the run going on in a canvas (an agent may have started it), so an opened page can follow it
+  app.get<{ Params: { id: string } }>('/api/projects/:id/run', async (req, reply) =>
+    ws(req).store.getProject(req.params.id) ? { runId: ws(req).engine.activeRun(req.params.id) ?? null } : reply.code(404).send({ error: 'not found' }))
+
   app.post<{ Params: { id: string }; Body: { nodeIds?: unknown; force?: unknown } }>('/api/projects/:id/estimate', async (req, reply) => {
     const p = ws(req).store.getProject(req.params.id)
     if (!p) return reply.code(404).send({ error: 'not found' })
@@ -462,6 +482,18 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (ended) return
     const ping = setInterval(() => res.write(': ping\n\n'), 15_000)
     res.on('close', () => { clearInterval(ping); unsubscribe() })
+  })
+
+  // what changes in this workspace while a page is open (agents editing or running a canvas)
+  app.get('/api/events', (req, reply) => {
+    const { store } = ws(req)
+    reply.hijack()
+    const res = reply.raw
+    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' })
+    res.write(': ok\n\n')
+    const off = hubFor(store).on((e) => res.write(`data: ${JSON.stringify(e)}\n\n`))
+    const ping = setInterval(() => res.write(': ping\n\n'), 25_000)
+    res.on('close', () => { clearInterval(ping); off() })
   })
 
   app.get<{ Params: { id: string } }>('/api/projects/:id/outputs', async (req, reply) =>
@@ -519,6 +551,77 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     const versions = store.addNodeVersion(req.params.id, req.params.nodeId, cur.cacheKey, outputs)
     const now = store.getNodeOutput(req.params.id, req.params.nodeId)!
     return { outputs: now.outputs, finishedAt: now.finishedAt, versions }
+  })
+
+  // ---- agents: MCP (Streamable HTTP, JSON answers) and its access key
+  const allowedHosts = new Set([...LOOPBACK, ...(opts.allowedHosts ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean)])
+  const mcpFailures = new FailureThrottle(20, 10 * 60_000)
+  const mcpError = (code: number, message: string) => ({ jsonrpc: '2.0', id: null, error: { code, message } })
+  app.post('/mcp', async (req, reply) => {
+    // MCP clients send no Origin; a web page always does — only this site's own pages may (DNS rebinding)
+    const origin = req.headers.origin
+    if (origin !== undefined && !sameOrigin(origin, req.headers.host, allowedHosts)) return reply.code(403).send(mcpError(-32000, 'cross-site request refused'))
+    const wait = mcpFailures.lockedFor(req.ip)
+    if (wait) return reply.code(429).header('retry-after', String(wait)).send(mcpError(-32000, 'too many wrong keys; try again later'))
+    const token = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ''))?.[1]
+    let w: Ws | undefined
+    if (opts.accounts) {
+      const user = opts.accounts.accounts.agentTokenUser(token)
+      if (user) w = opts.accounts.workspaces.get(user.id)
+    } else if (opts.agentAccess?.matches(token)) w = single
+    if (!w) {
+      if (token) mcpFailures.fail(req.ip)
+      return reply.code(401).send(mcpError(-32001, opts.agentAccess && !opts.agentAccess.enabled
+        ? 'Agent access is off: open Haizhu Infinity Canvas → 设置 → Agent 接入 and allow it'
+        : 'Missing or wrong access key (Authorization: Bearer <key> from 设置 → Agent 接入)'))
+    }
+    mcpFailures.ok(req.ip)
+    const version = req.headers['mcp-protocol-version']
+    if (typeof version === 'string' && !(MCP_PROTOCOLS as readonly string[]).includes(version)) return reply.code(400).send(mcpError(-32600, `Unsupported MCP-Protocol-Version ${version}`))
+    const ctx = { store: w.store, assets: w.assets, engine: w.engine, skills: w.skills, version: APP_VERSION, localFiles: !!opts.localFiles }
+    const body = req.body
+    if (Array.isArray(body)) {
+      const answers = (await Promise.all(body.slice(0, 50).map((m) => handleMcpMessage(m, ctx)))).filter((x) => x !== null)
+      return answers.length ? reply.send(answers) : reply.code(202).send()
+    }
+    if (body === undefined || body === null || typeof body !== 'object') return reply.code(400).send(mcpError(-32700, 'Parse error: send one JSON-RPC message as application/json'))
+    const answer = await handleMcpMessage(body, ctx)
+    return answer === null ? reply.code(202).send() : reply.send(answer)
+  })
+  // no server-initiated stream, no sessions to end
+  app.get('/mcp', async (_req, reply) => reply.code(405).header('allow', 'POST').send(mcpError(-32000, 'Method not allowed')))
+  app.delete('/mcp', async (_req, reply) => reply.code(405).header('allow', 'POST').send(mcpError(-32000, 'Method not allowed')))
+  // MCP clients look for OAuth metadata here; there is none (keys come from the settings page)
+  app.get('/.well-known/*', async (_req, reply) => reply.code(404).send({ error: 'not found' }))
+
+  // 设置 → Agent 接入: turn agent access on / off, show or replace the key
+  const agentState = (req: FastifyRequest, token?: string) => {
+    if (opts.accounts) {
+      const info = opts.accounts.accounts.agentTokenInfo(req.user!.id)
+      return { mode: 'account', enabled: !!info, createdAt: info?.createdAt, lastUsed: info?.lastUsed, ...(token ? { token } : {}) }
+    }
+    const a = opts.agentAccess
+    return { mode: 'local', enabled: !!a?.enabled, token: a?.token(), localFiles: !!opts.localFiles, ...(opts.desktop ? { desktop: opts.desktop } : {}) }
+  }
+  app.get('/api/agent-access', async (req, reply) => {
+    ws(req)
+    if (!opts.accounts && !opts.agentAccess) return reply.code(404).send({ error: '这个部署没有开启 Agent 接入' })
+    return agentState(req)
+  })
+  app.post<{ Body: { action?: unknown } }>('/api/agent-access', async (req, reply) => {
+    ws(req)
+    const rotate = req.body?.action === 'rotate'
+    if (opts.accounts) return agentState(req, opts.accounts.accounts.createAgentToken(req.user!.id))
+    if (!opts.agentAccess) return reply.code(404).send({ error: '这个部署没有开启 Agent 接入' })
+    if (rotate) opts.agentAccess.rotate(); else opts.agentAccess.enable()
+    return agentState(req)
+  })
+  app.delete('/api/agent-access', async (req, reply) => {
+    ws(req)
+    if (opts.accounts) opts.accounts.accounts.revokeAgentToken(req.user!.id)
+    else if (opts.agentAccess) opts.agentAccess.disable()
+    else return reply.code(404).send({ error: '这个部署没有开启 Agent 接入' })
+    return reply.code(204).send()
   })
 
   // ---- static web UI (SPA fallback)

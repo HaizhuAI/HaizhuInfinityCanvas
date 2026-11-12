@@ -1,6 +1,6 @@
 {
   "name": "@hzc/desktop",
-  "version": "1.0.0-rc.15",
+  "version": "1.0.0-rc.16",
   "private": true,
   "description": "Haizhu Infinity Canvas desktop shell (Electron)",
   "author": "Haizhu",
@@ -9,7 +9,7 @@
     "start": "electron .",
     "package:dir": "electron-builder --dir",
     "package:dist": "electron-builder",
-    "typecheck": "node --check main.cjs",
+    "typecheck": "node --check main.cjs && node --check mcp-bridge.cjs",
     "test": "echo \"no desktop unit tests yet\""
   },
   "devDependencies": {
@@ -27,6 +27,7 @@
     "artifactName": "HaizhuInfinityCanvas-${version}-${os}-${arch}.${ext}",
     "files": [
       "main.cjs",
+      "mcp-bridge.cjs",
       "package.json",
       "build/icon.png"
     ],
@@ -73,6 +74,21 @@
     },
     "portable": {
       "artifactName": "HaizhuInfinityCanvas-${version}-${os}-${arch}-portable.${ext}"
+    },
+    "afterPack": "build/after-pack.cjs",
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.graphics-design",
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "artifactName": "HaizhuInfinityCanvas-${version}-mac-${arch}.${ext}"
     }
   },
   "homepage": "https://github.com/HaizhuAI/HaizhuInfinityCanvas",

@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # WebUI image: one self-contained server bundle + static web UI.
-FROM node:22-slim AS build
+# the build output is plain JavaScript: build once on the runner's own platform, for every target platform
+FROM --platform=$BUILDPLATFORM node:22-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 RUN corepack enable
 WORKDIR /app

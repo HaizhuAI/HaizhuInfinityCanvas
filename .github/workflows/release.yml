@@ -25,16 +25,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows on ARM runs the x64 build through Windows' own emulation
           - os: windows-latest
+            name: windows-x64
             flag: --win
             artifacts: |
               apps/desktop/release/*-setup.exe
               apps/desktop/release/*-portable.exe
           - os: ubuntu-latest
-            flag: --linux
+            name: linux-x64-arm64
+            flag: --linux --x64 --arm64
             artifacts: |
               apps/desktop/release/*.AppImage
               apps/desktop/release/*.deb
+          # Apple silicon runner: builds both Apple silicon and Intel; ad-hoc signed (not notarized)
+          - os: macos-latest
+            name: macos-arm64-x64
+            flag: --mac --arm64 --x64
+            artifacts: |
+              apps/desktop/release/*.dmg
+              apps/desktop/release/*-mac-*.zip
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -59,6 +69,8 @@ jobs:
             ~/.cache/electron-builder
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
           key: electron-dl-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: electron-dl-${{ runner.os }}-
       - name: Package desktop app
@@ -82,6 +94,8 @@ jobs:
             ~/.cache/electron-builder
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
           # a failed build saves what it got under a per-run key; restore-keys picks the newest
           key: electron-dl-${{ runner.os }}-${{ steps.pack.outcome == 'success' && hashFiles('pnpm-lock.yaml') || format('partial-{0}-{1}', github.run_id, github.run_attempt) }}
       # start the packaged app: it must launch its server, load the UI and seal the API-key master key
@@ -95,6 +109,8 @@ jobs:
           grep -q 'window ready, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
           # the server was killed on purpose: the app restarted it and showed its UI again
           grep -q 'after server restart, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
+          # an MCP client (Claude Code) reaches the canvas through the bridge, run by the app's own executable
+          grep -q 'mcp bridge ok' "$HZC_SMOKE_OUT"
       - name: Launch test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -107,6 +123,26 @@ jobs:
           if (Test-Path $env:HZC_SMOKE_OUT) { Get-Content $env:HZC_SMOKE_OUT } else { throw 'no smoke output' }
           if (-not (Select-String -Path $env:HZC_SMOKE_OUT -Pattern 'window ready, brand="Haizhu Infinity Canvas' -Quiet)) { throw 'the app did not show its UI' }
           if (-not (Select-String -Path $env:HZC_SMOKE_OUT -Pattern 'after server restart, brand="Haizhu Infinity Canvas' -Quiet)) { throw 'the app did not recover from a server crash' }
+          if (-not (Select-String -Path $env:HZC_SMOKE_OUT -Pattern 'mcp bridge ok' -Quiet)) { throw 'the MCP bridge did not answer' }
+      - name: Launch test (macOS, Apple silicon build)
+        if: runner.os == 'macOS'
+        run: |
+          APP="$(ls -d apps/desktop/release/mac-arm64/*.app | head -1)"
+          codesign --verify --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Signature|Identifier' || true
+          BIN="$APP/Contents/MacOS/$(ls "$APP/Contents/MacOS" | head -1)"
+          export HZC_SMOKE=1 HZC_SMOKE_RESTART=1 HZC_SMOKE_OUT="$RUNNER_TEMP/smoke.txt"
+          # no `timeout` on macOS: perl's alarm ends a hung app
+          perl -e 'alarm shift; exec @ARGV' 150 "$BIN" || true
+          cat "$HZC_SMOKE_OUT"
+          grep -q 'window ready, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
+          grep -q 'after server restart, brand="Haizhu Infinity Canvas' "$HZC_SMOKE_OUT"
+          grep -q 'mcp bridge ok' "$HZC_SMOKE_OUT"
+          # the Intel build is there too
+          ls -d apps/desktop/release/mac/*.app
+      - name: List packages
+        shell: bash
+        run: ls -la apps/desktop/release | grep -Ei '\.(exe|appimage|deb|dmg|zip)$' || true
       - name: Both Windows packages exist (installer and portable must not overwrite each other)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -116,7 +152,7 @@ jobs:
           if (-not (Test-Path apps/desktop/release/*-portable.exe)) { throw 'portable exe missing' }
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.os }}
+          name: desktop-${{ matrix.name }}
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
           retention-days: 30
@@ -157,6 +193,26 @@ jobs:
           for i in $(seq 1 30); do curl -sf localhost:8787/api/health >/dev/null && break; sleep 1; done
           curl -s -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8787/api/projects | grep -q '"name":"ci"'
           docker rm -f hzc
+      - name: MCP over HTTP in the image (agent key from the settings API)
+        run: |
+          docker run -d --name mcp -e HZC_TOKEN=ci-token-0123456789abcdef -p 8790:8787 haizhu-infinity-canvas:ci
+          for i in $(seq 1 30); do curl -sf localhost:8790/api/health >/dev/null && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}' localhost:8790/mcp)" = 401
+          KEY=$(curl -sf -X POST -H 'x-hzc-token: ci-token-0123456789abcdef' -H 'content-type: application/json' -d '{"action":"enable"}' localhost:8790/api/agent-access | sed -E 's/.*"token":"([^"]+)".*/\1/')
+          curl -sf -X POST -H "authorization: Bearer $KEY" -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_project","arguments":{"name":"from-agent"}}}' localhost:8790/mcp | grep -q 'project_id'
+          curl -sf -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8790/api/projects | grep -q 'from-agent'
+          docker rm -f mcp
+      - name: Build and start the arm64 image (QEMU)
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --use --name multi >/dev/null
+          docker buildx build --platform linux/arm64 -t haizhu-infinity-canvas:arm64 --load .
+          docker run -d --name arm --platform linux/arm64 -e HZC_TOKEN=ci-token-0123456789abcdef -p 8791:8787 haizhu-infinity-canvas:arm64
+          for i in $(seq 1 90); do curl -sf localhost:8791/api/health >/dev/null && break; sleep 1; done
+          curl -sf localhost:8791/api/health
+          docker exec arm node -p 'process.arch' | grep -q arm64
+          docker rm -f arm
       - name: Smoke test image in accounts mode (multi-user website)
         run: |
           # without HZC_ALLOWED_HOSTS a public accounts deployment must refuse to start

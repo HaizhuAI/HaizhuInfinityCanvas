@@ -4,6 +4,78 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.16] — 2026-11-12 (release candidate, code complete, not tagged)
+
+"Agent access and installers for every system": as you asked, the MCP server for outside agents — planned for after 1.1 — is done now. The desktop app can be added to Claude Code like a local MCP server, so Claude can orchestrate workflows on the canvas. macOS and Linux arm64 installers are added too. The former rc.16 "timeline, groups and batches" moves to rc.17.
+
+### Added
+- **Canvas MCP server** (`POST /mcp`, Streamable HTTP, protocol versions 2025-11-25 / 2025-06-18 / 2025-03-26) with 17 tools:
+  - list and create canvases; read a canvas (nodes, params, models, wires, result summaries);
+  - node types and the params they accept; model profiles and skills (never API keys);
+  - add many nodes and wires in one call, checked like the canvas assistant's plans (port types, one wire per single input, no cycles, known params only); change or delete nodes and wires;
+  - upload assets from a local file path or base64, straight into an input node or a subject's pictures;
+  - get the prompt-writing rules for the target model;
+  - estimate, run (optionally only some nodes), wait, stop;
+  - read full results (with local file paths), look at images and video keyframes (the agent sees the pictures), pick a variation.
+
+  On initialize the server tells the agent the recommended workflow.
+- **Show the cost before spending**: when paid models would be called, `run` only returns the number of calls and the estimate. It starts only with `confirm_cost: true`. Unchanged nodes reuse cached results and are not paid for twice.
+- **Desktop: one command adds it to Claude Code.** Settings → Agent 接入 shows a `claude mcp add …` command and a `.mcp.json` snippet once access is switched on.
+  - Claude Code runs the bridge script `haizhu-mcp.cjs` with the app's own executable in Node mode, so no separate Node.js install is needed.
+  - The bridge finds the running app even though its port changes every launch, and **opens the app when it isn't running**.
+  - It reads the access key from the data folder (readable by your OS user only), so there is nothing to copy.
+  - The script is copied to the user folder at every start, so the command keeps working after updates.
+- **WebUI / Docker / multi-user site**: connect over HTTP with a key. The settings page gives the command with address and key filled in; the key is masked on screen. In accounts mode each account gets its own key, which is stored only as a hash and shown once. An agent sees only that account's canvases.
+- **Editing alongside the page**:
+  - An agent's changes appear on the open canvas live (`GET /api/events`) and are merged with the page's unsaved edits node by node and field by field. When both sides changed the same field, the page wins.
+  - Saves carry the canvas revision: if the canvas changed elsewhere, the page merges first, so nothing is overwritten. Two tabs editing the same canvas benefit too.
+  - Runs started by an agent show their progress and results on the page. Opening a canvas the agent is running picks up the progress.
+- **macOS installers**: a `.dmg` (plus `.zip`) each for Apple silicon and Intel. They are ad-hoc signed, with no Apple Developer ID and no notarization, so the first launch needs right-click → Open. The API-key master key is kept in Keychain.
+- **Linux arm64**: AppImage and `.deb`.
+- **Docker image**: the build stage runs once on the runner's own architecture; the arm64 image is built and started in CI.
+- Docs: [Agent access (MCP) guide](./docs/03-guide/agent-mcp.md) (Chinese); the install notes now cover all three systems and how to open the app on macOS the first time.
+- API: `/mcp`, `GET|POST|DELETE /api/agent-access`, `GET /api/events`, `GET /api/projects/:id/run`. `PUT /api/projects/:id` accepts `baseRev`; if it is stale the server answers 409 with the current canvas.
+
+### Changed
+- The canvas "tidy" layout function moved to the shared package, so nodes added by an agent are laid out the same way as on the page.
+- A canvas's updated-at time doubles as its revision and now always moves strictly forward.
+- Installer pipeline:
+  - New macOS job: verifies the signature, then launches the app.
+  - Linux builds both x64 and arm64.
+  - Every desktop launch test now switches agent access on and runs the bridge with the app's own executable: initialize, tools/list and one tool call.
+  - The Docker job adds an HTTP MCP smoke test and builds and starts the arm64 image.
+- Roadmap: rc.17 "timeline, groups and batches", rc.18 "consistency and review", rc.19 "assistant and apps". The canvas MCP server planned for 1.3 is done.
+- New E2E suite mcp-flow; CI now runs seventeen E2E suites.
+
+### Verified
+- Locally: typecheck passes; 225 unit / integration tests (core 40, server 185).
+  - Three-way merge: additions from both sides are kept; the same node merges field by field with the page winning; deleted on one side and untouched on the other is deleted; deleted on one side and edited on the other keeps the edit; for a single-wire input the page's wire wins.
+  - MCP access:
+    - refused with an explanation while switched off; a wrong key gets 401;
+    - an old key stops working after the key is replaced or access is switched off;
+    - protocol versions are negotiated; a notification gets 202;
+    - a cross-site Origin gets 403, an unsupported protocol version 400 and GET 405.
+  - MCP tools:
+    - create a canvas and add nodes; a bad wire is refused and nothing is saved, and an unknown param gets a note;
+    - read the canvas;
+    - a paid run needs confirmation and then completes;
+    - read results with local paths and view the image;
+    - changing a prompt re-runs only that node; delete nodes and wires;
+    - upload a local file as an input node and as a subject's picture; a relative path is refused;
+    - a video node gets the Seedance writing rules.
+  - Saving from a stale revision gets 409 with the current canvas.
+  - In accounts mode, two accounts' keys each see only their own canvases; a wrong key gets 401.
+- With the real Claude Code CLI (2.1.322), in a separate config folder:
+  - added both through the desktop bridge (stdio) and over HTTP; `claude mcp list` shows both Connected;
+  - the locally packaged Linux desktop app passes its launch test under a virtual display: UI, automatic recovery from a server crash, and 17 tools through the bridge;
+  - with the app closed, the bridge opened it and completed the call.
+- Seventeen E2E suites all pass, plus the screenshot script. The new mcp-flow suite: switch agent access on in Settings, and the page shows the Claude Code command with the key masked → nodes added over MCP appear on the open page without a reload → the person types in one node while the agent changes another; after saving, both changes are there → a paid run first asks for confirmation; once confirmed, the agent's run progress and result show on the page. `pnpm audit` reports no known vulnerabilities.
+- GitHub Actions: added after the push.
+
+### Not verified yet
+- A full conversation in Claude Code that calls real paid models. Locally only the connection and tool calls were checked, with models replaced by a local mock.
+- The macOS package was launched only on CI's Apple silicon machine. The Intel Mac and Linux arm64 packages are cross-built and have not run on that hardware. The Windows bridge command is checked in CI but has not been added to Claude Code on a real machine.
+
 ## [1.0.0-rc.15] — 2026-11-12 (release candidate, code complete, not tagged)
 
 "References and storyboard": keep the same character, product or scene consistent across shots, and edit a storyboard like a table. These are the "references and consistency" and "storyboard and timeline" patterns from the research (Flow's ingredients and characters, Jimeng's subject nodes, LibTV's subject library and editable shot table, LTX's Elements), built this project's own way.

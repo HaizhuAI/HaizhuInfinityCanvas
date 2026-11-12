@@ -123,6 +123,9 @@ const GUIDES: Record<PromptFamily, string[]> = {
   image: ['主体与外观细节在前，再写场景、构图、光线与风格；用具体的自然句子。', '画面里要出现的文字用引号原样写出。'],
 }
 
+/** the built-in writing rules for a model family (agents read them before writing a prompt) */
+export const promptGuide = (family: PromptFamily): string[] => [...GUIDES[family]]
+
 /** families whose models follow English best when the user leaves the language on auto */
 const ENGLISH_FIRST = new Set<PromptFamily>(['runway', 'flux', 'sd'])
 

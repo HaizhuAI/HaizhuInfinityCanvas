@@ -3,10 +3,10 @@
 | 产物 | 平台 | 打包 | 构建环境 | 首次产出 |
 | --- | --- | --- | --- | --- |
 | WebUI（源码运行） | 任意有 Node 22 的机器 | `pnpm build && node apps/server/dist/index.mjs`（单文件自包含，无需 node_modules），服务同时托管前端静态文件 | 本地/CI | beta.1 |
-| WebUI（容器） | Linux amd64/arm64 | Docker 镜像（多阶段构建，内含 FFmpeg） | GitHub Actions ubuntu | beta.1 骨架 / beta.5 含 FFmpeg |
+| WebUI（容器） | Linux amd64/arm64 | Docker 镜像（多阶段构建，内含 FFmpeg；构建阶段在 runner 本机架构上跑一次，arm64 镜像在 QEMU 下构建并启动验证） | GitHub Actions ubuntu | beta.1 骨架 / beta.5 含 FFmpeg / rc.16 arm64 验证 |
 | Windows 桌面 | Win10/11 x64 | electron-builder：NSIS 安装包 + portable `.exe` | **GitHub Actions `windows-latest`**（Windows 安装包需 Windows 环境构建，沙箱内不做） | beta.1 骨架 / beta.7 打磨 |
-| Linux 桌面 | x64 | electron-builder：AppImage + `.deb` | GitHub Actions `ubuntu-latest` | beta.1 骨架 / beta.7 打磨 |
-| macOS | arm64/x64 | dmg | — | v2.0 |
+| Linux 桌面 | x64 / arm64 | electron-builder：AppImage + `.deb` | GitHub Actions `ubuntu-latest`（arm64 交叉打包） | beta.1 骨架 / beta.7 打磨 / rc.16 arm64 |
+| macOS 桌面 | arm64 / x64 | electron-builder：dmg + zip（临时签名，未公证） | GitHub Actions `macos-latest`（Apple 芯片） | rc.16 |
 
 ## 流水线（beta.1 建立）
 
@@ -21,9 +21,11 @@
 
 ## 启动测试（rc.1 起）
 
-`Build installers` 流水线在打包后真正启动应用：Linux 在虚拟显示（xvfb）下运行 `linux-unpacked`，Windows 在 `windows-latest` 上运行 `win-unpacked` 里的程序。应用以 `HZC_SMOKE=1` 启动内置服务、加载界面、把结果写到 `HZC_SMOKE_OUT` 文件后退出；找不到「window ready」即判定失败。
+`Build installers` 流水线在打包后真正启动应用：Linux 在虚拟显示（xvfb）下运行 `linux-unpacked`，Windows 在 `windows-latest` 上运行 `win-unpacked` 里的程序，macOS 在 `macos-latest` 上运行 Apple 芯片版（先校验签名）。应用以 `HZC_SMOKE=1` 启动内置服务、加载界面、把结果写到 `HZC_SMOKE_OUT` 文件后退出；找不到「window ready」即判定失败。
+
+rc.16 起冒烟测试还会：故意杀掉后台服务，确认应用自动重启它并重新显示界面；打开 Agent 接入，用应用自己的程序（Node 模式）运行 MCP 桥接脚本，完成 initialize、tools/list 和一次工具调用（「mcp bridge ok」）。arm64 Linux 包与 Intel Mac 包是交叉打包的，没有在对应硬件上启动过。
 
 ## 本地验证边界（诚实声明）
 
 当前开发在 Linux 云沙箱中进行，可验证：WebUI 构建与运行、服务 API、前端 E2E（预装 Chromium）、Linux 桌面包的构建。
-**不能在沙箱内验证**：Windows 安装包的构建与安装、Linux 桌面包在真实桌面环境中的启动（无显示服务，可用 xvfb 做冒烟）。这两项由 CI 构建 + 你在真机上测试覆盖。
+**不能在沙箱内验证**：Windows / macOS 安装包的构建与安装、Linux 桌面包在真实桌面环境中的启动（无显示服务，可用 xvfb 做冒烟）。这些由 CI 构建与启动测试 + 你在真机上测试覆盖。

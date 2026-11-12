@@ -3,8 +3,8 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, pickCompareWinner, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
-import { api, auth, markBooted, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
+import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { ApiError, CLIENT_ID, api, auth, markBooted, type ChangeEvent, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
 import { setViewPref, viewPref } from './theme'
@@ -33,7 +33,7 @@ const withDefaultProfile = (n: CanvasNode, profiles: ModelProfilePublic[]): Canv
   n.data.profileId || !NODE_TYPE_MAP[n.type ?? '']?.modelKind ? n : { ...n, data: { ...n.data, profileId: defaultProfileFor(n.type, profiles) } }
 
 export interface Toast { id: number; text: string; tone?: 'info' | 'error'; action?: { label: string; run: () => void } }
-export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'account' | 'about'
+export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'account' | 'agent' | 'about'
 export interface SettingsIntent { tab?: SettingsTab; addKind?: ModelKind }
 /** one turn of the canvas assistant conversation */
 export interface AssistantTurn { role: 'user' | 'assistant'; content: string; plan?: Plan | null; warnings?: string[]; applied?: string[]; error?: boolean }
@@ -66,6 +66,31 @@ const fromGraph = (g: ProjectGraph) => ({
   nodes: g.nodes.map((n): CanvasNode => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
   edges: g.edges.map((e): Edge => ({ ...e })),
 })
+
+/**
+ * What the server last confirmed for the open canvas: its graph and revision. Edits made elsewhere
+ * (an agent over MCP, another tab) are merged against this base; saves send the revision so a save
+ * never overwrites a change it has not seen.
+ */
+const sync: { projectId: string | null; base: ProjectGraph; rev: string; pull: boolean } = { projectId: null, base: { version: 1, nodes: [], edges: [] }, rev: '', pull: false }
+let lastAgentToast = 0
+
+/** the merged canvas on screen: unchanged nodes and wires keep their objects (no re-render, selection kept) */
+function adoptGraph(g: ProjectGraph, nodes: CanvasNode[], edges: Edge[]) {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const eById = new Map(edges.map((e) => [e.id, e]))
+  return {
+    nodes: g.nodes.map((n): CanvasNode => {
+      const cur = byId.get(n.id)
+      if (cur && cur.type === n.type && same(cur.position, n.position) && same(cur.data, n.data)) return cur
+      return cur ? { ...cur, type: n.type, position: n.position, data: n.data } : { id: n.id, type: n.type, position: n.position, data: n.data }
+    }),
+    edges: g.edges.map((e): Edge => {
+      const cur = eById.get(e.id)
+      return cur && cur.source === e.source && cur.target === e.target && cur.sourceHandle === e.sourceHandle && cur.targetHandle === e.targetHandle ? cur : { ...e }
+    }),
+  }
+}
 
 export interface State {
   profiles: ModelProfilePublic[]
@@ -219,6 +244,12 @@ export interface State {
   saveFrame: (assetId: string, t: number, nearNodeId?: string) => Promise<string | undefined>
   dismissPendingRun: () => void
   cancelRun: () => Promise<void>
+  /** show a run's progress (one started here, or by an agent on this canvas) */
+  followRun: (runId: string) => Promise<void>
+  /** bring in what changed on the server (an agent's edit), merged with the edits on screen */
+  pullCanvas: (agent?: boolean) => Promise<void>
+  /** listen for changes made elsewhere while this page is open */
+  watchChanges: () => void
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -503,13 +534,18 @@ export const useStore = create<State>((set, get) => ({
     if (projects[0]) await get().openProject(projects[0].id)
     else await get().newProject()
     markBooted() // from now on a lost session means "sign in again", not "show the front page"
+    get().watchChanges()
   },
 
   async openProject(id) {
     const [p, outs] = await Promise.all([api.getProject(id), api.outputs(id)])
     const runStates: Record<string, NodeRunState> = {}
     for (const o of outs) runStates[o.nodeId] = { status: 'done', outputs: o.outputs, finishedAt: o.finishedAt, versions: o.versions }
+    Object.assign(sync, { projectId: p.id, base: p.graph, rev: p.updatedAt, pull: false })
     set({ projectId: p.id, projectName: p.name, ...fromGraph(p.graph), saveState: 'saved', saveFailures: 0, saveBlocked: false, runStates, runId: null, versionLists: {}, runNodeIds: [], assistantTurns: loadTurns(p.id), assistantBusy: false })
+    // an agent may be running this canvas right now
+    const running = await api.activeRun(p.id).catch(() => null)
+    if (running?.runId && get().projectId === p.id && !get().runId) void get().followRun(running.runId)
     // edits that never reached the server last time (it was down, or the page closed first)
     const draft = readDraft(p.id)
     if (draft && (draft.name !== p.name || !sameGraph(draft.graph, p.graph))) {
@@ -542,13 +578,27 @@ export const useStore = create<State>((set, get) => ({
     const graph = toGraph(nodes, edges)
     set({ saveState: 'saving' })
     try {
-      await api.saveProject(projectId, { name: projectName, graph })
+      let saved
+      try {
+        saved = await api.saveProject(projectId, { name: projectName, graph, baseRev: sync.projectId === projectId ? sync.rev : undefined })
+      } catch (e) {
+        // changed elsewhere since we last saw it: merge, then save the merged canvas
+        const cur = e instanceof ApiError && e.status === 409 ? (e.data as { project?: { graph: ProjectGraph; updatedAt: string } } | undefined)?.project : undefined
+        if (!cur || get().projectId !== projectId) throw e
+        const merged = mergeGraphs(sync.base, toGraph(get().nodes, get().edges), cur.graph)
+        Object.assign(sync, { base: cur.graph, rev: cur.updatedAt })
+        set((st) => adoptGraph(merged, st.nodes, st.edges))
+        saved = await api.saveProject(projectId, { name: get().projectName, graph: merged, baseRev: cur.updatedAt })
+        Object.assign(sync, { base: merged, rev: saved.updatedAt })
+      }
+      if (sync.projectId === projectId && saved.updatedAt !== sync.rev) Object.assign(sync, { base: graph, rev: saved.updatedAt })
       clearDraft(projectId)
       const recovered = get().saveFailures > 0
       // an edit made while this save was on its way marked the canvas dirty again: keep it that way
       set({ saveState: get().saveState === 'dirty' ? 'dirty' : 'saved', saveFailures: 0, saveBlocked: false })
       // replaces the "save failed" message, which would otherwise still be on screen
       if (recovered) get().showToast('连接已恢复，修改已保存')
+      if (sync.pull) { sync.pull = false; void get().pullCanvas(true) }
     } catch (e) {
       // the work is kept in this browser until a save succeeds
       const kept = get().projectId === projectId && writeDraft(projectId, projectName, graph)
@@ -629,7 +679,16 @@ export const useStore = create<State>((set, get) => ({
         if (paid) { set({ pendingRun: { nodeIds, force, estimate } }); return }
       }
       const { runId } = await api.run(projectId, { nodeIds, force })
-      set({ runId })
+      await get().followRun(runId)
+    } catch (e) {
+      set({ runId: null })
+      get().showToast(`运行失败：${(e as Error).message}`)
+    }
+  },
+
+  async followRun(runId) {
+    set({ runId })
+    try {
       await api.streamRun(runId, (e) => {
         if (get().runId !== runId) return
         if (e.kind === 'run-start') set({ runNodeIds: e.nodeIds })
@@ -661,9 +720,57 @@ export const useStore = create<State>((set, get) => ({
         }
       })
     } catch (e) {
-      set({ runId: null })
+      if (get().runId === runId) set({ runId: null })
       get().showToast(`运行失败：${(e as Error).message}`)
     }
+  },
+
+  async pullCanvas(agent) {
+    const projectId = get().projectId
+    if (!projectId || sync.projectId !== projectId) return
+    // a save on its way either succeeds (and the change is pulled after it) or is refused and merges
+    if (get().saveState === 'saving') { sync.pull = true; return }
+    const p = await api.getProject(projectId).catch(() => null)
+    if (!p || get().projectId !== projectId || p.updatedAt === sync.rev) return
+    const mine = toGraph(get().nodes, get().edges)
+    const merged = mergeGraphs(sync.base, mine, p.graph)
+    Object.assign(sync, { base: p.graph, rev: p.updatedAt })
+    const local = get().saveState === 'dirty' || get().saveState === 'error'
+    set((st) => ({ ...adoptGraph(merged, st.nodes, st.edges), saveState: local && !same(merged, p.graph) ? 'dirty' : st.saveState === 'error' ? 'dirty' : st.saveState }))
+    if (agent && Date.now() - lastAgentToast > 8000) { lastAgentToast = Date.now(); get().showToast('Agent 修改了画布') }
+  },
+
+  watchChanges() {
+    let delay = 1000
+    const onEvent = (e: ChangeEvent) => {
+      delay = 1000
+      const st = get()
+      if (e.kind === 'projects') { void api.listProjects().then((projects) => set({ projects })).catch(() => undefined); return }
+      if (e.projectId !== st.projectId) { if (e.kind === 'project') void api.listProjects().then((projects) => set({ projects })).catch(() => undefined); return }
+      if (e.kind === 'project' && e.source !== CLIENT_ID && e.rev !== sync.rev) void get().pullCanvas(e.source === 'agent')
+      if (e.kind === 'run' && st.runId !== e.runId) {
+        if (e.source === 'agent') get().showToast('Agent 开始运行画布')
+        void get().followRun(e.runId)
+      }
+      if (e.kind === 'outputs') {
+        void api.outputs(e.projectId).then((outs) => {
+          if (get().projectId !== e.projectId) return
+          set((s2) => {
+            const runStates = { ...s2.runStates }
+            for (const o of outs) if (e.nodeIds.includes(o.nodeId)) runStates[o.nodeId] = { ...runStates[o.nodeId], status: 'done', outputs: o.outputs, finishedAt: o.finishedAt, versions: o.versions }
+            return { runStates, versionLists: Object.fromEntries(Object.entries(s2.versionLists).filter(([k]) => !e.nodeIds.includes(k))) }
+          })
+        }).catch(() => undefined)
+      }
+    }
+    const connect = () => {
+      void api.streamChanges(onEvent).catch(() => undefined).finally(() => {
+        // dropped (server restarted, network): reconnect, and catch up on what was missed meanwhile
+        setTimeout(() => { connect(); void get().pullCanvas() }, delay)
+        delay = Math.min(30_000, delay * 2)
+      })
+    }
+    connect()
   },
 
   async cancelRun() {

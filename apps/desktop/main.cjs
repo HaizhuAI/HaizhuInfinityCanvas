@@ -118,6 +118,67 @@ function smokeLog(line) {
   if (process.env.HZC_SMOKE_OUT) try { fs.appendFileSync(process.env.HZC_SMOKE_OUT, `${line}\n`) } catch { /* ignore */ }
 }
 
+/**
+ * Claude Code and other MCP clients start the bridge with this app's own executable in Node mode
+ * (ELECTRON_RUN_AS_NODE=1 <exe> <bridge>). The bridge is copied out of the app to a fixed place in
+ * the user folder at every start, so the command stays valid across updates. An AppImage runs from its
+ * own file and a portable Windows build from its .exe (both unpack to a new folder each launch).
+ */
+function installBridge() {
+  const kind = process.env.APPIMAGE ? 'appimage' : process.env.PORTABLE_EXECUTABLE_FILE ? 'portable' : isPackaged ? 'installed' : 'dev'
+  const exe = process.env.APPIMAGE || process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
+  const bridge = path.join(app.getPath('userData'), 'mcp', 'haizhu-mcp.cjs')
+  try {
+    const src = fs.readFileSync(path.join(__dirname, 'mcp-bridge.cjs'))
+    let cur = null
+    try { cur = fs.readFileSync(bridge) } catch { /* not there yet */ }
+    if (!cur || !cur.equals(src)) {
+      fs.mkdirSync(path.dirname(bridge), { recursive: true })
+      fs.writeFileSync(`${bridge}.tmp`, src)
+      fs.renameSync(`${bridge}.tmp`, bridge)
+    }
+    return { exe, bridge, kind }
+  } catch (e) {
+    smokeLog(`[mcp] could not install the bridge: ${e && e.message}`)
+    return null
+  }
+}
+
+/** smoke test: talk to the app through the bridge the way Claude Code does */
+async function smokeBridge(info, o, token) {
+  if (!info) return smokeLog('[smoke] mcp bridge missing')
+  const call = (method, body) => fetch(`${o}/api/agent-access`, { method, headers: { 'x-hzc-token': token, 'content-type': 'application/json' }, body: body && JSON.stringify(body) })
+  await call('POST', { action: 'enable' })
+  const out = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [info.bridge], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', HZC_MCP_NO_LAUNCH: '1' }, stdio: ['pipe', 'pipe', 'pipe'] })
+    let buf = ''
+    const lines = []
+    const timer = setTimeout(() => { child.kill(); resolve(lines) }, 30000)
+    child.stdout.on('data', (d) => {
+      buf += d
+      let i
+      while ((i = buf.indexOf('\n')) >= 0) { lines.push(buf.slice(0, i)); buf = buf.slice(i + 1) }
+      if (lines.length >= 3) { clearTimeout(timer); child.stdin.end(); resolve(lines) }
+    })
+    child.stderr.on('data', (d) => smokeLog(`[mcp-bridge] ${String(d).trim()}`))
+    const send = (m) => child.stdin.write(`${JSON.stringify(m)}\n`)
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } } })
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+    send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_projects', arguments: {} } })
+  })
+  await call('DELETE')
+  try {
+    const byId = Object.fromEntries(out.map((l) => JSON.parse(l)).map((m) => [m.id, m]))
+    const tools = byId[2].result.tools.length
+    const projects = JSON.parse(byId[3].result.content[0].text).projects
+    smokeLog(`[smoke] mcp bridge ok: ${byId[1].result.serverInfo.name}, ${tools} tools, ${projects.length} canvas(es)`)
+  } catch (e) {
+    smokeLog(`[smoke] mcp bridge failed: ${e && e.message}; got ${JSON.stringify(out).slice(0, 400)}`)
+  }
+}
+
+let bridgeInfo = null
 let keySource = 'file'
 let keyPrint = '' // fingerprint for the smoke log only, never the key
 
@@ -139,6 +200,8 @@ async function startServer() {
       HZC_DATA_DIR: dataDir,
       HZC_WEB_DIR: webDir,
       ...(master.key ? { HZC_MASTER_KEY: master.key } : {}),
+      // 设置 → Agent 接入 shows how an MCP client starts the bridge
+      ...(bridgeInfo ? { HZC_DESKTOP_EXE: bridgeInfo.exe, HZC_MCP_BRIDGE: bridgeInfo.bridge, HZC_DESKTOP_KIND: bridgeInfo.kind } : {}),
     },
     // the IPC channel lets the app ask the server to stop cleanly (Windows has no SIGTERM), and lets
     // the server notice when the app is gone
@@ -193,6 +256,7 @@ function stopServer() {
 }
 
 async function createWindow() {
+  bridgeInfo = installBridge()
   const { origin: o, token } = await startServer()
   mainWindow = new BrowserWindow({
     width: 1600, height: 960, minWidth: 1100, minHeight: 680, title: 'Haizhu Infinity Canvas',
@@ -217,6 +281,7 @@ async function createWindow() {
     // headless smoke test hook: report and quit
     const title = await mainWindow.webContents.executeJavaScript(`new Promise(r => setTimeout(() => r(document.querySelector('.topbar .brand')?.textContent ?? 'NO-UI'), 1500))`)
     smokeLog(`[smoke] window ready, brand="${title}", master key: ${keySource}${keyPrint ? ` (${keyPrint})` : ''}`)
+    await smokeBridge(bridgeInfo, o, token)
     if (process.env.HZC_SMOKE_RESTART === '1') {
       // kill the server on purpose: the app must bring it back and show its UI again
       const seen = reloads

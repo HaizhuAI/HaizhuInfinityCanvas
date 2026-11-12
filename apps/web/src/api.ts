@@ -52,8 +52,11 @@ export const setToken = (t: string) => { try { localStorage.setItem(TOKEN_KEY, t
 
 /** an API call that failed; `status` is 0 when the server could not be reached */
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message) }
+  constructor(message: string, readonly status: number, readonly data?: unknown) { super(message) }
 }
+
+/** this page, so changes it saved itself are not merged back in when they are announced */
+export const CLIENT_ID = (() => { try { return crypto.randomUUID() } catch { return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}` } })()
 
 /**
  * Accounts mode: an API answer of 401 { login: true } means there is no signed-in user. While the app
@@ -75,6 +78,7 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   if (body !== undefined) headers['content-type'] = 'application/json'
   const token = getToken()
   if (token) headers['x-hzc-token'] = token
+  headers['x-hzc-client'] = CLIENT_ID
   let res: Response
   try {
     res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -84,9 +88,10 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     let msg = res.statusText
     let login = false
-    try { const j = (await res.json()) as { error?: string; login?: boolean }; msg = j.error ?? msg; login = !!j.login } catch { /* ignore */ }
+    let data: unknown
+    try { const j = (await res.json()) as { error?: string; login?: boolean }; data = j; msg = j.error ?? msg; login = !!j.login } catch { /* ignore */ }
     if (res.status === 401 && login) needLogin()
-    throw new ApiError(`${res.status} ${msg}`, res.status)
+    throw new ApiError(`${res.status} ${msg}`, res.status, data)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
@@ -106,6 +111,19 @@ export function assetUrl(id: string) {
 export function bundleUrl(projectId: string) {
   const t = getToken()
   return `/api/projects/${encodeURIComponent(projectId)}/bundle${t ? `?t=${encodeURIComponent(t)}` : ''}`
+}
+
+/** 设置 → Agent 接入 */
+export interface AgentAccessState {
+  mode: 'local' | 'account'
+  enabled: boolean
+  /** local: always while enabled; account: only right after a new key was made */
+  token?: string
+  localFiles?: boolean
+  createdAt?: string
+  lastUsed?: string
+  /** the desktop app: how an MCP client starts the bridge */
+  desktop?: { exe: string; bridge: string; kind: string }
 }
 
 export interface BundleImport { project: Project; assets: number; missing: number; results: number }
@@ -146,7 +164,21 @@ async function uploadAsset(file: File): Promise<{ id: string; mime: string; size
 
 /** Reads the run's Server-Sent Events with fetch (EventSource cannot send the token header). */
 async function streamRun(runId: string, onEvent: (e: RunEvent) => void, signal?: AbortSignal) {
-  const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/events`, { headers: authHeaders(), signal })
+  return readSse(`/api/runs/${encodeURIComponent(runId)}/events`, onEvent, signal)
+}
+
+/** what changes in this workspace (an agent editing or running a canvas); ends when the connection drops */
+export type ChangeEvent =
+  | { kind: 'project'; projectId: string; rev: string; source?: string }
+  | { kind: 'run'; projectId: string; runId: string; source?: string }
+  | { kind: 'outputs'; projectId: string; nodeIds: string[] }
+  | { kind: 'projects' }
+async function streamChanges(onEvent: (e: ChangeEvent) => void, signal?: AbortSignal) {
+  return readSse('/api/events', onEvent, signal)
+}
+
+async function readSse<T>(url: string, onEvent: (e: T) => void, signal?: AbortSignal) {
+  const res = await fetch(url, { headers: authHeaders(), signal })
   if (!res.ok || !res.body) throw new Error(`事件流连接失败：${res.status}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
@@ -160,7 +192,7 @@ async function streamRun(runId: string, onEvent: (e: RunEvent) => void, signal?:
       const block = buf.slice(0, i)
       buf = buf.slice(i + 2)
       const line = block.split('\n').find((l) => l.startsWith('data: '))
-      if (line) onEvent(JSON.parse(line.slice(6)) as RunEvent)
+      if (line) onEvent(JSON.parse(line.slice(6)) as T)
     }
   }
 }
@@ -180,7 +212,7 @@ export const api = {
   listProjects: () => req<ProjectSummary[]>('GET', '/api/projects'),
   getProject: (id: string) => req<Project>('GET', `/api/projects/${id}`),
   createProject: (name: string, graph?: ProjectGraph) => req<Project>('POST', '/api/projects', { name, graph }),
-  saveProject: (id: string, patch: { name?: string; graph?: ProjectGraph }) => req<Project>('PUT', `/api/projects/${id}`, patch),
+  saveProject: (id: string, patch: { name?: string; graph?: ProjectGraph; baseRev?: string }) => req<Project>('PUT', `/api/projects/${id}`, patch),
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
   duplicateProject: (id: string, name?: string) => req<Project>('POST', `/api/projects/${id}/duplicate`, { name }),
   uploadAsset,
@@ -193,6 +225,7 @@ export const api = {
     req<{ prompt: string; family: string; familyLabel: string; skill?: string }>('POST', '/api/prompt/optimize', body),
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
+  activeRun: (projectId: string) => req<{ runId: string | null }>('GET', `/api/projects/${projectId}/run`),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
   system: (refresh = false) => req<SystemInfo>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),
   backups: () => req<BackupInfo[]>('GET', '/api/backups'),
@@ -206,6 +239,10 @@ export const api = {
   estimate: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<Estimate>('POST', `/api/projects/${projectId}/estimate`, body),
   cancelRun: (runId: string) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/cancel`),
   streamRun,
+  streamChanges,
+  agentAccess: () => req<AgentAccessState>('GET', '/api/agent-access'),
+  setAgentAccess: (action: 'enable' | 'rotate') => req<AgentAccessState>('POST', '/api/agent-access', { action }),
+  disableAgentAccess: () => req<void>('DELETE', '/api/agent-access'),
   outputs: (projectId: string) => req<{ nodeId: string; outputs: NodeOutputs; finishedAt: string; versions: number }[]>('GET', `/api/projects/${projectId}/outputs`),
   listVersions: (projectId: string, nodeId: string) => req<NodeVersion[]>('GET', `/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}/versions`),
   useVersion: (projectId: string, nodeId: string, seq: number) => req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('POST', `/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}/versions/${seq}/use`),

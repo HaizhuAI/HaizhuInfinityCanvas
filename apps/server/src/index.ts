@@ -1,12 +1,14 @@
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildApp, type AppOptions } from './app'
+import { APP_VERSION, buildApp, type AppOptions } from './app'
 import { Store } from './db'
 import { SecretBox } from './secrets'
 import { AssetStore } from './assets'
 import { Engine } from './engine'
 import { SkillStore } from './skills'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
+import { AgentAccess } from './agent'
+import { writeAtomic } from './fsutil'
 import { Backups } from './backup'
 import { ACCOUNT_TABLES, AccountStore, isSignupMode } from './accounts'
 import { smtpMailer } from './mail'
@@ -105,13 +107,26 @@ if (accountsMode) {
   const assets = new AssetStore(dataDir, store)
   const skills = new SkillStore(builtinSkills, dataDir)
   const engine = new Engine(store, assets, { skills, maxParallel })
-  appOpts = { ...common, store, assets, engine, skills, backups, recovery }
+  // agents (MCP): the access key lives in the data folder; on this machine they may read local files.
+  // The desktop app says how an MCP client starts its bridge (shown in 设置 → Agent 接入).
+  const desktop = process.env.HZC_DESKTOP_EXE && process.env.HZC_MCP_BRIDGE
+    ? { exe: process.env.HZC_DESKTOP_EXE, bridge: process.env.HZC_MCP_BRIDGE, kind: process.env.HZC_DESKTOP_KIND || 'installed' }
+    : undefined
+  appOpts = { ...common, store, assets, engine, skills, backups, recovery, agentAccess: new AgentAccess(dataDir), localFiles: loopback, desktop }
   closeData = () => { stopBackups(); store.close() }
 }
 const app = await buildApp(appOpts)
 
 await app.listen({ port, host })
 console.log(`[hzc] Haizhu Infinity Canvas listening on http://${host}:${port}  (data: ${dataDir})`)
+
+// where this server can be reached, for the desktop MCP bridge (it starts with Claude Code and finds the
+// running app here). Only for a single-user server on this machine; removed again on shutdown.
+const endpointFile = join(dataDir, 'agent-endpoint.json')
+const ownsEndpoint = !accountsMode && loopback
+if (ownsEndpoint) {
+  try { writeAtomic(endpointFile, JSON.stringify({ url: `http://127.0.0.1:${port}`, pid: process.pid, version: APP_VERSION }), 0o600) } catch (e) { console.error('[hzc] could not write agent-endpoint.json:', e) }
+}
 
 /**
  * Graceful shutdown: stop taking requests, let running ones finish, then close the database (which
@@ -124,6 +139,7 @@ async function shutdown(why: string, code = 0) {
   stopping = true
   console.log(`[hzc] shutting down (${why})`)
   const closeStore = () => { try { closeData() } catch { /* already closed */ } }
+  if (ownsEndpoint) try { rmSync(endpointFile, { force: true }) } catch { /* ignore */ }
   const force = setTimeout(() => { console.error('[hzc] shutdown took too long; exiting'); closeStore(); process.exit(code || 1) }, 10_000)
   force.unref()
   try { await app.close() } catch (e) { console.error('[hzc] closing the server failed:', e) }
