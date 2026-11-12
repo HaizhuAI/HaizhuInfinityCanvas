@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useReactFlow, useViewport } from '@xyflow/react'
-import { Blocks, BookMarked, Grid3x3, LayoutGrid, Map as MapIcon, ChevronLeft, ChevronRight, Download, Images, LayoutDashboard, Maximize, Minus, Plus, Redo2, Settings as SettingsIcon, Undo2, X } from 'lucide-react'
+import { Blocks, BookMarked, Camera, SquarePen, Grid3x3, LayoutGrid, Map as MapIcon, ChevronLeft, ChevronRight, Download, Images, LayoutDashboard, Maximize, Minus, Plus, Redo2, Settings as SettingsIcon, Undo2, X } from 'lucide-react'
 import type { NodeOutputs } from '@hzc/core'
 import { redo, undo } from './history'
 import { MOD } from './Overlays'
@@ -56,6 +56,8 @@ export function FloatingToolbar() {
   const minimap = useStore((s) => s.minimap)
   const snap = useStore((s) => s.snap)
   const toggleView = useStore((s) => s.toggleView)
+  const composerOpen = useStore((s) => s.composerOpen)
+  const setComposerOpen = useStore((s) => s.setComposerOpen)
   return (
     <div className="ftoolbar" role="toolbar" aria-label="画布工具">
       <button className={`btn ghost sm icon${minimap ? ' on' : ''}`} onClick={() => toggleView('minimap')} aria-pressed={minimap} aria-label="小地图" title={minimap ? '隐藏小地图' : '显示小地图'} data-testid="toggle-minimap"><MapIcon /></button>
@@ -72,6 +74,8 @@ export function FloatingToolbar() {
       <button className="btn ghost sm icon" onClick={() => tidyCanvas(fitView)} aria-label="整理画布" title="整理画布：从左到右排好（可撤销）" data-testid="tidy"><LayoutDashboard /></button>
       <span className="sep" />
       <button className="btn ghost sm" onClick={() => openPalette()} aria-label="快速添加"><Plus />添加 <kbd>/</kbd></button>
+      <span className="sep" />
+      <button className={`btn ghost sm${composerOpen ? ' on' : ''}`} onClick={() => setComposerOpen(!composerOpen)} aria-pressed={composerOpen} title={composerOpen ? '收起生成栏' : '打开生成栏：写一句话直接生成'} data-testid="toggle-composer"><SquarePen />生成栏</button>
     </div>
   )
 }
@@ -96,6 +100,8 @@ export function Lightbox() {
   const showToast = useStore((s) => s.showToast)
   const [idx, setIdx] = useState<number | null>(null) // null = the version in use
   const ref = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const saveFrame = useStore((s) => s.saveFrame)
   const asc = list && count >= 2 ? [...list].reverse() : undefined
   const curIdx = asc ? asc.findIndex((v) => JSON.stringify(v.outputs) === JSON.stringify(current)) : -1
   const shownIdx = idx ?? curIdx
@@ -131,11 +137,15 @@ export function Lightbox() {
           <button className="btn sm primary" disabled={running} data-testid="lightbox-use"
             onClick={() => { const v = asc[shownIdx]!; void switchTo(nodeId!, v.seq).then(() => { setIdx(null); showToast(`已切换到第 ${shownIdx + 1} 版`) }) }}>使用这一版</button>
         )}
+        {shown.mime.startsWith('video/') && (
+          <button className="btn sm" data-testid="lightbox-save-frame" title="把暂停处的画面保存成图片节点（可以作首帧、参考图）"
+            onClick={() => { const t = videoRef.current?.currentTime ?? 0; videoRef.current?.pause(); void saveFrame(shown.assetId, t, nodeId) }}><Camera />保存这一帧</button>
+        )}
         <a className="btn sm" href={url} download={lb.name ?? true}><Download />下载</a>
         <button className="btn sm icon" onClick={() => close(null)} aria-label="关闭预览"><X /></button>
       </div>
       <div className="lightbox-stage" onMouseDown={(e) => { if (e.target === e.currentTarget) close(null) }}>
-        {shown.mime.startsWith('video/') ? <video key={url} src={url} controls autoPlay /> : <img src={url} alt={lb.name ?? ''} />}
+        {shown.mime.startsWith('video/') ? <video ref={videoRef} key={url} src={url} controls autoPlay /> : <img src={url} alt={lb.name ?? ''} />}
       </div>
     </div>
   )

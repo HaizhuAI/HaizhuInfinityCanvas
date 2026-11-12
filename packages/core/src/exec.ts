@@ -122,6 +122,8 @@ export interface EstimateItem {
   cached: boolean
   /** calls a paid generation API (image / video / speech) */
   generative: boolean
+  /** provider calls this node makes per run (variations); the cost below already covers all of them */
+  count?: number
   cost?: { amount: number; currency: string } | null
 }
 

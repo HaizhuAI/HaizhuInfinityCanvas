@@ -153,6 +153,8 @@ const REVERSED = '### 1. 正向 Prompt\n\n中文：清晨的高山湖泊，三�
 
   // ---- the app
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: SCALE, colorScheme: 'dark' })
+  // the generate bar stays closed in the canvas shots (it has a shot of its own)
+  await page.addInitScript(() => { try { localStorage.setItem('hzc.composer', 'off') } catch { /* blocked */ } })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   let offline = false // while the server is made unreachable on purpose, the browser logs the failed requests
@@ -240,6 +242,16 @@ const REVERSED = '### 1. 正向 Prompt\n\n中文：清晨的高山湖泊，三�
   await node('反推参考图').locator('.ntitle').click()
   await page.waitForSelector('[data-testid="reverse-skill-info"]')
   await shot('reverse-skill', '反推节点使用导入的 Skill：正向提示词与负面词分别输出')
+
+  // the generate bar: one sentence, the selected picture comes along as the first frame
+  await node('灯塔 · 画面').locator('.ntitle').click()
+  await page.click('[data-testid="toggle-composer"]')
+  await page.click('[data-testid="composer-kind-video"]')
+  await page.fill('[data-testid="composer-prompt"]', '镜头从灯塔缓慢拉远，海浪拍打礁石，黄昏的光一点点暗下去')
+  await page.waitForSelector('.cmp-ref:has-text("首帧")')
+  await shot('composer', '生成栏：一句话 + 模型、比例、时长、数量，选中的图片自动作为首帧；生成的结果是画布上的普通节点')
+  await page.fill('[data-testid="composer-prompt"]', '')
+  await page.click('[data-testid="toggle-composer"]')
 
   // 3. multi-model comparison on the picture
   await node('灯塔 · 画面').locator('.ntitle').click({ button: 'right' })

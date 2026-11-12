@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, topoOrder,
+  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, topoOrder, variationCount,
   type Estimate, type EstimateItem, type GraphNode, type NodeOutputs, type NodeRunState, type ProjectGraph, type RunEvent,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
@@ -129,9 +129,11 @@ export class Engine {
       const cached = !upstreamUnknown && !force && !!stored && stored.cacheKey === this.cacheKey(graph, nodeId, collectInputs(edges, nodeId, sim))
       if (cached) sim.set(nodeId, stored!.outputs); else unknown.add(nodeId)
       const profile = node.data.profileId ? this.store.getProfile(node.data.profileId) : undefined
+      const count = node.type === 'image-gen' || node.type === 'video-gen' ? variationCount(node.data.params?.count) : 1
+      const cost = profile?.cost ? { amount: Math.round(profile.cost.amount * count * 10000) / 10000, currency: profile.cost.currency } : null
       items.push({
         nodeId, type: node.type, label: node.data.label ?? NODE_TYPE_MAP[node.type]?.label ?? node.type,
-        profileName: profile?.name, cached, generative: GENERATIVE_TYPES.has(node.type), cost: profile?.cost ?? null,
+        profileName: profile?.name, cached, generative: GENERATIVE_TYPES.has(node.type), count, cost,
       })
     }
     const totals: Record<string, number> = {}

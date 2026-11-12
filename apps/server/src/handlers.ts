@@ -1,5 +1,5 @@
 import {
-  ASPECT_RATIOS, extractJson, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
+  ASPECT_RATIOS, extractJson, variationCount, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
   DEFAULT_VLM_INSTRUCTION, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, pickReversed, reversePromptInstruction, splitReversedPrompt, valuesOfType, valuesToText,
   type GraphNode, type ModelProfile, type ProjectGraph, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
 } from '@hzc/core'
@@ -157,6 +157,24 @@ async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; 
   return assets.map((a) => ({ type: want, assetId: a.id, mime: a.mime }) as PortValue)
 }
 
+/**
+ * `params.count` independent generations of one node, side by side. Each is its own provider job with
+ * its own resume key (the first keeps the node's key, so a count of 1 behaves exactly as before);
+ * what succeeded is kept when others fail.
+ */
+async function variants(ctx: HandlerCtx, one: (c: HandlerCtx) => Promise<PortValue[]>): Promise<PortValue[]> {
+  const n = variationCount(ctx.node.data.params?.count)
+  if (n === 1) return one(ctx)
+  const settled = await Promise.allSettled(Array.from({ length: n }, (_, i) => one({
+    ...ctx,
+    job: { ...ctx.job, cacheKey: i ? `${ctx.job.cacheKey}#v${i + 1}` : ctx.job.cacheKey, report: (p: string) => ctx.job.report(`${i + 1}/${n} · ${p}`) },
+  })))
+  if (ctx.signal.aborted) throw ctx.signal.reason ?? new Error('aborted')
+  const ok = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+  if (!ok.length) throw (settled.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason
+  return ok
+}
+
 export const DEFAULT_DIRECTOR_SKILL = 'director-short-film'
 
 /** Appended to a reverse skill: keeps the answer in a shape the canvas can split into ports. */
@@ -233,20 +251,25 @@ export const HANDLERS: Record<string, Handler> = {
       if (refs.length) throw new NodeError('openai-compat 图片生成暂不支持参考图，请改用 replicate / fal 的图生图模型，或断开参考图')
       // the images API has no negative prompt: say it in words
       const neg = genNegative(ctx)
-      const urls = await openaiImages(profile, ctx.apiKey, { prompt: neg ? `${genPrompt(ctx)}\n\nAvoid: ${neg}` : genPrompt(ctx), aspect: ctx.node.data.params?.aspect_ratio as string | undefined, signal: ctx.signal })
-      ctx.job.report('保存结果…')
-      const out: PortValue[] = []
-      const allowPrivate = await resultsMayBePrivate(profile)
-      for (const u of urls) { const a = await downloadToAsset(u, ctx.assets, 'image', ctx.signal, { allowPrivate }); out.push({ type: 'image', assetId: a.id, mime: a.mime }) }
-      return { out }
+      const prompt = neg ? `${genPrompt(ctx)}\n\nAvoid: ${neg}` : genPrompt(ctx)
+      return { out: await variants(ctx, async (c) => {
+        const urls = await openaiImages(profile, c.apiKey, { prompt, aspect: c.node.data.params?.aspect_ratio as string | undefined, signal: c.signal })
+        c.job.report('保存结果…')
+        const out: PortValue[] = []
+        const allowPrivate = await resultsMayBePrivate(profile)
+        for (const u of urls) { const a = await downloadToAsset(u, c.assets, 'image', c.signal, { allowPrivate }); out.push({ type: 'image', assetId: a.id, mime: a.mime }) }
+        return out
+      }) }
     }
-    return { out: await generate(ctx, 'image', { image: refs.map((r) => dataUri(ctx, r.assetId)) }, genPrompt(ctx), genNegative(ctx)) }
+    const image = refs.map((r) => dataUri(ctx, r.assetId))
+    return { out: await variants(ctx, (c) => generate(c, 'image', { image }, genPrompt(c), genNegative(c))) }
   },
 
   'video-gen': async (ctx) => {
     const first = valuesOfType(ctx.inputs.first, 'image')[0]
     const last = valuesOfType(ctx.inputs.last, 'image')[0]
-    return { out: await generate(ctx, 'video', { first: first && dataUri(ctx, first.assetId), last: last && dataUri(ctx, last.assetId) }, genPrompt(ctx), genNegative(ctx)) }
+    const frames = { first: first && dataUri(ctx, first.assetId), last: last && dataUri(ctx, last.assetId) }
+    return { out: await variants(ctx, (c) => generate(c, 'video', frames, genPrompt(c), genNegative(c))) }
   },
 
   tts: async (ctx) => {

@@ -397,7 +397,7 @@ metadata:
 在这里写给模型的导演指令：镜头结构、景别与运镜偏好、角色一致性要求、提示词写法……
 `
 
-const KIND_NAME: Record<SkillKind, string> = { 'image-reverse': '图片反推', director: '导演分镜' }
+const KIND_NAME: Record<SkillKind, string> = { 'image-reverse': '图片反推', director: '导演分镜', prompt: '提示词写法' }
 
 function SkillsPane() {
   const { skills, loadSkills, showToast } = useStore()
@@ -425,7 +425,7 @@ function SkillsPane() {
   }
 
   async function remove(s: SkillMeta) {
-    const uses = s.kind === 'image-reverse' ? '用它的反推节点' : '用它的导演节点'
+    const uses = s.kind === 'image-reverse' ? '用它的反推节点' : s.kind === 'prompt' ? '选了它的「优化提示词」' : '用它的导演节点'
     if (!confirm(`删除 Skill「${s.label}」？${uses}会提示找不到 Skill。`)) return
     try { await api.deleteSkill(s.name); await loadSkills() } catch (e) { showToast((e as Error).message) }
   }
@@ -450,19 +450,20 @@ function SkillsPane() {
   const groups: [string, SkillMeta[]][] = [
     ['图片反推 Skill', skills.filter((s) => s.kind === 'image-reverse')],
     ['导演 Skill', skills.filter((s) => s.kind === 'director')],
+    ['提示词 Skill', skills.filter((s) => s.kind === 'prompt')],
     ['其他 Skill', skills.filter((s) => !s.kind)],
   ]
   return (
     <>
       <h3>Skill</h3>
-      <p className="muted">Skill 是给模型的一套专业指令（Agent Skills 开放格式，SKILL.md + 参考文件）。图片反推节点可以用它把参考图反推成提示词，导演节点用它把创意拆成分镜。只使用其中的文字说明，不会执行或保存任何脚本。</p>
+      <p className="muted">Skill 是给模型的一套专业指令（Agent Skills 开放格式，SKILL.md + 参考文件）。图片反推节点可以用它把参考图反推成提示词，导演节点用它把创意拆成分镜，「优化提示词」可以用它代替内置的写法。只使用其中的文字说明，不会执行或保存任何脚本。</p>
 
       <div className="skill-import" data-testid="skill-import">
         <div className="si-row">
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="GitHub 链接，例如 https://github.com/作者/仓库" aria-label="Skill 的 GitHub 链接" data-testid="skill-url"
             onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) void attempt('url', () => api.importSkillUrl(url.trim(), kind || undefined)).then((ok) => ok && setUrl('')) }} />
           <select value={kind} onChange={(e) => setKind(e.target.value as SkillKind | '')} aria-label="用途" data-testid="skill-kind">
-            <option value="">用途：自动判断</option><option value="image-reverse">用于图片反推</option><option value="director">用于导演分镜</option>
+            <option value="">用途：自动判断</option><option value="image-reverse">用于图片反推</option><option value="director">用于导演分镜</option><option value="prompt">用于优化提示词</option>
           </select>
           <button className="btn primary" disabled={!url.trim() || !!busy} data-testid="skill-url-import"
             onClick={() => void attempt('url', () => api.importSkillUrl(url.trim(), kind || undefined)).then((ok) => ok && setUrl(''))}>
@@ -500,7 +501,7 @@ function SkillsPane() {
                   <select className="kind-pick" value={s.kind ?? ''} aria-label={`${s.label} 的用途`} data-testid={`skill-kind-${s.name}`}
                     onChange={(e) => { const k = e.target.value as SkillKind; if (k) void api.setSkillKind(s.name, k).then(() => loadSkills(), (er: Error) => showToast(er.message)) }}>
                     {!s.kind && <option value="">选择用途…</option>}
-                    <option value="image-reverse">图片反推</option><option value="director">导演分镜</option>
+                    <option value="image-reverse">图片反推</option><option value="director">导演分镜</option><option value="prompt">提示词写法</option>
                   </select>
                 ) : <span className="tag ok">内置</span>}
                 {s.sourceUrl && (
@@ -564,7 +565,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.13。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.14。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>

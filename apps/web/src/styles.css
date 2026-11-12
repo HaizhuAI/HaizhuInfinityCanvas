@@ -810,3 +810,45 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 @media (hover: none) { .adel { opacity: 1; } }
 
 
+
+/* ---- 生成栏 (composer): one prompt box with the settings next to it; results are ordinary nodes */
+.composer { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 6; width: min(860px, calc(100% - 32px));
+  display: grid; gap: 6px; padding: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--shadow-2); }
+.composer.low { bottom: 16px; }
+.cmp-main textarea { width: 100%; resize: none; border: none; background: transparent; padding: 4px 6px; font-size: 14px; line-height: 1.55; max-height: 160px; min-height: 48px; }
+.cmp-main textarea:focus { border: none; box-shadow: none; }
+.cmp-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cmp-bar .cmp-kind { width: 112px; }
+.cmp-sel { height: 28px; padding: 0 26px 0 8px; font-size: 12px; max-width: 180px; text-overflow: ellipsis; }
+.cmp-sel.model { width: 156px; }
+.cmp-sel.short { width: 96px; }
+.cmp-sel.tiny { width: 64px; }
+.cmp-close { position: absolute; top: 6px; right: 6px; }
+.cmp-main textarea { padding-right: 30px; }
+.cmp-spacer { flex: 1; }
+.cmp-cost { font: 500 11.5px var(--mono); color: var(--muted); white-space: nowrap; }
+.cmp-refs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 0 2px; }
+.cmp-ref { position: relative; width: 52px; height: 52px; border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--line-2); background: var(--surface-2); }
+.cmp-ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cmp-ref.unused img { opacity: .35; }
+.cmp-ref-role { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10.5px; text-align: center; color: #fff; background: rgba(0, 0, 0, .55); line-height: 16px; }
+.cmp-ref button { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; display: grid; place-items: center; border: none; border-radius: 3px; background: rgba(0, 0, 0, .6); color: #fff; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--t-fast); }
+.cmp-ref:hover button, .cmp-ref button:focus-visible { opacity: 1; }
+.cmp-ref button svg { width: 11px; height: 11px; }
+.cmp-note { font-size: 12px; color: var(--warn, var(--muted)); }
+.seg2.sm button { height: 22px; font-size: 11.5px; padding: 0 8px; }
+@media (max-width: 640px) { .composer { bottom: 60px; } .cmp-cost { display: none; } }
+
+/* ---- 优化提示词 */
+.popt { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); }
+.popt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+.popt-head b { color: var(--text); font-weight: 600; }
+.popt-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.popt-row select { height: 28px; padding-top: 0; padding-bottom: 0; font-size: 12px; flex: 1 1 140px; min-width: 0; }
+.popt-row .seg2 { flex: 0 0 auto; }
+.popt-out { width: 100%; min-height: 96px; font-size: 13px; }
+.popt-busy { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.popt-busy svg { width: 14px; height: 14px; }
+.popt-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.popt-actions .muted { font-size: 12px; }
+.popt-empty { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }

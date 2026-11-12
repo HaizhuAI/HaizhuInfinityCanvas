@@ -18,7 +18,7 @@ import { parse as parseYaml } from 'yaml'
 export class SkillError extends Error {}
 
 /** what a skill is used for on the canvas */
-export const SKILL_KINDS = ['director', 'image-reverse'] as const
+export const SKILL_KINDS = ['director', 'image-reverse', 'prompt'] as const
 export type SkillKind = (typeof SKILL_KINDS)[number]
 export const isSkillKind = (v: unknown): v is SkillKind => (SKILL_KINDS as readonly unknown[]).includes(v)
 
@@ -103,6 +103,7 @@ export function guessKind(s: Pick<SkillMeta, 'name' | 'description'>): SkillKind
   const t = `${s.name} ${s.description}`
   if (/反推|reverse|image[- ]?to[- ]?prompt|prompts? from (?:an? |the )?(?:reference )?images?/i.test(t)) return 'image-reverse'
   if (/导演|分镜|剧本|storyboard|director|screenplay/i.test(t)) return 'director'
+  if (/提示词|prompt/i.test(t)) return 'prompt'
   return undefined
 }
 

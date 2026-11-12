@@ -89,3 +89,8 @@ export const GENERATIVE_TYPES = new Set(['image-gen', 'video-gen', 'tts'])
 
 export const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] as const
 export const VIDEO_DURATIONS = [5, 10] as const
+/** results per run of an image / video generation node (each is a separate provider call) */
+export const VARIATION_COUNTS = [1, 2, 3, 4] as const
+export const MAX_VARIATIONS = 4
+/** clamp a node's `count` param */
+export const variationCount = (v: unknown) => Math.min(MAX_VARIATIONS, Math.max(1, Math.round(Number(v)) || 1))

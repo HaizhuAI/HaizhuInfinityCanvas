@@ -126,6 +126,10 @@ export interface State {
   assistantBusy: boolean
   /** a run waiting for the user to confirm paid generation calls */
   pendingRun: { nodeIds?: string[]; force?: boolean; estimate: Estimate } | null
+  /** runs asked for while another one is going (the composer queues instead of cancelling it) */
+  runQueue: string[][]
+  /** the bottom generate bar (always shown on an empty canvas; otherwise when opened, or once used) */
+  composerOpen: boolean
 
   init: () => Promise<void>
   loadProfiles: () => Promise<void>
@@ -199,13 +203,22 @@ export interface State {
   /** turn a director node's storyboard into per-shot image → video (→ voice) rows; returns new node ids */
   expandStoryboard: (directorId: string) => string[]
   runNodes: (nodeIds?: string[], force?: boolean, opts?: { confirmed?: boolean; checked?: boolean }) => Promise<void>
+  /** run these nodes now, or after the current run ends (never cancels it); the caller already showed the cost */
+  queueRun: (nodeIds: string[]) => void
+  setComposerOpen: (o: boolean) => void
+  /** keep one of a node's several results: only it flows downstream */
+  pickResult: (nodeId: string, index: number) => Promise<void>
+  /** the last frame of a video becomes an image node feeding a new video generation */
+  continueFromLastFrame: (sourceNodeId: string, assetId: string) => Promise<string | undefined>
+  /** a frame of a video (at `t` seconds) becomes an image node next to the node it came from */
+  saveFrame: (assetId: string, t: number, nearNodeId?: string) => Promise<string | undefined>
   dismissPendingRun: () => void
   cancelRun: () => Promise<void>
 }
 
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
-  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
+  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null, runQueue: [], composerOpen: viewPref('composer', false),
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
   settingsIntent: null, account: null, accounts: false, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
@@ -609,6 +622,8 @@ export const useStore = create<State>((set, get) => ({
         })
         if (e.kind === 'run-end') {
           set({ runId: null })
+          const [next, ...rest] = get().runQueue
+          if (next) { set({ runQueue: rest }); setTimeout(() => void get().runNodes(next, false, { confirmed: true, checked: true }), 0) }
           if (e.status === 'error') {
             const { runStates, nodes } = get()
             const failed = nodes.filter((n) => runStates[n.id]?.status === 'error')
@@ -632,6 +647,56 @@ export const useStore = create<State>((set, get) => ({
   async cancelRun() {
     const { runId } = get()
     if (runId) await api.cancelRun(runId).catch(() => undefined)
+  },
+
+  queueRun(nodeIds) {
+    if (!get().runId) { void get().runNodes(nodeIds, false, { confirmed: true, checked: true }); return }
+    set((s) => ({ runQueue: [...s.runQueue, nodeIds] }))
+    get().showToast('已加入队列：当前运行结束后开始')
+  },
+
+  setComposerOpen(o) { setViewPref('composer', o); set({ composerOpen: o }) },
+
+  async pickResult(nodeId, index) {
+    const { projectId } = get()
+    if (!projectId) return
+    try {
+      const r = await api.pickResult(projectId, nodeId, index)
+      set((s) => ({
+        runStates: { ...s.runStates, [nodeId]: { ...(s.runStates[nodeId] ?? { status: 'done' }), status: 'done', outputs: r.outputs, finishedAt: r.finishedAt, versions: r.versions } },
+        versionLists: Object.fromEntries(Object.entries(s.versionLists).filter(([k]) => k !== nodeId)),
+      }))
+      get().showToast(`已选用第 ${index + 1} 个结果，其余保留在版本里`)
+    } catch (e) { get().showToast(`选用失败：${(e as Error).message}`, { tone: 'error' }) }
+  },
+
+  async continueFromLastFrame(sourceNodeId, assetId) {
+    const src = get().nodes.find((n) => n.id === sourceNodeId)
+    if (!src) return undefined
+    let frame: { id: string; mime: string }
+    try { frame = await api.assetFrame(assetId, 'last') } catch (e) { get().showToast(`取最后一帧失败：${(e as Error).message}`, { tone: 'error' }); return undefined }
+    const x = src.position.x + (src.measured?.width ?? 300) + 80
+    const fromGen = src.type === 'video-gen'
+    const image: CanvasNode = { id: `n_${uid()}`, type: 'image', position: { x, y: src.position.y }, data: { assetId: frame.id, mime: frame.mime, label: '最后一帧' } }
+    const params = fromGen ? Object.fromEntries(Object.entries(src.data.params ?? {}).filter(([k]) => k !== 'count')) : {}
+    const next = withDefaultProfile({ id: `n_${uid()}`, type: 'video-gen', position: { x: x + 340, y: src.position.y }, data: { label: '下一段', profileId: fromGen ? src.data.profileId : undefined, text: '', params } }, get().profiles)
+    const edge: Edge = { id: `e_${uid()}`, source: image.id, sourceHandle: 'out', target: next.id, targetHandle: 'first' }
+    get().insertGraph([image, next], [edge])
+    get().selectNode(next.id)
+    get().showNodes([image.id, next.id])
+    get().showToast('已用最后一帧开始下一段：写下接下来发生什么，再运行')
+    return next.id
+  },
+
+  async saveFrame(assetId, t, nearNodeId) {
+    let frame: { id: string; mime: string }
+    try { frame = await api.assetFrame(assetId, t) } catch (e) { get().showToast(`保存这一帧失败：${(e as Error).message}`, { tone: 'error' }); return undefined }
+    const near = nearNodeId ? get().nodes.find((n) => n.id === nearNodeId) : undefined
+    const position = near ? { x: near.position.x + (near.measured?.width ?? 300) + 80, y: near.position.y + (near.measured?.height ?? 240) + 40 } : { x: 0, y: 0 }
+    const id = get().addNode('image', position, undefined, { assetId: frame.id, mime: frame.mime, label: `第 ${t.toFixed(1)} 秒` })
+    if (id) get().showToast('这一帧已保存为图片节点', { action: { label: '定位', run: () => get().focusNode(id) } })
+    void get().loadAssets().catch(() => undefined)
+    return id
   },
 
   setNodeData: (id, patch) => {

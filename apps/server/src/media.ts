@@ -128,6 +128,16 @@ export async function extractFrame(file: string, t: number, out: string, maxW = 
 }
 
 /**
+ * The very last frame of a video as a JPEG (for "continue from here"): seek near the end and keep
+ * overwriting one image, so whatever frame is decoded last wins — exact even with odd durations.
+ */
+export async function extractLastFrame(file: string, out: string, maxW = 1920, signal?: AbortSignal) {
+  const { ffmpeg } = await requireFfmpeg()
+  const r = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-sseof', '-1', '-i', file, '-an', '-vf', `scale='min(${maxW},iw)':-2`, '-q:v', '2', '-update', '1', out], { signal, timeoutMs: 60_000 })
+  if (r.code !== 0) throw new MediaError(`提取尾帧失败：${r.stderr.slice(-300)}`)
+}
+
+/**
  * Turn scene cuts into shot segments: drop slivers shorter than `minLen`, then merge the shortest
  * neighbours until at most `maxShots` remain. With no cuts in a long clip, split it evenly.
  */

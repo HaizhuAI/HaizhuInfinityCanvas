@@ -2,7 +2,7 @@ import { useReactFlow } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
 import { Download, GitCompareArrows, Info, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
 import {
-  ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VIDEO_DURATIONS, type PortValue,
+  ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VARIATION_COUNTS, VIDEO_DURATIONS, type PortValue,
 } from '@hzc/core'
 import { assetUrl } from './api'
 import { ErrorBox, FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
@@ -10,6 +10,7 @@ import { VersionStrip } from './Versions'
 import { CATEGORY_COLOR, KIND_LABEL, NODE_ICON } from './icons'
 import { useStore, type CanvasNode } from './store'
 import { VOICE_HINT } from './presets'
+import { PromptOptimizer } from './PromptOptimizer'
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5]
 /** node types that have a parameters section */
@@ -38,6 +39,39 @@ function JsonField({ id, value }: { id: string; value: unknown }) {
 }
 
 /** Per-node-type parameters. Everything that is not the creative content itself lives here. */
+/**
+ * Where a generation node's prompt lives: its own text, or a connected text node (edited there);
+ * a prompt that comes from another node's output (e.g. a text model) can't be rewritten here.
+ */
+function GenPrompt({ node, kind }: { node: CanvasNode; kind: 'image' | 'video' }) {
+  const setNodeData = useStore((s) => s.setNodeData)
+  const src = useStore(useShallow((s) => {
+    const e = s.edges.find((x) => x.target === node.id && x.targetHandle === 'prompt')
+    const n = e ? s.nodes.find((x) => x.id === e.source) : undefined
+    return { id: n?.id, type: n?.type, text: n?.data.text ?? '', label: n?.data.label ?? '' }
+  }))
+  // the first frame (or the reference images) a vision model can look at while rewriting
+  const imageIds = useStore(useShallow((s) => s.edges
+    .filter((x) => x.target === node.id && (x.targetHandle === 'first' || x.targetHandle === 'ref'))
+    .flatMap((x) => {
+      const n = s.nodes.find((y) => y.id === x.source)
+      const out = n?.type === 'image' ? n.data.assetId : s.runStates[x.source]?.outputs?.out?.find((v) => v.type === 'image')
+      const id = typeof out === 'string' ? out : out && 'assetId' in out ? out.assetId : undefined
+      return id ? [id] : []
+    })))
+  const fromImage = useStore((s) => s.edges.some((x) => x.target === node.id && x.targetHandle === 'first'))
+  const viaText = src.id && src.type === 'text'
+  const blocked = src.id && !viaText ? `提示词来自上游「${src.label || '节点'}」的输出，请在那里修改` : undefined
+  const prompt = viaText ? src.text : src.id ? '' : node.data.text ?? ''
+  return (
+    <div className="field">
+      <span>提示词{viaText ? <small>来自「{src.label || '文本'}」</small> : null}</span>
+      <PromptOptimizer kind={kind} targetProfileId={node.data.profileId} prompt={prompt} fromImage={kind === 'video' && fromImage} imageIds={imageIds}
+        disabledReason={blocked} onApply={(t) => setNodeData(viaText ? src.id! : node.id, { text: t })} />
+    </div>
+  )
+}
+
 function Params({ node }: { node: CanvasNode }) {
   const setNodeParam = useStore((s) => s.setNodeParam)
   const skills = useStore((s) => s.skills)
@@ -54,9 +88,17 @@ function Params({ node }: { node: CanvasNode }) {
     </label>
   )
 
+  const countSelect = (
+    <label className="field" title="同时生成几个，结果里点「选用」留下一个"><span>数量</span>
+      <select value={String(p.count ?? 1)} onChange={(e) => set('count', Number(e.target.value) > 1 ? Number(e.target.value) : undefined)} data-testid="gen-count">
+        {VARIATION_COUNTS.map((n) => <option key={n} value={n}>{n} 个</option>)}
+      </select>
+    </label>
+  )
+
   switch (node.type) {
     case 'image-gen':
-      return <>{aspectSelect('gen-aspect')}<JsonField id={node.id} value={p.extra} /></>
+      return <><div className="grid2">{aspectSelect('gen-aspect')}{countSelect}</div><GenPrompt node={node} kind="image" /><JsonField id={node.id} value={p.extra} /></>
     case 'video-gen':
       return (
         <>
@@ -68,7 +110,9 @@ function Params({ node }: { node: CanvasNode }) {
                 {VIDEO_DURATIONS.map((d) => <option key={d} value={d}>{d} 秒</option>)}
               </select>
             </label>
+            {countSelect}
           </div>
+          <GenPrompt node={node} kind="video" />
           <JsonField id={node.id} value={p.extra} />
         </>
       )

@@ -3,7 +3,8 @@ import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, u
 import '@xyflow/react/dist/style.css'
 import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Info, LoaderCircle, MessagesSquare, Package, PanelRightOpen, Play, Plus, TriangleExclamationPoint, Keyboard, LayoutGrid, Moon, Sun, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
-import { HzcNode } from './CanvasNode'
+import { HzcNode, RUNNABLE } from './CanvasNode'
+import { Composer } from './Composer'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
 import { CanvasHelpers, ContextMenu, PreflightDialog, ShortcutsSheet, ToastView, useEscape, type CtxMenu } from './Overlays'
 import { copySelection, duplicateSelection, leaveCopies, paste } from './clipboard'
@@ -26,7 +27,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.13'
+export const APP_VERSION = 'v1.0.0-rc.14'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -400,6 +401,7 @@ function Canvas() {
         {nodes.length > 0 && minimap && <MiniMap pannable zoomable nodeBorderRadius={8} style={MINIMAP_STYLE} nodeColor={miniColor} />}
       </ReactFlow>
       {nodes.length > 0 && <FloatingToolbar />}
+      <Composer />
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
       {nodes.length === 0 && <EmptyState />}
     </div>
@@ -514,6 +516,12 @@ export function App() {
       if (editing || overlay || e.altKey) return
       if (e.key === 'Escape' && !mod) { if (st.nodes.some((n) => n.selected)) useStore.setState({ nodes: st.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)) }); return }
       if (e.key === '/' && !mod) { e.preventDefault(); st.openPalette(); return }
+      // Enter runs the selected nodes (and what they need); Ctrl/⌘ Enter runs everything
+      if (e.key === 'Enter' && !mod && !e.shiftKey) {
+        const sel = st.nodes.filter((n) => n.selected && RUNNABLE.has(n.type ?? '')).map((n) => n.id)
+        if (sel.length) { e.preventDefault(); if (!st.runId) void st.runNodes(sel); else st.showToast('正在运行：等它结束，或用生成栏排队') }
+        return
+      }
       if (e.key === '?' && !mod) { e.preventDefault(); st.setShortcutsOpen(true); return }
       if (!mod) return
       const k = e.key.toLowerCase()

@@ -1,14 +1,15 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import fastifyStatic from '@fastify/static'
-import { createReadStream, existsSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { ADAPTERS, validateProfileInput, type AdapterId, type ProjectGraph } from '@hzc/core'
+import { ADAPTERS, cleanOptimizedPrompt, isOptimizeLang, optimizePromptRequest, promptFamily, PROMPT_FAMILY_LABEL, validateProfileInput, type AdapterId, type ModelKind, type ProjectGraph } from '@hzc/core'
 import type { Store } from './db'
 import { QuotaError, type AssetStore } from './assets'
 import type { Engine } from './engine'
 import { SkillError, isSkillKind, type SkillStore } from './skills'
 import { fetchGitHubSkill, skillFilesFromZip } from './skillImport'
-import { ffmpegInfo } from './media'
+import { extractFrame, extractLastFrame, ffmpegInfo, MediaError, withTemp } from './media'
 import { testConnection } from './conntest'
 import { runAssistant, type CanvasSummary, type ChatTurn } from './assistant'
 import { chatAdapterFor, ProviderError } from './providers'
@@ -20,7 +21,7 @@ import type { Backups, RecoveryNote } from './backup'
 import { installAuth, type AuthConfig } from './auth'
 import type { Workspace } from './workspaces'
 
-export const APP_VERSION = '1.0.0-rc.13'
+export const APP_VERSION = '1.0.0-rc.14'
 
 export interface AppOptions {
   /** single-user mode (desktop app, one WebUI): the one workspace. Absent in accounts mode. */
@@ -248,6 +249,29 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   })
 
   // removes the file from this workspace (frees storage); canvases that still show it lose the picture
+  // a frame of a video as a new image (continue from the last frame; keep the frame you paused on)
+  app.post<{ Params: { id: string }; Body: { at?: unknown } }>('/api/assets/:id/frame', async (req, reply) => {
+    const { assets } = ws(req)
+    const asset = assets.get(req.params.id)
+    if (!asset) return reply.code(404).send({ error: 'not found' })
+    if (!asset.mime.startsWith('video/')) return reply.code(400).send({ error: '只能从视频里取帧' })
+    const at = req.body?.at
+    const t = at === 'last' || at === undefined ? 'last' : Number(at)
+    if (t !== 'last' && (!Number.isFinite(t) || t < 0 || t > 24 * 3600)) return reply.code(400).send({ error: 'at must be "last" or a time in seconds' })
+    try {
+      const meta = await withTemp(assets.dataDir, async (dir) => {
+        const out = join(dir, 'frame.jpg')
+        if (t === 'last') await extractLastFrame(asset.file, out)
+        else await extractFrame(asset.file, t, out, 1920)
+        return assets.put(readFileSync(out), 'image/jpeg', t === 'last' ? '尾帧.jpg' : `帧-${t.toFixed(1)}s.jpg`)
+      })
+      return reply.code(201).send(meta)
+    } catch (e) {
+      if (e instanceof MediaError) return reply.code(422).send({ error: e.message })
+      throw e
+    }
+  })
+
   app.delete<{ Params: { id: string } }>('/api/assets/:id', async (req, reply) =>
     ws(req).assets.remove(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' }))
 
@@ -291,6 +315,48 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
         skills: ws(req).skills.list().filter((x) => x.kind === 'director').map((x) => x.name),
         kinds: [...new Set(ws(req).store.listProfiles().map((p) => p.kind))],
       })
+    } catch (e) {
+      if (e instanceof ProviderError) return reply.code(502).send({ error: e.message })
+      throw e
+    }
+  })
+
+  // ---- optimise a generation prompt for the model it is meant for, with the user's own text model
+  app.post<{ Body: { profileId?: unknown; prompt?: unknown; target?: unknown; fromImage?: unknown; imageIds?: unknown; lang?: unknown; skill?: unknown } }>('/api/prompt/optimize', async (req, reply) => {
+    const { store, skills, assets } = ws(req)
+    const b = req.body ?? {}
+    const profile = typeof b.profileId === 'string' ? store.getProfile(b.profileId) : undefined
+    if (!profile) return reply.code(400).send({ error: '请先选择一个文本模型来优化提示词' })
+    if (profile.kind !== 'llm' && profile.kind !== 'vlm') return reply.code(400).send({ error: '优化提示词需要文本模型或视觉模型' })
+    const prompt = typeof b.prompt === 'string' ? b.prompt.trim() : ''
+    if (!prompt) return reply.code(400).send({ error: '先写一句提示词，再优化' })
+    if (prompt.length > 8000) return reply.code(400).send({ error: '提示词太长（最多 8000 字）' })
+    const t = (b.target ?? {}) as { profileId?: unknown; kind?: unknown; adapter?: unknown; model?: unknown }
+    const targetProfile = typeof t.profileId === 'string' ? store.getProfile(t.profileId) : undefined
+    const kind = (targetProfile?.kind ?? t.kind) as ModelKind
+    if (kind !== 'image' && kind !== 'video') return reply.code(400).send({ error: 'target.kind must be image or video' })
+    const family = promptFamily({ kind, adapter: targetProfile?.adapter ?? (typeof t.adapter === 'string' ? t.adapter : undefined), model: targetProfile?.model ?? (typeof t.model === 'string' ? t.model : undefined) })
+    let skill: { name: string; instructions: string } | undefined
+    if (typeof b.skill === 'string' && b.skill) {
+      const instructions = skills.instructions(b.skill)
+      if (!instructions) return reply.code(404).send({ error: `找不到 Skill「${b.skill}」` })
+      skill = { name: skills.get(b.skill)?.label ?? b.skill, instructions }
+    }
+    // a vision model also sees the first frame / references, so the rewrite matches the picture
+    const imageIds = profile.kind === 'vlm' && Array.isArray(b.imageIds) ? b.imageIds.filter((x): x is string => typeof x === 'string').slice(0, 4) : []
+    const images = imageIds.flatMap((id) => { try { return [assets.readBase64(id)] } catch { return [] } })
+    const { system, user } = optimizePromptRequest({
+      family, kind, prompt, skill, fromImage: b.fromImage === true, seesImages: images.length > 0,
+      lang: isOptimizeLang(b.lang) ? b.lang : 'auto',
+    })
+    let apiKey: string | undefined
+    try { apiKey = store.getApiKey(profile.id) } catch (e) { if (e instanceof SecretError) return reply.code(400).send({ error: e.message }); throw e }
+    const ctrl = new AbortController()
+    reply.raw.on('close', () => { if (!reply.raw.writableEnded) ctrl.abort() })
+    try {
+      const text = cleanOptimizedPrompt(await chatAdapterFor(profile.adapter).chat(profile, apiKey, { system, prompt: user, images, signal: ctrl.signal }))
+      if (!text) return reply.code(502).send({ error: '文本模型没有给出改写结果，请重试或换一个模型' })
+      return { prompt: text, family, familyLabel: PROMPT_FAMILY_LABEL[family], skill: skill?.name }
     } catch (e) {
       if (e instanceof ProviderError) return reply.code(502).send({ error: e.message })
       throw e
@@ -410,6 +476,23 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (ws(req).engine.isRunning(req.params.id)) return reply.code(409).send({ error: '运行中不能切换版本，请等运行结束' })
     const cur = ws(req).store.useNodeVersion(req.params.id, req.params.nodeId, Number(req.params.seq))
     return cur ? { outputs: cur.outputs, finishedAt: cur.finishedAt, versions: ws(req).store.countNodeVersions(req.params.id, req.params.nodeId) } : reply.code(404).send({ error: 'no such version' })
+  })
+
+  // keep one result of a node that made several (variations): only it flows downstream, all stay in the versions
+  app.post<{ Params: { id: string; nodeId: string }; Body: { index?: unknown; port?: unknown } }>('/api/projects/:id/nodes/:nodeId/pick', async (req, reply) => {
+    const { store, engine } = ws(req)
+    if (!store.getProject(req.params.id)) return reply.code(404).send({ error: 'not found' })
+    if (engine.isRunning(req.params.id)) return reply.code(409).send({ error: '运行中不能选用，请等运行结束' })
+    const cur = store.getNodeOutput(req.params.id, req.params.nodeId)
+    const port = typeof req.body?.port === 'string' ? req.body.port : 'out'
+    const list = (cur?.outputs as Record<string, unknown[]> | undefined)?.[port]
+    const index = Number(req.body?.index)
+    if (!cur || !Array.isArray(list) || !Number.isInteger(index) || index < 0 || index >= list.length) return reply.code(400).send({ error: 'no such result' })
+    const outputs = { ...(cur.outputs as Record<string, unknown[]>), [port]: [list[index]] }
+    store.setNodeOutput(req.params.id, req.params.nodeId, cur.cacheKey, outputs)
+    const versions = store.addNodeVersion(req.params.id, req.params.nodeId, cur.cacheKey, outputs)
+    const now = store.getNodeOutput(req.params.id, req.params.nodeId)!
+    return { outputs: now.outputs, finishedAt: now.finishedAt, versions }
   })
 
   // ---- static web UI (SPA fallback)

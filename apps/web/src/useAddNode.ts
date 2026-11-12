@@ -45,5 +45,5 @@ export function useAddNode() {
     requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ maxZoom: 1, padding: 0.25, duration: 400 })))
   }, [loadTemplate, fitView])
 
-  return { addAt, addTemplate }
+  return { addAt, addTemplate, freeSpot }
 }

@@ -21,8 +21,8 @@ export function setThemePref(p: ThemePref) { pref = p; write(THEME_KEY, p); appl
 export function resolvedTheme(): 'dark' | 'light' { return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark' }
 
 /** canvas view toggles (bottom toolbar) */
-export const viewPref = (k: 'minimap' | 'snap', def: boolean) => { const v = read(`hzc.${k}`); return v === null ? def : v === 'on' }
-export const setViewPref = (k: 'minimap' | 'snap', on: boolean) => write(`hzc.${k}`, on ? 'on' : 'off')
+export const viewPref = (k: 'minimap' | 'snap' | 'composer', def: boolean) => { const v = read(`hzc.${k}`); return v === null ? def : v === 'on' }
+export const setViewPref = (k: 'minimap' | 'snap' | 'composer', on: boolean) => write(`hzc.${k}`, on ? 'on' : 'off')
 
 export function inspectorPref() { return read(INSPECTOR_KEY) !== 'off' }
 export function setInspectorPref(on: boolean) { write(INSPECTOR_KEY, on ? 'on' : 'off') }

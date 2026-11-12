@@ -1,6 +1,6 @@
-import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, NodeVersion, ProjectGraph, RunEvent } from '@hzc/core'
+import type { Estimate, ModelProfileInput, ModelProfilePublic, NodeOutputs, NodeVersion, OptimizeLang, ProjectGraph, RunEvent } from '@hzc/core'
 
-export type SkillKind = 'director' | 'image-reverse'
+export type SkillKind = 'director' | 'image-reverse' | 'prompt'
 export interface SkillMeta {
   name: string; description: string; source: 'builtin' | 'user'; label: string; metadata: Record<string, string>
   /** frontmatter license, or recognised from the skill's LICENSE file */
@@ -184,6 +184,11 @@ export const api = {
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
   duplicateProject: (id: string, name?: string) => req<Project>('POST', `/api/projects/${id}/duplicate`, { name }),
   uploadAsset,
+  assetFrame: (id: string, at: number | 'last') => req<{ id: string; mime: string; size: number }>('POST', `/api/assets/${encodeURIComponent(id)}/frame`, { at }),
+  pickResult: (projectId: string, nodeId: string, index: number) =>
+    req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('POST', `/api/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/pick`, { index }),
+  optimizePrompt: (body: { profileId: string; prompt: string; target: { profileId?: string; kind: 'image' | 'video' }; fromImage?: boolean; imageIds?: string[]; lang?: OptimizeLang; skill?: string }) =>
+    req<{ prompt: string; family: string; familyLabel: string; skill?: string }>('POST', '/api/prompt/optimize', body),
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),

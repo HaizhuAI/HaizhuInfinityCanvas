@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, StepForward, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
 import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -69,8 +69,10 @@ export function FileCard({ v, hint }: { v: FileValue; hint?: string }) {
   )
 }
 
-function MediaView({ v, name, nodeId }: { v: MediaValue; name?: string; nodeId?: string }) {
+function MediaView({ v, name, nodeId, onPick, canContinue }: { v: MediaValue; name?: string; nodeId?: string; onPick?: () => void; canContinue?: boolean }) {
   const openLightbox = useStore((s) => s.openLightbox)
+  const continueFrom = useStore((s) => s.continueFromLastFrame)
+  const busy = useStore((s) => s.runId !== null)
   const url = assetUrl(v.assetId)
   if (v.type === 'audio') return <div className="nmedia audio"><audio className="nodrag" src={url} controls preload="metadata" data-testid="out-audio" /></div>
   const open = () => openLightbox({ assetId: v.assetId, mime: v.mime, name, nodeId })
@@ -82,6 +84,10 @@ function MediaView({ v, name, nodeId }: { v: MediaValue; name?: string; nodeId?:
       <div className="media-tools">
         <span className="btn xs icon nodrag grip" draggable onDragStart={drag} role="button" tabIndex={-1} aria-label="拖出这个结果" title={`拖到画布上作为新的${v.type === 'image' ? '图片' : '视频'}节点，或拖到另一个${v.type === 'image' ? '图片' : '视频'}节点上替换`} data-testid="drag-result"><GripVertical /></span>
         <button className="btn xs icon nodrag" onClick={open} aria-label="全屏预览" title="全屏预览（双击也可）"><Expand /></button>
+        {canContinue && v.type === 'video' && nodeId && (
+          <button className="btn xs icon nodrag" onClick={() => void continueFrom(nodeId, v.assetId)} aria-label="从最后一帧接着生成" title="从最后一帧接着生成下一段" data-testid="continue-video"><StepForward /></button>
+        )}
+        {onPick && <button className="btn xs nodrag" onClick={onPick} disabled={busy} title="只让这一个流向下游，其余留在版本里" data-testid="pick-result">选用</button>}
       </div>
     </div>
   )
@@ -244,6 +250,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
   const def = NODE_TYPE_MAP[type ?? '']
   const runNodes = useStore((s) => s.runNodes)
   const expandStoryboard = useStore((s) => s.expandStoryboard)
+  const pickResult = useStore((s) => s.pickResult)
   const runState = useStore((s) => s.runStates[id])
   const running = useStore((s) => s.runId !== null)
   const { fitView } = useReactFlow()
@@ -297,7 +304,8 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
 
           {genKind && type !== 'export' && (media.length
             ? <div className={`mwrap${media.length > 1 ? ' nmedia multi' : ''}${isRunning ? ' regen' : ''}`}>
-                {media.map((v, i) => <MediaView key={i} v={v} name={data.label} nodeId={id} />)}
+                {media.map((v, i) => <MediaView key={i} v={v} name={data.label} nodeId={id} canContinue={type === 'video-gen' || type === 'export'}
+                  onPick={media.length > 1 && !isRunning ? () => void pickResult(id, i) : undefined} />)}
                 {isRunning && <div className="regen-overlay" data-testid="node-progress"><span className="orbit" style={{ '--s': '18px' } as React.CSSProperties} aria-hidden="true" />{runState?.progress ?? '重新生成中…'}</div>}
               </div>
             : <Frame aspect={params.aspect_ratio as string | undefined} kind={genKind} running={isRunning} progress={runState?.progress} />)}
