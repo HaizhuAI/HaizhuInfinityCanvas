@@ -18,9 +18,14 @@ if (urlToken) {
 initTheme()
 initMotion()
 
-// /welcome is the public front page; everything else is the canvas
-const landing = location.pathname.replace(/\/+$/, '') === '/welcome'
+// /welcome is the public front page, /login and /signup sign in (multi-user deployments);
+// everything else is the canvas
+const path = location.pathname.replace(/\/+$/, '') || '/'
 const Landing = lazy(() => import('./Landing').then((m) => ({ default: m.Landing })))
+const Auth = lazy(() => import('./Auth').then((m) => ({ default: m.Auth })))
+const page = path === '/welcome' ? <Landing onEnter={() => { location.href = '/' }} />
+  : path === '/login' || path === '/signup' ? <Auth mode={path === '/login' ? 'login' : 'signup'} />
+  : null
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>{landing ? <Suspense fallback={null}><Landing onEnter={() => { location.href = '/' }} /></Suspense> : <Root />}</StrictMode>,
+  <StrictMode>{page ? <Suspense fallback={null}>{page}</Suspense> : <Root />}</StrictMode>,
 )

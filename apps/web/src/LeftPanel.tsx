@@ -124,14 +124,20 @@ export function Assets() {
               const payload = { type: kind, assetId: a.id, mime: a.mime, name: a.name }
               const add = () => addAt({ type: kind }, undefined, { assetId: a.id, mime: a.mime, label: a.name })
               return (
-                <button key={a.id} className={`acell${kind === 'audio' ? ' audio' : ''}`} draggable title={`${a.name} · 单击添加到画布，双击预览`}
-                  onDragStart={(e) => startDrag(e, payload)} onClick={add}
-                  onDoubleClick={() => kind !== 'audio' && openLightbox({ assetId: a.id, mime: a.mime, name: a.name })} data-testid="asset-cell">
-                  {kind === 'image' && <img src={assetUrl(a.id)} alt={a.name} loading="lazy" draggable={false} />}
-                  {kind === 'video' && <video src={assetUrl(a.id)} muted preload="metadata" />}
-                  {kind === 'audio' && <AudioLines aria-hidden="true" />}
-                  <span className="badge">{kind === 'image' ? <ImageIcon aria-hidden="true" /> : kind === 'video' ? <Video aria-hidden="true" /> : <AudioLines aria-hidden="true" />}{kind === 'audio' ? a.name.slice(0, 14) : ''}</span>
-                </button>
+                <div key={a.id} className="acell-wrap">
+                  <button className={`acell${kind === 'audio' ? ' audio' : ''}`} draggable title={`${a.name} · 单击添加到画布，双击预览`}
+                    onDragStart={(e) => startDrag(e, payload)} onClick={add}
+                    onDoubleClick={() => kind !== 'audio' && openLightbox({ assetId: a.id, mime: a.mime, name: a.name })} data-testid="asset-cell">
+                    {kind === 'image' && <img src={assetUrl(a.id)} alt={a.name} loading="lazy" draggable={false} />}
+                    {kind === 'video' && <video src={assetUrl(a.id)} muted preload="metadata" />}
+                    {kind === 'audio' && <AudioLines aria-hidden="true" />}
+                    <span className="badge">{kind === 'image' ? <ImageIcon aria-hidden="true" /> : kind === 'video' ? <Video aria-hidden="true" /> : <AudioLines aria-hidden="true" />}{kind === 'audio' ? a.name.slice(0, 14) : ''}</span>
+                  </button>
+                  <button className="adel" aria-label={`删除 ${a.name}`} title="删除这个文件" data-testid="asset-delete"
+                    onClick={() => showToast(`删除「${a.name.slice(0, 24)}」？用到它的节点会显示为缺失，无法撤销`, { tone: 'error', action: { label: '删除', run: () => void api.deleteAsset(a.id).then(() => loadAssets()).then(() => showToast('已删除')).catch((e) => showToast(`删除失败：${(e as Error).message}`, { tone: 'error' })) } })}>
+                    <Trash aria-hidden="true" />
+                  </button>
+                </div>
               )
             })}
           </div>

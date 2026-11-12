@@ -67,6 +67,8 @@ export class Engine {
   private active = new Map<string, string>()
 
   isRunning(projectId: string): boolean { return this.active.has(projectId) }
+  /** any run in progress (a workspace with one must not be closed) */
+  get busy(): boolean { return this.active.size > 0 }
 
   private chatAdapter?: HandlerCtx['chatAdapter']
   private pollDelays?: number[]
@@ -149,6 +151,9 @@ export class Engine {
     queueMicrotask(() => void this.execute(run, graph, opts))
     return run.id
   }
+
+  /** stop every run (the workspace is being deleted) */
+  cancelAll() { for (const r of this.runs.values()) if (!r.finished) r.ctrl.abort() }
 
   cancel(runId: string): boolean {
     const r = this.runs.get(runId)

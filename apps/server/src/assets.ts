@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Store } from './db'
 import { writeAtomic } from './fsutil'
@@ -17,19 +17,30 @@ export const MIME_EXT: Record<string, string> = {
 /** Non-standard media types some servers send, mapped to the registered type. */
 export const MIME_ALIAS: Record<string, string> = { 'audio/mp3': 'audio/mpeg', 'audio/x-flac': 'audio/flac', 'audio/wave': 'audio/wav', 'audio/vnd.wave': 'audio/wav' }
 
+/** storing a file would take this workspace over its storage quota */
+export class QuotaError extends Error {}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Content-addressed files under <dataDir>/assets/<sha256>.<ext>; ids are UUIDs in SQLite. */
 export class AssetStore {
   private dir: string
 
-  constructor(readonly dataDir: string, private store: Store) {
+  /** `quotaBytes`: total size of files this workspace may store (multi-user deployments) */
+  constructor(readonly dataDir: string, private store: Store, private opts: { quotaBytes?: number } = {}) {
     this.dir = join(dataDir, 'assets')
     mkdirSync(this.dir, { recursive: true })
   }
 
+  /** bytes stored and the quota (undefined = unlimited) */
+  usage() { return { used: this.store.totalAssetBytes(), quota: this.opts.quotaBytes } }
+
   /** Throws on unsupported mime or content that does not match the declared image type. */
   put(bytes: Buffer, mime: string, name = 'upload', id: string = randomUUID()) {
+    const q = this.opts.quotaBytes
+    if (q !== undefined && this.store.totalAssetBytes() + bytes.length > q) {
+      throw new QuotaError(`存储空间已满（上限 ${Math.round(q / 1024 / 1024)} MB）：请删除不用的画布或素材后再试`)
+    }
     const { sha256, mime: m } = this.writeFile(bytes, mime)
     this.store.insertAsset({ id, sha256, mime: m, size: bytes.length, name: name.slice(0, 200) })
     return { id, sha256, mime: m, size: bytes.length }
@@ -68,6 +79,16 @@ export class AssetStore {
     if (!meta) return undefined
     const file = join(this.dir, `${meta.sha256}.${MIME_EXT[meta.mime]}`)
     return existsSync(file) ? { ...meta, file } : undefined
+  }
+
+  /** Delete a stored file: every id naming the same content, and the file on disk (frees storage). */
+  remove(id: string): boolean {
+    if (!UUID.test(id)) return false
+    const meta = this.store.getAsset(id)
+    if (!meta) return false
+    this.store.deleteAssetsWithSha(meta.sha256)
+    rmSync(join(this.dir, `${meta.sha256}.${MIME_EXT[meta.mime]}`), { force: true })
+    return true
   }
 
   readBase64(id: string): { mime: string; base64: string } {

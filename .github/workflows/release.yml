@@ -156,6 +156,30 @@ jobs:
           docker start hzc
           for i in $(seq 1 30); do curl -sf localhost:8787/api/health >/dev/null && break; sleep 1; done
           curl -s -H 'x-hzc-token: ci-token-0123456789abcdef' localhost:8787/api/projects | grep -q '"name":"ci"'
+          docker rm -f hzc
+      - name: Smoke test image in accounts mode (multi-user website)
+        run: |
+          # without HZC_ALLOWED_HOSTS a public accounts deployment must refuse to start
+          ! docker run --rm -e HZC_ACCOUNTS=1 haizhu-infinity-canvas:ci
+          docker run -d --name saas --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -v hzc-saas-data:/data -e HZC_ACCOUNTS=1 -e HZC_ALLOWED_HOSTS=localhost -p 8788:8787 haizhu-infinity-canvas:ci
+          for i in $(seq 1 30); do curl -sf localhost:8788/api/health >/dev/null && break; sleep 1; done
+          curl -sf localhost:8788/api/health | grep -q '"accounts":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8788/api/projects)" = 401
+          J='content-type: application/json'; O='origin: http://localhost:8788'
+          # two accounts; each sees only its own canvas
+          curl -sf -c ann.txt -H "$J" -H "$O" -d '{"email":"ann@example.com","password":"teal-lantern-42"}' localhost:8788/api/auth/signup
+          grep -q 'hzc_session' ann.txt
+          curl -sf -b ann.txt -H "$J" -H "$O" -d '{"name":"ann-canvas"}' localhost:8788/api/projects
+          curl -sf -c bob.txt -H "$J" -H "$O" -d '{"email":"bob@example.com","password":"bob-lantern-77"}' localhost:8788/api/auth/signup
+          ! curl -sf -b bob.txt localhost:8788/api/projects | grep -q 'ann-canvas'
+          curl -sf -b ann.txt localhost:8788/api/projects | grep -q 'ann-canvas'
+          # cross-site sign-in refused; operator command lists both accounts
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "$J" -H 'origin: https://evil.example' -d '{"email":"ann@example.com","password":"teal-lantern-42"}' localhost:8788/api/auth/login)" = 403
+          docker exec saas node server/index.mjs admin users | tee users.txt
+          grep -q '共 2 个账号' users.txt
+          docker stop -t 20 saas
+          test "$(docker inspect -f '{{.State.ExitCode}}' saas)" = 0
           # without a token, or with a weak / example one, the container must refuse to start
           ! docker run --rm haizhu-infinity-canvas:ci
           ! docker run --rm -e HZC_TOKEN=short haizhu-infinity-canvas:ci

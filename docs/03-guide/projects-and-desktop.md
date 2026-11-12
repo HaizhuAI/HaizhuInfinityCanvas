@@ -29,6 +29,8 @@
 
 ## WebUI / Docker 部署
 
+> 想让很多人各自注册、各用各的空间？见[部署成多人使用的网站](./saas-deployment.md)。下面是一个空间、用访问令牌的方式。
+
 ```bash
 cp .env.example .env     # 设置 HZC_TOKEN（必填，至少 16 个随机字符；没有令牌或令牌太弱时拒绝启动）
 docker compose up -d --build

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { availableParallelism } from 'node:os'
 
 /**
  * FFmpeg integration. The app does not ship FFmpeg (GPL/LGPL redistribution is the user's/packager's
@@ -15,7 +16,42 @@ export interface FfmpegInfo { ok: boolean; version?: string; ffmpeg: string; ffp
 
 const bin = () => ({ ffmpeg: process.env.HZC_FFMPEG || 'ffmpeg', ffprobe: process.env.HZC_FFPROBE || 'ffprobe' })
 
-export function run(cmd: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number; onStdout?: (chunk: string) => void } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+/**
+ * FFmpeg is CPU-heavy: across the whole server (all users of a multi-user deployment) at most
+ * HZC_MAX_FFMPEG processes run at once (default: half the CPU cores, 1–4); the rest wait their turn.
+ */
+const maxProcs = (() => {
+  const n = Number(process.env.HZC_MAX_FFMPEG)
+  return Number.isInteger(n) && n >= 1 && n <= 32 ? n : Math.min(4, Math.max(1, Math.floor(availableParallelism() / 2)))
+})()
+let procs = 0
+const waiting: (() => void)[] = []
+async function slot(signal?: AbortSignal): Promise<() => void> {
+  if (procs >= maxProcs) {
+    await new Promise<void>((resolve, reject) => {
+      const go = () => { signal?.removeEventListener('abort', stop); resolve() }
+      const stop = () => { const i = waiting.indexOf(go); if (i >= 0) waiting.splice(i, 1); reject(signal!.reason ?? new Error('aborted')) }
+      if (signal?.aborted) return stop()
+      signal?.addEventListener('abort', stop, { once: true })
+      waiting.push(go)
+    })
+  } else procs++
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const next = waiting.shift()
+    if (next) next() // hand the slot straight to the next waiter
+    else procs--
+  }
+}
+
+export async function run(cmd: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number; onStdout?: (chunk: string) => void } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+  const release = await slot(opts.signal)
+  try { return await runNow(cmd, args, opts) } finally { release() }
+}
+
+function runNow(cmd: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number; onStdout?: (chunk: string) => void }): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     let child
     try { child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }) } catch (e) { return reject(new MediaError(`无法启动 ${cmd}：${(e as Error).message}`)) }

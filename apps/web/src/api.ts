@@ -29,8 +29,12 @@ export interface AssistantRequest {
 
 export interface BackupInfo { name: string; size: number; createdAt: string }
 export interface SystemInfo {
-  version: string; node: string; platform: string; maxParallel?: number
+  version: string; node?: string; platform?: string; maxParallel?: number
   ffmpeg: { ok: boolean; version?: string; h264: boolean; aac: boolean; error?: string }
+  /** multi-user deployment (sign-in accounts) */
+  accounts?: boolean
+  /** bytes stored in this workspace, and the quota (accounts mode) */
+  storage?: { used: number; quota?: number }
   /** automatic database backups */
   backups?: { count: number; latest?: string; keep: number; everyHours: number }
   /** the database was damaged at startup: what was restored */
@@ -51,6 +55,21 @@ export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
 }
 
+/**
+ * Accounts mode: an API answer of 401 { login: true } means there is no signed-in user. While the app
+ * is starting that's a visitor, who goes to the front page; later it's an expired session, and the
+ * person signs in again and comes back here.
+ */
+let booted = false
+let leaving = false
+export function markBooted() { booted = true }
+function needLogin() {
+  if (leaving) return
+  leaving = true
+  const here = location.pathname + location.search
+  location.replace(booted ? `/login?next=${encodeURIComponent(here)}` : '/welcome')
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['content-type'] = 'application/json'
@@ -64,7 +83,9 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   }
   if (!res.ok) {
     let msg = res.statusText
-    try { msg = ((await res.json()) as { error?: string }).error ?? msg } catch { /* ignore */ }
+    let login = false
+    try { const j = (await res.json()) as { error?: string; login?: boolean }; msg = j.error ?? msg; login = !!j.login } catch { /* ignore */ }
+    if (res.status === 401 && login) needLogin()
     throw new ApiError(`${res.status} ${msg}`, res.status)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
@@ -145,7 +166,8 @@ async function streamRun(runId: string, onEvent: (e: RunEvent) => void, signal?:
 }
 
 export const api = {
-  health: () => req<{ ok: boolean; version: string }>('GET', '/api/health'),
+  health: () => req<{ ok: boolean; version: string; accounts?: boolean }>('GET', '/api/health'),
+  deleteAsset: (id: string) => req<void>('DELETE', `/api/assets/${encodeURIComponent(id)}`),
   listProfiles: () => req<ModelProfilePublic[]>('GET', '/api/profiles'),
   createProfile: (p: ModelProfileInput) => req<ModelProfilePublic>('POST', '/api/profiles', p),
   updateProfile: (id: string, p: ModelProfileInput) => req<ModelProfilePublic>('PUT', `/api/profiles/${id}`, p),
@@ -180,4 +202,33 @@ export const api = {
   outputs: (projectId: string) => req<{ nodeId: string; outputs: NodeOutputs; finishedAt: string; versions: number }[]>('GET', `/api/projects/${projectId}/outputs`),
   listVersions: (projectId: string, nodeId: string) => req<NodeVersion[]>('GET', `/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}/versions`),
   useVersion: (projectId: string, nodeId: string, seq: number) => req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('POST', `/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}/versions/${seq}/use`),
+}
+
+// ---- accounts (multi-user deployments)
+export interface Me { email: string; createdAt: string }
+export interface AuthConfig { accounts: boolean; signup: boolean; passwordMin: number }
+/** sign-in calls report their own errors (a 401 here is "wrong password", not "go sign in") */
+async function authReq<T>(method: string, url: string, body?: unknown): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(url, { method, headers: body === undefined ? {} : { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+  } catch {
+    throw new ApiError('连接不上服务，请检查网络', 0)
+  }
+  if (!res.ok) {
+    let msg = res.statusText
+    try { msg = ((await res.json()) as { error?: string }).error ?? msg } catch { /* ignore */ }
+    throw new ApiError(msg, res.status)
+  }
+  return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+export const auth = {
+  config: () => authReq<AuthConfig>('GET', '/api/auth/config'),
+  me: () => authReq<Me>('GET', '/api/auth/me'),
+  signup: (email: string, password: string) => authReq<Me>('POST', '/api/auth/signup', { email, password }),
+  login: (email: string, password: string) => authReq<Me>('POST', '/api/auth/login', { email, password }),
+  logout: () => authReq<void>('POST', '/api/auth/logout'),
+  logoutOthers: () => authReq<void>('POST', '/api/auth/logout-others'),
+  changePassword: (current: string, next: string) => authReq<void>('POST', '/api/auth/password', { current, next }),
+  deleteAccount: (password: string) => authReq<void>('POST', '/api/auth/delete-account', { password }),
 }

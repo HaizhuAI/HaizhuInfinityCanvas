@@ -157,7 +157,12 @@ function sameOrigin(origin: string, host: string | undefined, allowed: Set<strin
   let o: URL
   try { o = new URL(origin) } catch { return false } // includes "null" (sandboxed frames, file://)
   if (o.protocol !== 'http:' && o.protocol !== 'https:') return false
-  if (host && o.host.toLowerCase() === host.trim().toLowerCase()) return true
+  // same host and port; a Host header may spell out the default port (":80" / ":443"), an Origin never does
+  if (host) {
+    let h: string | undefined
+    try { h = new URL(`${o.protocol}//${host.trim()}`).host } catch { h = undefined }
+    if (h && o.host.toLowerCase() === h.toLowerCase()) return true
+  }
   // a name the operator listed (reverse proxy on another port); never "any local port" — other local
   // apps (a dev server, a tool's web UI) must not be able to drive this one
   const h = o.hostname.toLowerCase()

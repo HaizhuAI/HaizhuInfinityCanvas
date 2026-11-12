@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Boxes, Clapperboard, GitCompareArrows, Infinity as InfinityIcon, KeyRound, Layers, Play, ScanSearch, Sparkles, Zap } from 'lucide-react'
+import { ArrowRight, Boxes, Clapperboard, GitCompareArrows, Infinity as InfinityIcon, KeyRound, Layers, LockKeyhole, Play, ScanSearch, Sparkles, Zap } from 'lucide-react'
+import { auth, type AuthConfig } from './api'
 import './landing.css'
 
 /**
@@ -28,9 +29,26 @@ const STEPS = [
   ['运行与交付', '运行前先看预估费用；完成后导出成片、字幕和可在剪辑软件里继续精修的工程。'],
 ]
 
+/** what the visitor can do: open the canvas (one-person install, or signed in), or sign up / sign in */
+type Visitor = { kind: 'open' } | { kind: 'guest'; signup: boolean }
+
 export function Landing({ onEnter }: { onEnter: () => void }) {
   const [tab, setTab] = useState(SHOTS[0]!.id)
+  const [visitor, setVisitor] = useState<Visitor>({ kind: 'open' })
   const root = useRef<HTMLDivElement>(null)
+  // a multi-user deployment shows sign-up / sign-in to visitors who aren't signed in
+  useEffect(() => {
+    void fetch('/api/health').then((r) => r.json() as Promise<{ accounts?: boolean }>).then(async (h) => {
+      if (!h.accounts) return
+      const signedIn = await auth.me().then(() => true, () => false)
+      const cfg: AuthConfig | undefined = await auth.config().catch(() => undefined)
+      if (!signedIn) setVisitor({ kind: 'guest', signup: cfg?.signup ?? true })
+    }).catch(() => undefined)
+  }, [])
+  const guest = visitor.kind === 'guest'
+  const primary = guest && visitor.signup
+    ? { label: '免费注册', go: () => { location.href = '/signup' } }
+    : guest ? { label: '登录', go: () => { location.href = '/login' } } : { label: '开始创作', go: onEnter }
   // reveal sections as they scroll into view (skipped when the OS asks for reduced motion)
   useEffect(() => {
     const els = root.current?.querySelectorAll('.reveal') ?? []
@@ -45,7 +63,12 @@ export function Landing({ onEnter }: { onEnter: () => void }) {
       <header className="lp-nav">
         <a className="lp-brand" href="/welcome"><span className="logo" aria-hidden="true"><InfinityIcon /></span>Haizhu <span>Infinity Canvas</span></a>
         <nav aria-label="页面导航"><a href="#features">功能</a><a href="#how">怎么用</a><a href="#deploy">部署</a></nav>
-        <button className="lp-btn primary sm" onClick={onEnter} data-testid="landing-enter-nav">进入画布<ArrowRight /></button>
+        {guest ? (
+          <span className="lp-nav-act">
+            <a className="lp-btn ghost sm" href="/login" data-testid="landing-login">登录</a>
+            {visitor.signup && <a className="lp-btn primary sm" href="/signup" data-testid="landing-signup">免费注册<ArrowRight /></a>}
+          </span>
+        ) : <button className="lp-btn primary sm" onClick={onEnter} data-testid="landing-enter-nav">进入画布<ArrowRight /></button>}
       </header>
 
       <section className="lp-hero">
@@ -54,7 +77,7 @@ export function Landing({ onEnter }: { onEnter: () => void }) {
         <h1>把你的模型<br />连成一支<em>创作团队</em></h1>
         <p className="lp-sub">文本、视觉、图片、视频、语音模型都是画布上的节点。连线、运行，从一句创意走到成片——模型和 Key 都是你自己的。</p>
         <div className="lp-cta">
-          <button className="lp-btn primary" onClick={onEnter} data-testid="landing-enter"><Play />开始创作</button>
+          <button className="lp-btn primary" onClick={primary.go} data-testid="landing-enter"><Play />{primary.label}</button>
           <a className="lp-btn ghost" href="#features">看看能做什么</a>
         </div>
         <ul className="lp-chips" aria-label="常见用法">{CHIPS.map((c) => <li key={c}>{c}</li>)}</ul>
@@ -86,18 +109,20 @@ export function Landing({ onEnter }: { onEnter: () => void }) {
       </section>
 
       <section className="lp-sec" id="deploy">
-        <div className="lp-head reveal"><span className="lp-kicker">部署</span><h2>你的数据，留在你的机器上</h2></div>
+        <div className="lp-head reveal"><span className="lp-kicker">{guest ? '安全' : '部署'}</span><h2>{guest ? '每个人的空间，互相看不见' : '你的数据，留在你的机器上'}</h2></div>
         <div className="lp-trio">
           <article className="reveal"><span className="lp-ico" aria-hidden="true"><KeyRound /></span><h3>自带模型与 Key</h3><p>直接调用你选的服务商，费用按你和服务商的价格结算。Key 加密保存，不会出现在浏览器里。</p></article>
-          <article className="reveal"><span className="lp-ico" aria-hidden="true"><Boxes /></span><h3>三种运行方式</h3><p>Windows 与 Linux 桌面版，或用 Docker 部署成网站，在浏览器里使用。</p></article>
+          {guest
+            ? <article className="reveal"><span className="lp-ico" aria-hidden="true"><LockKeyhole /></span><h3>独立空间</h3><p>每个账号一个独立的数据库和文件夹：画布、模型档案、素材和生成记录只属于你，自动备份。</p></article>
+            : <article className="reveal"><span className="lp-ico" aria-hidden="true"><Boxes /></span><h3>三种运行方式</h3><p>Windows 与 Linux 桌面版，或用 Docker 部署成网站，在浏览器里使用。</p></article>}
           <article className="reveal"><span className="lp-ico" aria-hidden="true"><Layers /></span><h3>项目可带走</h3><p>一个文件带走画布、素材和全部生成结果，换电脑也不用重新生成。</p></article>
         </div>
       </section>
 
       <section className="lp-band reveal">
         <h2>现在就搭第一条流程</h2>
-        <p>空画布上有四个常用模板，接入一个模型就能运行。</p>
-        <button className="lp-btn primary" onClick={onEnter}><Play />进入画布</button>
+        <p>{guest ? '注册后空画布上有四个常用模板，接入一个模型就能运行。' : '空画布上有四个常用模板，接入一个模型就能运行。'}</p>
+        <button className="lp-btn primary" onClick={primary.go}><Play />{guest ? primary.label : '进入画布'}</button>
       </section>
 
       <footer className="lp-foot"><span>Haizhu Infinity Canvas（海柱无限画布）</span><span>界面截图来自真实运行，图片为演示用示意图</span></footer>

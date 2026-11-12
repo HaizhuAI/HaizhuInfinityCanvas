@@ -144,6 +144,12 @@ export class Store {
   }
 
   // ---------- assets (file bytes live on disk; see assets.ts)
+  /** bytes of all stored files (for the per-user storage quota) */
+  totalAssetBytes(): number { return Number((this.db.prepare('SELECT coalesce(sum(size), 0) AS n FROM assets').get() as { n: number }).n) }
+
+  /** forget every id that names this file content (the gallery shows one entry per file) */
+  deleteAssetsWithSha(sha256: string): number { return Number(this.db.prepare('DELETE FROM assets WHERE sha256 = ?').run(sha256).changes) }
+
   insertAsset(a: { id: string; sha256: string; mime: string; size: number; name: string }) {
     this.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?)').run(a.id, a.sha256, a.mime, a.size, a.name, new Date().toISOString())
   }

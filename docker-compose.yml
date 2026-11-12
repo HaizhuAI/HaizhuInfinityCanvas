@@ -1,12 +1,21 @@
 services:
   haizhu-canvas:
     build: .
-    image: haizhu-infinity-canvas:1.0.0-rc.9
+    image: haizhu-infinity-canvas:1.0.0-rc.10
     ports:
       - "8787:8787"
     environment:
-      # required: access token for the WebUI API (enter it in 设置 → 访问口令)
-      HZC_TOKEN: ${HZC_TOKEN:?set HZC_TOKEN in your environment or .env}
+      # One person / a small team sharing one workspace: an access token (enter it in 设置 → 访问口令).
+      # A website where everyone signs up for their own private workspace: set HZC_ACCOUNTS=1 instead,
+      # plus HZC_ALLOWED_HOSTS (see docs/03-guide/saas-deployment.md).
+      HZC_TOKEN: ${HZC_TOKEN:-}
+      HZC_ACCOUNTS: ${HZC_ACCOUNTS:-0}
+      # accounts mode: open | closed (closed: only `admin create-user` makes accounts)
+      HZC_SIGNUP: ${HZC_SIGNUP:-open}
+      # accounts mode: storage per user, in MB
+      HZC_USER_QUOTA_MB: ${HZC_USER_QUOTA_MB:-2048}
+      # accounts mode behind HTTPS: cookies only over HTTPS
+      HZC_SECURE_COOKIES: ${HZC_SECURE_COOKIES:-0}
       # public / shared deployment: model endpoints and result links may not point into the private
       # network (set to 0 only if your models run on this host or LAN)
       HZC_BLOCK_PRIVATE_NETWORK: ${HZC_BLOCK_PRIVATE_NETWORK:-1}

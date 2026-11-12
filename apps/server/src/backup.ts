@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { Store } from './db'
+/** anything that can write a consistent copy of its database (Store, AccountStore) */
+export interface BackupSource { backupTo(file: string): void }
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')
 
@@ -28,8 +29,11 @@ export interface RecoveryNote {
   keptAs?: string
 }
 
-/** hzc-<UTC time to the millisecond>.sqlite: names sort in time order */
-const NAME = /^hzc-(\d{8})T(\d{6})(\d{3})?Z\.sqlite$/
+/** <prefix>-<UTC time to the millisecond>.sqlite: names sort in time order */
+const nameRe = (prefix: string) => new RegExp(`^${prefix}-(\\d{8})T(\\d{6})(\\d{3})?Z\\.sqlite$`)
+
+/** tables a canvas database must have */
+export const CANVAS_TABLES = ['projects', 'profiles']
 
 const stamp = (d = new Date()) => d.toISOString().replace(/[-:.]/g, '')
 
@@ -42,7 +46,7 @@ export type FileCheck = { state: 'ok' } | { state: 'damaged' | 'unknown'; reason
 const SQLITE_CORRUPT = 11
 const SQLITE_NOTADB = 26
 
-export function checkDatabaseFile(file: string): FileCheck {
+export function checkDatabaseFile(file: string, tables: string[] = CANVAS_TABLES): FileCheck {
   let db: InstanceType<typeof DatabaseSync> | undefined
   try {
     db = new DatabaseSync(file, { readOnly: true })
@@ -51,8 +55,8 @@ export function checkDatabaseFile(file: string): FileCheck {
     const res = rows.map((r) => r.quick_check).join('; ')
     if (res !== 'ok') return { state: 'damaged', reason: `完整性检查未通过：${res.slice(0, 200)}` }
     // the file opens and is consistent; it must also be ours (an empty or foreign file is not a backup)
-    const t = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('projects', 'profiles')").get() as { n: number }
-    return t.n === 2 ? { state: 'ok' } : { state: 'damaged', reason: '文件是空的或不是海柱无限画布的数据' }
+    const names = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name))
+    return tables.every((t) => names.has(t)) ? { state: 'ok' } : { state: 'damaged', reason: '文件是空的或不是海柱无限画布的数据' }
   } catch (e) {
     const code = Number((e as { errcode?: number }).errcode) & 0xff
     const reason = (e as Error).message
@@ -66,8 +70,16 @@ export class Backups {
   readonly dir: string
   private timer?: ReturnType<typeof setInterval>
 
-  constructor(dataDir: string, private opts: { keep?: number; intervalMs?: number } = {}) {
+  private prefix: string
+  private name: RegExp
+  private tables: string[]
+
+  /** `prefix` names the files (hzc-…, accounts-…); `tables` are the ones a usable copy must have */
+  constructor(dataDir: string, private opts: { keep?: number; intervalMs?: number; prefix?: string; tables?: string[] } = {}) {
     this.dir = join(dataDir, 'backups')
+    this.prefix = opts.prefix ?? 'hzc'
+    this.name = nameRe(this.prefix)
+    this.tables = opts.tables ?? CANVAS_TABLES
   }
 
   /** how many backups are kept (a bad setting falls back to 14 — it must never prune everything) */
@@ -80,7 +92,7 @@ export class Backups {
     if (!existsSync(this.dir)) return []
     const out: BackupInfo[] = []
     for (const name of readdirSync(this.dir)) {
-      const m = NAME.exec(name)
+      const m = this.name.exec(name)
       if (!m) continue
       try {
         const st = statSync(join(this.dir, name))
@@ -93,11 +105,11 @@ export class Backups {
   }
 
   /** Write a consistent copy of the live database, then drop the oldest beyond `keep`. */
-  create(store: Store): BackupInfo {
+  create(store: BackupSource): BackupInfo {
     mkdirSync(this.dir, { recursive: true })
     const now = new Date()
-    while (existsSync(join(this.dir, `hzc-${stamp(now)}.sqlite`))) now.setTime(now.getTime() + 1)
-    const name = `hzc-${stamp(now)}.sqlite`
+    while (existsSync(join(this.dir, `${this.prefix}-${stamp(now)}.sqlite`))) now.setTime(now.getTime() + 1)
+    const name = `${this.prefix}-${stamp(now)}.sqlite`
     const tmp = join(this.dir, `.${name}.partial`)
     rmSync(tmp, { force: true })
     try {
@@ -119,7 +131,7 @@ export class Backups {
   }
 
   /** Back up now if the newest backup is older than the interval, then on every interval. Returns a stop function. */
-  schedule(store: Store, log: (msg: string) => void = console.log): () => void {
+  schedule(store: BackupSource, log: (msg: string) => void = console.log): () => void {
     const run = (why: string) => {
       try {
         const b = this.create(store)
@@ -142,7 +154,7 @@ export class Backups {
    */
   recoverIfDamaged(dbFile: string): RecoveryNote | undefined {
     if (!existsSync(dbFile)) return undefined
-    const check = checkDatabaseFile(dbFile)
+    const check = checkDatabaseFile(dbFile, this.tables)
     if (check.state === 'unknown') console.error(`[hzc] could not check the database (${check.reason}); opening it as it is`)
     if (check.state !== 'damaged') return undefined
     const problem = check.reason
@@ -154,7 +166,7 @@ export class Backups {
     console.error(`[hzc] the database was damaged (${problem}); kept it as ${basename(keptAs)}`)
     for (const b of this.list()) {
       const file = join(this.dir, b.name)
-      if (checkDatabaseFile(file).state !== 'ok') { console.error(`[hzc] backup ${b.name} is not usable either`); continue }
+      if (checkDatabaseFile(file, this.tables).state !== 'ok') { console.error(`[hzc] backup ${b.name} is not usable either`); continue }
       copyFileSync(file, `${dbFile}.restoring`)
       renameSync(`${dbFile}.restoring`, dbFile)
       console.error(`[hzc] restored the database from backup ${b.name}`)

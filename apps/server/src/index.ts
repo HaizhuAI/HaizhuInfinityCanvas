@@ -1,6 +1,6 @@
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildApp } from './app'
+import { buildApp, type AppOptions } from './app'
 import { Store } from './db'
 import { SecretBox } from './secrets'
 import { AssetStore } from './assets'
@@ -8,50 +8,95 @@ import { Engine } from './engine'
 import { SkillStore } from './skills'
 import { existsSync } from 'node:fs'
 import { Backups } from './backup'
+import { ACCOUNT_TABLES, AccountStore } from './accounts'
+import { Workspaces } from './workspaces'
+import { runAdmin } from './admin'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dataDir = resolve(process.env.HZC_DATA_DIR ?? join(process.cwd(), 'data'))
 const port = Number(process.env.PORT ?? 8787)
-// Desktop shell keeps this on loopback; for WebUI/Docker set HZC_HOST=0.0.0.0 AND HZC_TOKEN.
+// Desktop shell keeps this on loopback; for WebUI/Docker set HZC_HOST=0.0.0.0 AND HZC_TOKEN (one user)
+// or HZC_ACCOUNTS=1 (sign-up / sign-in, one private workspace per user)
 const host = process.env.HZC_HOST ?? '127.0.0.1'
 const accessToken = process.env.HZC_TOKEN || undefined
-
-if (host !== '127.0.0.1' && host !== 'localhost') {
-  if (!accessToken) {
-    console.error('[hzc] refusing to listen on a non-loopback address without HZC_TOKEN set')
-    process.exit(1)
-  }
-  // reachable by others: a short or copied-from-the-example token is as good as none
-  if (accessToken.length < 16 || /^change-me/i.test(accessToken)) {
-    console.error('[hzc] HZC_TOKEN is too weak for a non-loopback address: use at least 16 random characters (e.g. `openssl rand -hex 24`), not the example value')
-    process.exit(1)
-  }
-}
+const accountsMode = process.env.HZC_ACCOUNTS === '1'
+const allowedHosts = (process.env.HZC_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean)
+const loopback = host === '127.0.0.1' || host === 'localhost'
 
 // the desktop app hands over the keychain-unsealed master key; keep it out of the environment afterwards
 const masterKey = process.env.HZC_MASTER_KEY || undefined
 delete process.env.HZC_MASTER_KEY
-// redundancy: a damaged database is set aside and the newest good backup takes its place; then a
-// consistent backup is written now (if the last one is stale) and every HZC_BACKUP_HOURS (default 6)
-const dbFile = join(dataDir, 'hzc.sqlite')
+const secrets = () => new SecretBox(join(dataDir, 'master.key'), masterKey)
+
+// operator commands (accounts mode): `node index.mjs admin …`
+if (process.argv[2] === 'admin') process.exit(await runAdmin(process.argv.slice(3), dataDir, secrets))
+
+if (!loopback) {
+  if (accountsMode) {
+    // sign-in protects the data; the Host check is what keeps other web sites out (DNS rebinding)
+    if (!allowedHosts.length) {
+      console.error('[hzc] HZC_ACCOUNTS=1 on a non-loopback address needs HZC_ALLOWED_HOSTS (the domain / address people open, e.g. canvas.example.com)')
+      process.exit(1)
+    }
+  } else if (!accessToken) {
+    console.error('[hzc] refusing to listen on a non-loopback address without HZC_TOKEN set (or HZC_ACCOUNTS=1 for sign-in accounts)')
+    process.exit(1)
+  }
+  // reachable by others: a short or copied-from-the-example token is as good as none
+  if (accessToken && (accessToken.length < 16 || /^change-me/i.test(accessToken))) {
+    console.error('[hzc] HZC_TOKEN is too weak for a non-loopback address: use at least 16 random characters (e.g. `openssl rand -hex 24`), not the example value')
+    process.exit(1)
+  }
+}
+// many users share this server: their model endpoints must not reach into its own network, unless the
+// operator explicitly allows it
+if (accountsMode && process.env.HZC_BLOCK_PRIVATE_NETWORK === undefined) process.env.HZC_BLOCK_PRIVATE_NETWORK = '1'
+
 // (invalid values fall back to the defaults inside Backups)
-const backups = new Backups(dataDir, {
+const backupOpts = {
   keep: process.env.HZC_BACKUP_KEEP ? Number(process.env.HZC_BACKUP_KEEP) : undefined,
   intervalMs: process.env.HZC_BACKUP_HOURS ? Number(process.env.HZC_BACKUP_HOURS) * 3600_000 : undefined,
-})
-const recovery = backups.recoverIfDamaged(dbFile)
-const store = new Store(dbFile, new SecretBox(join(dataDir, 'master.key'), masterKey))
-const stopBackups = backups.schedule(store)
+}
 const webDir = process.env.HZC_WEB_DIR ?? resolve(here, '../../web/dist')
-const assets = new AssetStore(dataDir, store)
 // built-in skills sit next to the bundle (dist/skills) or, in dev, at apps/server/skills
 const builtinSkills = process.env.HZC_SKILLS_DIR ?? [resolve(here, 'skills'), resolve(here, '../skills')].find((d) => existsSync(d))
-const skills = new SkillStore(builtinSkills, dataDir)
 // HZC_MAX_PARALLEL: how many model calls may run at once (1–8, default 4; 1 = one node at a time)
-const engine = new Engine(store, assets, { skills, maxParallel: process.env.HZC_MAX_PARALLEL ? Number(process.env.HZC_MAX_PARALLEL) : undefined })
-// security settings for WebUI deployments (see docs/03-guide/projects-and-desktop.md)
-const allowedHosts = (process.env.HZC_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean)
-const app = await buildApp({ store, assets, engine, skills, webDir, accessToken, allowedHosts, backups, recovery, hsts: process.env.HZC_HSTS === '1', trustProxy: process.env.HZC_TRUST_PROXY === '1' })
+const maxParallel = process.env.HZC_MAX_PARALLEL ? Number(process.env.HZC_MAX_PARALLEL) : undefined
+const common = { webDir, accessToken, allowedHosts, hsts: process.env.HZC_HSTS === '1', trustProxy: process.env.HZC_TRUST_PROXY === '1' }
+
+let appOpts: AppOptions
+let closeData: () => void
+if (accountsMode) {
+  // identities in accounts.sqlite (backed up and checked like a workspace); each user's work in users/<id>/
+  const accountBackups = new Backups(dataDir, { ...backupOpts, prefix: 'accounts', tables: ACCOUNT_TABLES })
+  accountBackups.recoverIfDamaged(join(dataDir, 'accounts.sqlite'))
+  const accounts = new AccountStore(join(dataDir, 'accounts.sqlite'))
+  const stopAccountBackups = accountBackups.schedule(accounts)
+  const quotaMb = Number(process.env.HZC_USER_QUOTA_MB)
+  const workspaces = new Workspaces(dataDir, {
+    secrets: secrets(), builtinSkills, maxParallel, backupKeep: backupOpts.keep, backupIntervalMs: backupOpts.intervalMs,
+    quotaBytes: (Number.isFinite(quotaMb) && quotaMb > 0 ? quotaMb : 2048) * 1024 * 1024,
+  })
+  const prune = setInterval(() => accounts.pruneSessions(), 3600_000)
+  prune.unref()
+  appOpts = { ...common, accounts: { accounts, workspaces, signup: process.env.HZC_SIGNUP !== 'closed', secureCookies: process.env.HZC_SECURE_COOKIES === '1' ? true : 'auto' } }
+  closeData = () => { clearInterval(prune); stopAccountBackups(); workspaces.closeAll(); accounts.close() }
+  console.log(`[hzc] accounts mode: ${accounts.countUsers()} account(s); sign-up ${appOpts.accounts!.signup ? 'open' : 'closed'}`)
+} else {
+  // redundancy: a damaged database is set aside and the newest good backup takes its place; then a
+  // consistent backup is written now (if the last one is stale) and every HZC_BACKUP_HOURS (default 6)
+  const dbFile = join(dataDir, 'hzc.sqlite')
+  const backups = new Backups(dataDir, backupOpts)
+  const recovery = backups.recoverIfDamaged(dbFile)
+  const store = new Store(dbFile, secrets())
+  const stopBackups = backups.schedule(store)
+  const assets = new AssetStore(dataDir, store)
+  const skills = new SkillStore(builtinSkills, dataDir)
+  const engine = new Engine(store, assets, { skills, maxParallel })
+  appOpts = { ...common, store, assets, engine, skills, backups, recovery }
+  closeData = () => { stopBackups(); store.close() }
+}
+const app = await buildApp(appOpts)
 
 await app.listen({ port, host })
 console.log(`[hzc] Haizhu Infinity Canvas listening on http://${host}:${port}  (data: ${dataDir})`)
@@ -66,10 +111,9 @@ async function shutdown(why: string, code = 0) {
   if (stopping) return
   stopping = true
   console.log(`[hzc] shutting down (${why})`)
-  const closeStore = () => { try { store.close() } catch { /* already closed */ } }
+  const closeStore = () => { try { closeData() } catch { /* already closed */ } }
   const force = setTimeout(() => { console.error('[hzc] shutdown took too long; exiting'); closeStore(); process.exit(code || 1) }, 10_000)
   force.unref()
-  stopBackups()
   try { await app.close() } catch (e) { console.error('[hzc] closing the server failed:', e) }
   closeStore()
   process.exit(code)

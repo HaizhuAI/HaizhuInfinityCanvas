@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Boxes, ChevronRight, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Sparkles, Trash, X } from 'lucide-react'
+import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Sparkles, Trash, X } from 'lucide-react'
 import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
-import { api, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
+import { api, auth, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
 import { useEscape } from './Overlays'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
 import { enterOverlay, motionEnabled, setMotionEnabled } from './motion'
@@ -281,6 +281,77 @@ function AccessPane() {
   )
 }
 
+const mb = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(n < 10 * 1024 ** 2 ? 1 : 0)} MB` : `${Math.ceil(Math.max(0, n) / 1024)} KB`)
+
+/** Accounts mode: who is signed in, storage, password, sign out, delete the account. */
+function AccountPane() {
+  const account = useStore((s) => s.account)
+  const showToast = useStore((s) => s.showToast)
+  const [storage, setStorage] = useState<{ used: number; quota?: number } | null>(null)
+  const [cur, setCur] = useState('')
+  const [next, setNext] = useState('')
+  const [busy, setBusy] = useState<'' | 'pw' | 'others' | 'out' | 'delete'>('')
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [delPw, setDelPw] = useState('')
+  const [delTyped, setDelTyped] = useState('')
+  const [delErr, setDelErr] = useState('')
+  useEffect(() => { void api.system().then((s) => setStorage(s.storage ?? null)).catch(() => undefined) }, [])
+  const pct = storage?.quota ? Math.min(100, Math.round((storage.used / storage.quota) * 100)) : 0
+
+  async function changePw() {
+    setBusy('pw'); setPwMsg(null)
+    try { await auth.changePassword(cur, next); setCur(''); setNext(''); setPwMsg({ ok: true, text: '密码已修改，其他设备已退出登录' }) }
+    catch (e) { setPwMsg({ ok: false, text: (e as Error).message }) }
+    finally { setBusy('') }
+  }
+  async function signOut() {
+    setBusy('out')
+    useStore.getState().keepDraft() // unsaved edits stay in this browser for next time
+    try { await auth.logout() } finally { location.replace('/welcome') }
+  }
+  async function deleteAccount() {
+    setBusy('delete'); setDelErr('')
+    try { await auth.deleteAccount(delPw); location.replace('/welcome') }
+    catch (e) { setDelErr((e as Error).message); setBusy('') }
+  }
+  return (
+    <div className="form" data-testid="account-pane">
+      <div>
+        <h3>账号</h3>
+        <div className="muted">{account ? <>已登录 <b data-testid="account-email">{account.email}</b> · 注册于 {new Date(account.createdAt).toLocaleDateString('zh-CN')}</> : '读取中…'}</div>
+      </div>
+      {storage && (
+        <div className="field"><span>存储空间（素材与生成结果）</span>
+          <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="已用存储空间" style={{ '--p': `${pct}%`, '--c': pct > 90 ? 'var(--danger)' : pct > 75 ? 'var(--warn)' : 'var(--accent)' } as React.CSSProperties}><span /></div>
+          <span className="help" data-testid="account-storage">已用 {mb(storage.used)}{storage.quota ? ` / ${mb(storage.quota)}` : ''}。空间不够时，在左侧「素材库」里删除不用的文件。</span>
+        </div>
+      )}
+      <div className="field"><span>修改密码</span>
+        <div className="row2">
+          <input type="password" autoComplete="current-password" placeholder="当前密码" value={cur} onChange={(e) => setCur(e.target.value)} aria-label="当前密码" />
+          <input type="password" autoComplete="new-password" placeholder="新密码（至少 8 位）" value={next} onChange={(e) => setNext(e.target.value)} aria-label="新密码" />
+        </div>
+        {pwMsg && <span className={pwMsg.ok ? 'help ok' : 'warn'} role="status">{pwMsg.text}</span>}
+      </div>
+      <div className="form-actions">
+        <button className="btn primary" disabled={!cur || !next || busy !== ''} onClick={() => void changePw()}>修改密码</button>
+        <button className="btn" disabled={busy !== ''} onClick={() => { setBusy('others'); void auth.logoutOthers().then(() => showToast('其他设备已退出登录')).catch((e) => showToast((e as Error).message, { tone: 'error' })).finally(() => setBusy('')) }}><MonitorSmartphone />退出其他设备</button>
+        <button className="btn" disabled={busy !== ''} onClick={() => void signOut()} data-testid="sign-out"><LogOut />退出登录</button>
+      </div>
+      <details className="danger-zone">
+        <summary>删除账号</summary>
+        <p className="help">会永久删除你的全部画布、模型档案（含 API Key）、素材、生成记录和备份，无法恢复。需要保留的画布请先在「我的画布」里导出项目包。</p>
+        <div className="row2">
+          <input type="password" autoComplete="current-password" placeholder="密码" value={delPw} onChange={(e) => setDelPw(e.target.value)} aria-label="确认密码" />
+          <input placeholder="输入「删除」确认" value={delTyped} onChange={(e) => setDelTyped(e.target.value)} aria-label="输入删除确认" />
+        </div>
+        {delErr && <span className="warn" role="alert">{delErr}</span>}
+        <div className="form-actions"><button className="btn danger" disabled={!delPw || delTyped.trim() !== '删除' || busy !== ''} onClick={() => void deleteAccount()}>永久删除账号</button></div>
+      </details>
+    </div>
+  )
+}
+
 const SKILL_TEMPLATE = `---
 name: my-director
 description: 我的导演风格。说明它做什么、什么时候用。
@@ -467,7 +538,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.9。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.10。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
@@ -489,7 +560,7 @@ function AboutPane() {
             {b.count ? `自动备份 · 每 ${b.everyHours} 小时 · 保留最近 ${b.keep} 份 · 最近一次 ${when(b.latest)}` : '还没有备份'}
             <button className="btn xs" disabled={backing === 'busy'} onClick={backupNow} data-testid="backup-now">{backing === 'busy' ? '备份中…' : '立即备份'}</button>
           </div>
-          <span className="help">{backing === 'error' ? '备份失败，请检查数据目录的磁盘空间。' : '备份在数据目录的 backups 文件夹里。数据文件损坏时，下次启动会自动换成最近一份完好的备份。'}</span>
+          <span className="help">{backing === 'error' ? (sys?.accounts ? '备份失败，请稍后再试。' : '备份失败，请检查数据目录的磁盘空间。') : (sys?.accounts ? '备份保存在服务器上你的空间里。数据文件损坏时，会自动换成最近一份完好的备份。' : '备份在数据目录的 backups 文件夹里。数据文件损坏时，下次启动会自动换成最近一份完好的备份。')}</span>
         </div>
       )}
       {r && (
@@ -502,8 +573,8 @@ function AboutPane() {
           </span>
         </div>
       )}
-      {sys && <dl className="meta-list"><dt>运行环境</dt><dd>Node {sys.node} · {sys.platform}</dd></dl>}
-      <div className="hint"><Info aria-hidden="true" /><span>项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。</span></div>
+      {sys?.node && <dl className="meta-list"><dt>运行环境</dt><dd>Node {sys.node} · {sys.platform}</dd></dl>}
+      <div className="hint"><Info aria-hidden="true" /><span>{sys?.accounts ? '你的画布、模型档案与素材保存在服务器上只属于你的独立空间里，并自动备份；模型由你自带 API 提供。' : '项目与素材保存在本机数据目录；模型由你自带 API 或本地服务提供。'}</span></div>
     </div>
   )
 }
@@ -516,11 +587,13 @@ export function Settings() {
   const backRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   useEffect(() => { enterOverlay(panelRef.current, backRef.current) }, [])
+  const accounts = useStore((s) => s.accounts)
+  // signed-in deployments have accounts instead of the shared access token
   const TABS: { id: Tab; label: string; Icon: typeof Cpu }[] = [
     { id: 'profiles', label: '模型档案', Icon: Cpu },
     { id: 'skills', label: 'Skill', Icon: Clapperboard },
     { id: 'appearance', label: '外观与动效', Icon: Sparkles },
-    { id: 'access', label: '访问口令', Icon: KeyRound },
+    accounts ? { id: 'account', label: '账号', Icon: CircleUser } : { id: 'access', label: '访问口令', Icon: KeyRound },
     { id: 'about', label: '关于', Icon: Boxes },
   ]
   return (
@@ -539,6 +612,7 @@ export function Settings() {
           <div className="pane">
             {tab === 'profiles' && <ProfilesPane addKind={intent?.addKind} />}
             {tab === 'access' && <AccessPane />}
+            {tab === 'account' && <AccountPane />}
             {tab === 'skills' && <SkillsPane />}
             {tab === 'appearance' && <AppearancePane />}
             {tab === 'about' && <AboutPane />}

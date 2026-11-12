@@ -27,7 +27,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.9'
+export const APP_VERSION = 'v1.0.0-rc.10'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -487,6 +487,7 @@ export function App() {
   const runId = useStore((st) => st.runId)
   const hasNodes = useStore((st) => st.nodes.length > 0)
   const rightTab = useStore((st) => st.rightTab)
+  const account = useStore((st) => st.account)
   const s = useStore.getState() // actions only
   const [inspector, setInspectorState] = useState(inspectorPref())
   const setInspector = (v: boolean) => { setInspectorState(v); setInspectorPref(v) }
@@ -580,6 +581,7 @@ export function App() {
             <ThemeToggle />
             <button className="btn ghost sm icon" onClick={() => s.setShortcutsOpen(true)} aria-label="快捷键" title="快捷键（?）" data-testid="open-shortcuts"><Keyboard /></button>
             <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
+            {account && <button className="avatar" onClick={() => s.openSettings({ tab: 'account' })} title={account.email} aria-label={`账号：${account.email}`} data-testid="account-button">{account.email[0]!.toUpperCase()}</button>}
           </div>
         </header>
         <ErrorBoundary><ProjectWorkspace inspector={inspector} setInspector={setInspector} /></ErrorBoundary>

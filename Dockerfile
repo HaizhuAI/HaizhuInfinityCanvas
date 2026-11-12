@@ -24,5 +24,6 @@ USER hzc
 VOLUME /data
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-# The server refuses to bind a non-loopback address unless HZC_TOKEN is set.
+# The server refuses to bind a non-loopback address unless HZC_TOKEN is set (one workspace) or
+# HZC_ACCOUNTS=1 with HZC_ALLOWED_HOSTS (sign-up accounts, one private workspace each).
 CMD ["node", "server/index.mjs"]

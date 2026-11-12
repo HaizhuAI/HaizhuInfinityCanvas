@@ -2,9 +2,9 @@
 
 > 面向「创作类智能体」的无限画布创作工坊。把你预先配置好的**视频模型、图片模型、视觉分析模型、文本模型、TTS 语音模型、导演 Skill** 做成图标，拖进画布、连线成"智能体团队"，一键跑出分镜、图片、视频、配音，并导出成片。
 
-- 当前版本：**v1.0.0-rc.9**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
+- 当前版本：**v1.0.0-rc.10**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
 - 源码状态：**公开仓库（源码可见）**，但尚未授予开源许可，保留所有权利（见 [LICENSE](./LICENSE)）
-- 目标平台：WebUI（浏览器/Docker）· Windows 桌面版 · Linux 桌面版
+- 目标平台：WebUI（浏览器/Docker，可开启注册登录部署成多人网站）· Windows 桌面版 · Linux 桌面版
 
 ## 核心理念
 
@@ -16,6 +16,7 @@
 6. **本地优先 + 自带 Key**：项目与素材存本地，API Key 加密保存（桌面版的加密密钥交给系统钥匙串），成本透明、失败不乱扣费。
 7. **项目包**：一个 `.hzc` 文件带走画布、素材与全部生成结果，换电脑或备份都不丢。
 8. **安全与冗余**：网页部署防跨站请求、DNS 重绑定、SSRF 与令牌暴力猜测；数据库自动备份、损坏时自动从备份恢复，保存失败的修改留在浏览器里自动重试（见[部署指南](./docs/03-guide/projects-and-desktop.md#安全部署清单)）。
+9. **可部署成网站（SaaS）**：开启账号模式后访客可注册登录，每人一个独立空间（自己的数据库与文件夹），自带模型 Key，管理员命令行管理账号（见[多人网站部署](./docs/03-guide/saas-deployment.md)）。
 
 > 视频反推与导出成片需要系统安装 FFmpeg（应用不内置），见[视频指南](./docs/03-guide/video-and-export.md)。
 
@@ -37,7 +38,8 @@
 | [docs/03-guide/model-profiles.md](./docs/03-guide/model-profiles.md) | 使用指南：添加模型与测试连接、提示词反推与反推 Skill、图片/视频/语音生成、费用预估 |
 | [docs/03-guide/director-skills.md](./docs/03-guide/director-skills.md) | 使用指南：导演 Skill、分镜展开、快速添加 |
 | [docs/03-guide/video-and-export.md](./docs/03-guide/video-and-export.md) | 使用指南：FFmpeg、视频提示词反推、导出成片、剪辑工程 |
-| [docs/03-guide/projects-and-desktop.md](./docs/03-guide/projects-and-desktop.md) | 使用指南：项目包、桌面版数据与 API Key 保护、WebUI / Docker 部署 |
+| [docs/03-guide/projects-and-desktop.md](./docs/03-guide/projects-and-desktop.md) | 使用指南：项目包、桌面版数据与 API Key 保护、WebUI / Docker 部署、安全部署清单、数据备份与恢复 |
+| [docs/03-guide/saas-deployment.md](./docs/03-guide/saas-deployment.md) | 使用指南：部署成多人使用的网站（注册登录、每人独立空间、管理命令、安全设计） |
 | [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) | 第三方依赖与借鉴来源登记 |
 | [CHANGELOG.md](./CHANGELOG.md) | 变更记录 |
 

@@ -4,7 +4,7 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
 import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, pickCompareWinner, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
-import { api, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
+import { api, auth, markBooted, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
 import { setViewPref, viewPref } from './theme'
@@ -33,7 +33,7 @@ const withDefaultProfile = (n: CanvasNode, profiles: ModelProfilePublic[]): Canv
   n.data.profileId || !NODE_TYPE_MAP[n.type ?? '']?.modelKind ? n : { ...n, data: { ...n.data, profileId: defaultProfileFor(n.type, profiles) } }
 
 export interface Toast { id: number; text: string; tone?: 'info' | 'error'; action?: { label: string; run: () => void } }
-export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'about'
+export type SettingsTab = 'profiles' | 'skills' | 'appearance' | 'access' | 'account' | 'about'
 export interface SettingsIntent { tab?: SettingsTab; addKind?: ModelKind }
 /** one turn of the canvas assistant conversation */
 export interface AssistantTurn { role: 'user' | 'assistant'; content: string; plan?: Plan | null; warnings?: string[]; applied?: string[]; error?: boolean }
@@ -83,6 +83,9 @@ export interface State {
   settingsOpen: boolean
   /** where Settings should open (tab, or straight into "add a model" of a kind) */
   settingsIntent: SettingsIntent | null
+  /** multi-user deployment: the signed-in account (null in a one-person install or until known) */
+  account: Me | null
+  accounts: boolean
   /** FFmpeg availability, for the pre-run check (null until known) */
   ffmpegOk: boolean | null
   /** how many model calls the server runs at once, over all models */
@@ -205,7 +208,7 @@ export const useStore = create<State>((set, get) => ({
   saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null,
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
-  settingsIntent: null, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
+  settingsIntent: null, account: null, accounts: false, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
 
   showToast: (text, opts) => {
     const t: Toast = { id: Date.now() + Math.random(), text, tone: opts?.tone, action: opts?.action }
@@ -452,7 +455,8 @@ export const useStore = create<State>((set, get) => ({
   async init() {
     void get().loadSkills().catch(() => undefined)
     void api.system().then((sys) => {
-      set({ ffmpegOk: sys.ffmpeg.ok, maxParallel: sys.maxParallel ?? 4 })
+      set({ ffmpegOk: sys.ffmpeg.ok, maxParallel: sys.maxParallel ?? 4, accounts: !!sys.accounts })
+      if (sys.accounts) void auth.me().then((account) => set({ account })).catch(() => undefined)
       // the database was damaged and replaced at startup: changes after that backup are missing
       if (sys.recovery) get().showToast(sys.recovery.restoredFrom ? '数据文件损坏，已自动从最近的备份恢复。详情见 设置 → 关于' : '数据文件损坏且没有可用备份，已用空数据启动。详情见 设置 → 关于', { tone: 'error', ms: 15_000, action: { label: '查看', run: () => get().openSettings({ tab: 'about' }) } })
     }).catch(() => undefined)
@@ -463,6 +467,7 @@ export const useStore = create<State>((set, get) => ({
     set({ projects })
     if (projects[0]) await get().openProject(projects[0].id)
     else await get().newProject()
+    markBooted() // from now on a lost session means "sign in again", not "show the front page"
   },
 
   async openProject(id) {

@@ -67,3 +67,4 @@
   .lp-hero { padding-top: 56px; } .lp-tabs { max-width: 100%; overflow-x: auto; }
 }
 @media (prefers-reduced-motion: reduce) { .lp { scroll-behavior: auto; } .lp-frame img { animation: none; } }
+.lp-nav-act { display: inline-flex; gap: 8px; }
