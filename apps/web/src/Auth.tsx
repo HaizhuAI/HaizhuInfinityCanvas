@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Eye, EyeOff, Infinity as InfinityIcon, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { Mark } from './icons'
 import { auth, type AuthConfig } from './api'
 import './landing.css'
 import './auth.css'
@@ -56,22 +57,21 @@ export function Auth({ mode: initial }: { mode: 'login' | 'signup' }) {
   const min = cfg && cfg !== 'off' ? cfg.passwordMin : 8
   return (
     <div className="lp auth" data-testid="auth">
-      <div className="lp-glow" aria-hidden="true" />
       <main className="auth-card">
-        <a className="lp-brand" href="/welcome"><span className="logo" aria-hidden="true"><InfinityIcon /></span>Haizhu <span>Infinity Canvas</span></a>
+        <a className="lp-brand" href="/welcome"><Mark size={22} />Haizhu <span>Infinity Canvas</span></a>
         {cfg === 'off' ? (
           <>
             <h1>这个部署没有开启账号</h1>
             <p className="auth-sub">它是单人使用的版本，直接进入画布即可。</p>
-            <a className="lp-btn primary wide" href="/">进入画布<ArrowRight /></a>
+            <a className="lp-btn primary wide" href="/">打开画布<ArrowRight className="lp-arrow" /></a>
           </>
         ) : (
           <>
-            <h1>{mode === 'login' ? '欢迎回来' : '创建你的工作室'}</h1>
+            <h1>{mode === 'login' ? '登录到你的画布' : '注册一个账号'}</h1>
             <p className="auth-sub">
               {mode === 'login'
                 ? (expired ? '登录已过期，请重新登录，回到刚才的画布。' : '登录后继续你的画布。')
-                : '注册即得一个独立空间：画布、模型档案与文件只属于你。'}
+                : '每个账号一个独立空间：画布、模型档案和文件只有你能看到。'}
             </p>
             {mode === 'signup' && signupClosed ? (
               <div className="auth-note" role="status">暂不开放注册，请联系管理员开通账号。</div>
@@ -91,8 +91,9 @@ export function Auth({ mode: initial }: { mode: 'login' | 'signup' }) {
                 </label>
                 {error && <div className="auth-error" role="alert" data-testid="auth-error">{error}</div>}
                 <button className="lp-btn primary wide" type="submit" disabled={busy || !email || !password} data-testid="auth-submit">
-                  {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : mode === 'login' ? <LockKeyhole aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
-                  {mode === 'login' ? '登录' : '注册并开始'}
+                  {busy && <LoaderCircle className="spin" aria-hidden="true" />}
+                  {mode === 'login' ? '登录' : '注册并打开画布'}
+                  {!busy && mode === 'login' && <LockKeyhole className="lp-arrow" aria-hidden="true" />}
                 </button>
               </form>
             )}

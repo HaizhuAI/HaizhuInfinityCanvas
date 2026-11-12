@@ -2,7 +2,7 @@
 
 > 面向「创作类智能体」的无限画布创作工坊。把你预先配置好的**视频模型、图片模型、视觉分析模型、文本模型、TTS 语音模型、导演 Skill** 做成图标，拖进画布、连线成"智能体团队"，一键跑出分镜、图片、视频、配音，并导出成片。
 
-- 当前版本：**v1.0.0-rc.10**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
+- 当前版本：**v1.0.0-rc.11**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
 - 源码状态：**公开仓库（源码可见）**，但尚未授予开源许可，保留所有权利（见 [LICENSE](./LICENSE)）
 - 目标平台：WebUI（浏览器/Docker，可开启注册登录部署成多人网站）· Windows 桌面版 · Linux 桌面版
 
@@ -30,7 +30,8 @@
 | [docs/00-research/04-kaworkai-reference.md](./docs/00-research/04-kaworkai-reference.md) | 参考调研：咔作画布的交互思路，借鉴了什么、没有引入什么 |
 | [docs/01-architecture/ADR-0001-tech-stack.md](./docs/01-architecture/ADR-0001-tech-stack.md) | 技术选型决策记录 |
 | [docs/01-architecture/ADR-0002-ui-design-system.md](./docs/01-architecture/ADR-0002-ui-design-system.md) | 动效决策（GSAP / Galaxy / Taste Skill；配色与布局已由 ADR-0003 取代） |
-| [docs/01-architecture/ADR-0003-studio-design-system.md](./docs/01-architecture/ADR-0003-studio-design-system.md) | 「工作室」设计系统：面向图片 / 视频创作者的内容优先界面（UI-UX-Pro-Max） |
+| [docs/01-architecture/ADR-0003-studio-design-system.md](./docs/01-architecture/ADR-0003-studio-design-system.md) | 「工作室」设计系统：面向图片 / 视频创作者的内容优先界面（UI-UX-Pro-Max；配色字体已由 ADR-0005 取代） |
+| [docs/01-architecture/ADR-0005-graphite-design-system.md](./docs/01-architecture/ADR-0005-graphite-design-system.md) | 「石墨」设计系统：去掉 AI 感（Galaxy 组件 + Taste Skill 准则；rc.11 起） |
 | [docs/01-architecture/ADR-0004-editing-handoff.md](./docs/01-architecture/ADR-0004-editing-handoff.md) | 剪辑工坊：1.0 交付 Shotcut / MLT 剪辑工程，OpenReel 嵌入延后 |
 | [docs/02-roadmap/roadmap.md](./docs/02-roadmap/roadmap.md) | 版本规划与里程碑 |
 | [docs/02-roadmap/build-matrix.md](./docs/02-roadmap/build-matrix.md) | Win / Linux / WebUI 构建计划 |

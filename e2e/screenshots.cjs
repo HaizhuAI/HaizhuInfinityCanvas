@@ -160,6 +160,8 @@ const REVERSED = '### 1. 正向 Prompt\n\n中文：清晨的高山湖泊，三�
   let n = 0
   const shot = async (name, note) => {
     await page.waitForTimeout(450) // let enter animations and toasts settle
+    // the properties panel opens at its top (a click inside it may have scrolled it)
+    await page.evaluate(() => document.querySelectorAll('.insp-body').forEach((e) => { e.scrollTop = 0 }))
     const file = `${String(++n).padStart(2, '0')}-${name}.png`
     await page.screenshot({ path: path.join(OUT, file) })
     console.log(`${file}  ${note}`)

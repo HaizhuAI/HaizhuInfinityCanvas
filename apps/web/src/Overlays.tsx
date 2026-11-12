@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Maximize, Play, Plus, Sparkles, Trash, Undo2, X } from 'lucide-react'
+import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Info, Maximize, Play, Plus, Trash, Undo2, X } from 'lucide-react'
 import { tidyCanvas } from './Chrome'
 import { canPaste, copySelection, duplicateSelection, paste } from './clipboard'
 import { undo } from './history'
@@ -174,7 +174,7 @@ export function ToastView() {
   if (!toast) return null
   return (
     <div className={`toast${toast.tone === 'error' ? ' error' : ''}`} role="status" ref={ref} data-testid="toast">
-      {toast.tone === 'error' ? <CircleAlert aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
+      {toast.tone === 'error' ? <CircleAlert aria-hidden="true" /> : <Info aria-hidden="true" />}
       <span>{toast.text}</span>
       {toast.action && <button className="btn sm" onClick={() => { toast.action!.run(); dismiss() }} data-testid="toast-action">{toast.action.label}</button>}
       {toast.action && <button className="btn xs icon ghost" onClick={dismiss} aria-label="关闭提示"><X /></button>}

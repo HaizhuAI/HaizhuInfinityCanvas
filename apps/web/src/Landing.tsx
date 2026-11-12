@@ -1,43 +1,48 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Boxes, Clapperboard, GitCompareArrows, Infinity as InfinityIcon, KeyRound, Layers, LockKeyhole, Play, ScanSearch, Sparkles, Zap } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { auth, type AuthConfig } from './api'
+import { Mark } from './icons'
 import './landing.css'
 
 /**
- * The public front page (/welcome): what the canvas is, shown with real screenshots of it.
- * Layout ideas (hero with one action, chip row, screenshot bento, numbered steps, closing band) are
- * common landing-page patterns; all wording, drawing and code here is this project's own.
+ * The public front page (/welcome). Built to Taste Skill's rules for a software page: the hero alone on
+ * the first screen with the product's own UI beside the heading, one section per screen, one button
+ * pair, an opaque header, plain copy (the heading names what it is and for whom, one hard fact up
+ * front), real screenshots of the app, hover and press feedback, the hero entering once on load.
+ * No eyebrows, gradient text, glows, chip rows or numbered steps.
  */
-const CHIPS = ['文生图 → 图生视频', '导演分镜', '参考图反推', '多模型对比', '配音与字幕', '导出成片']
-const SHOTS: { id: string; label: string; img: string; alt: string }[] = [
-  { id: 'pipeline', label: '节点流程', img: 'pipeline', alt: '一条从创意到视频的节点流程' },
-  { id: 'storyboard', label: '分镜成片', img: 'storyboard', alt: '导演分镜展开成每个镜头的画面、视频与配音' },
-  { id: 'compare', label: '模型对比', img: 'compare', alt: '三个模型的结果并排比较' },
-  { id: 'assistant', label: '画布助手', img: 'assistant', alt: '助手根据一句话给出节点方案' },
+const VIEWS: { id: string; label: string; img: string; alt: string }[] = [
+  { id: 'pipeline', label: '节点流程', img: 'pipeline', alt: '画布上的一条流程：参考图反推、出图、生成视频和配音' },
+  { id: 'storyboard', label: '分镜成片', img: 'storyboard', alt: '导演分镜展开后的镜头画面、视频、配音与合成的成片' },
+  { id: 'compare', label: '模型对比', img: 'compare', alt: '同一段提示词交给三个模型生成，结果并排比较' },
+  { id: 'assistant', label: '画布助手', img: 'assistant', alt: '画布助手按一句话给出节点方案，确认后加到画布' },
 ]
-const FEATURES: { Icon: typeof Zap; title: string; text: string; img?: string; wide?: boolean }[] = [
-  { Icon: Layers, title: '模型即节点', text: '把你自己的文本、视觉、图片、视频、语音模型接进来，拖到画布上连线。端口有类型，接不上的线拉不出来。', img: 'pipeline', wide: true },
-  { Icon: Zap, title: '同时生成', text: '互不依赖的镜头一起跑，不用一个个等。', img: 'parallel' },
-  { Icon: GitCompareArrows, title: '多模型对比', text: '同一段提示词交给几个模型，并排看，留下最好的。', img: 'compare' },
-  { Icon: Clapperboard, title: '导演 Skill', text: '一句创意拆成分镜，一键展开成画面、视频、配音和成片。', img: 'storyboard', wide: true },
-  { Icon: ScanSearch, title: '提示词反推', text: '参考图、参考视频反推成可复用的提示词与负面词。', img: 'reverse' },
-  { Icon: Sparkles, title: '画布助手', text: '说出想做的，方案先给你看，确认后才加到画布。', img: 'assistant' },
+const FEATURES: { title: string; text: string; img: string; wide?: boolean }[] = [
+  { title: '模型是画布上的节点', text: '文本、视觉、图片、视频、语音模型各占一个节点，按端口类型连线；接不上的线拉不出来。每次生成都保留版本，可以随时切回。', img: 'pipeline', wide: true },
+  { title: '互不依赖的节点同时运行', text: '分镜里的各个镜头、对比里的各个模型一起生成；运行前先列出会调用哪些模型和预估费用。', img: 'parallel' },
+  { title: '多个模型并排比较', text: '同一段提示词交给二到四个模型，结果、用时和单价并排显示，选中的结果接管下游连线。', img: 'compare' },
+  { title: '导演分镜一键展开', text: '一句创意交给导演 Skill 拆成分镜，再展开成每个镜头的画面、视频、配音，最后合成成片和字幕。', img: 'storyboard', wide: true },
+  { title: '参考图反推提示词', text: '图片或视频反推成可复用的提示词，正向提示词和负面词分别接到生成节点。', img: 'reverse' },
+  { title: '画布助手', text: '用一句话描述要做的东西，助手给出节点方案，你确认后才加到画布。', img: 'assistant' },
 ]
-const STEPS = [
-  ['接入模型', '填一次接口地址和 Key，测试连接后它就是画布上的一个节点。Key 加密保存在你的服务器上。'],
-  ['搭一条流程', '从模板开始，或让助手按一句话搭好；每次生成都保留版本，随时切回。'],
-  ['运行与交付', '运行前先看预估费用；完成后导出成片、字幕和可在剪辑软件里继续精修的工程。'],
+const RUN_WAYS: [string, string][] = [
+  ['Windows 与 Linux 桌面版', '安装后打开即用。项目、素材和生成结果都在本机，API Key 交给系统钥匙串加密保存。'],
+  ['网页版，一个人或一个小团队', 'Docker 部署到自己的服务器，用访问令牌进入；数据库每 6 小时自动备份，损坏时自动从备份恢复。'],
+  ['多人网站', '开启账号模式后访客注册登录，每个账号一个独立的数据库和文件夹，彼此看不到对方的画布和 Key。'],
 ]
 
 /** what the visitor can do: open the canvas (one-person install, or signed in), or sign up / sign in */
 type Visitor = { kind: 'open' } | { kind: 'guest'; signup: boolean }
 
 export function Landing({ onEnter }: { onEnter: () => void }) {
-  const [tab, setTab] = useState(SHOTS[0]!.id)
+  const [view, setView] = useState(VIEWS[0]!.id)
   const [visitor, setVisitor] = useState<Visitor>({ kind: 'open' })
-  const root = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const [ind, setInd] = useState<{ x: number; w: number } | null>(null)
+
   // a multi-user deployment shows sign-up / sign-in to visitors who aren't signed in
   useEffect(() => {
+    document.title = 'Haizhu Infinity Canvas：给图片和视频创作者的节点画布'
     void fetch('/api/health').then((r) => r.json() as Promise<{ accounts?: boolean }>).then(async (h) => {
       if (!h.accounts) return
       const signedIn = await auth.me().then(() => true, () => false)
@@ -45,87 +50,106 @@ export function Landing({ onEnter }: { onEnter: () => void }) {
       if (!signedIn) setVisitor({ kind: 'guest', signup: cfg?.signup ?? true })
     }).catch(() => undefined)
   }, [])
+  // the tab indicator slides to the chosen tab (transform only)
+  useEffect(() => {
+    const el = tabsRef.current?.querySelector<HTMLButtonElement>(`[data-view="${view}"]`)
+    if (el) setInd({ x: el.offsetLeft, w: el.offsetWidth })
+  }, [view])
+
   const guest = visitor.kind === 'guest'
   const primary = guest && visitor.signup
-    ? { label: '免费注册', go: () => { location.href = '/signup' } }
-    : guest ? { label: '登录', go: () => { location.href = '/login' } } : { label: '开始创作', go: onEnter }
-  // reveal sections as they scroll into view (skipped when the OS asks for reduced motion)
-  useEffect(() => {
-    const els = root.current?.querySelectorAll('.reveal') ?? []
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) { els.forEach((e) => e.classList.add('in')); return }
-    const io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) } }), { threshold: 0.12 })
-    els.forEach((e) => io.observe(e))
-    return () => io.disconnect()
-  }, [])
-  const shot = SHOTS.find((s) => s.id === tab)!
+    ? { label: '免费注册', href: '/signup' }
+    : guest ? { label: '登录', href: '/login' } : { label: '打开画布', href: '/' }
+  const go = (e: React.MouseEvent, href: string) => { if (href === '/') { e.preventDefault(); onEnter() } }
+  const current = VIEWS.find((v) => v.id === view)!
+
   return (
-    <div className="lp" ref={root} data-testid="landing">
+    <div className="lp" data-testid="landing">
       <header className="lp-nav">
-        <a className="lp-brand" href="/welcome"><span className="logo" aria-hidden="true"><InfinityIcon /></span>Haizhu <span>Infinity Canvas</span></a>
-        <nav aria-label="页面导航"><a href="#features">功能</a><a href="#how">怎么用</a><a href="#deploy">部署</a></nav>
-        {guest ? (
+        <div className="lp-wrap lp-nav-row">
+          <a className="lp-brand" href="/welcome"><Mark size={22} />Haizhu <span>Infinity Canvas</span></a>
+          <nav aria-label="页面导航">
+            <a href="#workflow">流程</a><a href="#features">功能</a><a href="#run">部署</a>
+          </nav>
           <span className="lp-nav-act">
-            <a className="lp-btn ghost sm" href="/login" data-testid="landing-login">登录</a>
-            {visitor.signup && <a className="lp-btn primary sm" href="/signup" data-testid="landing-signup">免费注册<ArrowRight /></a>}
+            {guest && <a className="lp-word" href="/login" data-testid="landing-login">登录</a>}
+            {guest && visitor.signup
+              ? <a className="lp-btn primary sm" href="/signup" data-testid="landing-signup">免费注册</a>
+              : !guest && <a className="lp-btn primary sm" href="/" onClick={(e) => go(e, '/')} data-testid="landing-enter-nav">打开画布</a>}
           </span>
-        ) : <button className="lp-btn primary sm" onClick={onEnter} data-testid="landing-enter-nav">进入画布<ArrowRight /></button>}
+        </div>
       </header>
 
-      <section className="lp-hero">
-        <div className="lp-glow" aria-hidden="true" />
-        <span className="lp-eyebrow"><Sparkles aria-hidden="true" />面向图片与视频创作者的无限画布</span>
-        <h1>把你的模型<br />连成一支<em>创作团队</em></h1>
-        <p className="lp-sub">文本、视觉、图片、视频、语音模型都是画布上的节点。连线、运行，从一句创意走到成片——模型和 Key 都是你自己的。</p>
-        <div className="lp-cta">
-          <button className="lp-btn primary" onClick={primary.go} data-testid="landing-enter"><Play />{primary.label}</button>
-          <a className="lp-btn ghost" href="#features">看看能做什么</a>
-        </div>
-        <ul className="lp-chips" aria-label="常见用法">{CHIPS.map((c) => <li key={c}>{c}</li>)}</ul>
-        <div className="lp-stage reveal">
-          <div className="lp-tabs" role="tablist" aria-label="界面预览">
-            {SHOTS.map((s) => <button key={s.id} role="tab" aria-selected={tab === s.id} className={tab === s.id ? 'on' : ''} onClick={() => setTab(s.id)}>{s.label}</button>)}
+      <main>
+        <section className="lp-hero" data-enter>
+          <div className="lp-wrap">
+            <h1><span>给图片和视频创作者的</span><span>节点画布</span></h1>
+            <div className="lp-hero-row">
+              <div>
+                <p className="lp-lead">把你自己的文本、视觉、图片、视频和语音模型放到同一块画布上连线运行，从一句文字做到带配音和字幕的成片。</p>
+                <p className="lp-fact">接 OpenAI 兼容接口、Replicate、fal 和本机 Ollama；Windows、Linux 桌面版和网页版。</p>
+              </div>
+              <div className="lp-actions">
+                <a className="lp-btn primary" href={primary.href} onClick={(e) => go(e, primary.href)} data-testid="landing-enter">{primary.label}<ArrowRight className="lp-arrow" aria-hidden="true" /></a>
+                <a className="lp-btn secondary" href="#workflow">看一条完整流程</a>
+              </div>
+            </div>
+            <figure className="lp-frame lp-hero-shot">
+              <img src="/landing/pipeline.webp" alt="画布上的一条流程：参考图反推、出图、生成视频和配音" width={1600} height={1000} fetchPriority="high" />
+            </figure>
           </div>
-          <div className="lp-frame"><img key={shot.img} src={`/landing/${shot.img}.webp`} alt={shot.alt} width={1600} height={1000} /></div>
+        </section>
+
+        <section className="lp-sec" id="workflow">
+          <div className="lp-wrap">
+            <h2>一块画布上的整条流程。<span className="lp-muted">每一步都能换模型，每次生成都留版本。</span></h2>
+            <div className="lp-tabs" role="tablist" aria-label="界面预览" ref={tabsRef}>
+              {ind && <span className="lp-ind" aria-hidden="true" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} />}
+              {VIEWS.map((v) => (
+                <button key={v.id} role="tab" data-view={v.id} aria-selected={view === v.id} className={view === v.id ? 'on' : ''} onClick={() => setView(v.id)}>{v.label}</button>
+              ))}
+            </div>
+            <figure className="lp-frame lp-stage"><img key={current.img} src={`/landing/${current.img}.webp`} alt={current.alt} width={1600} height={1000} loading="lazy" /></figure>
+          </div>
+        </section>
+
+        <section className="lp-sec lp-sec-2" id="features">
+          <div className="lp-wrap">
+            <h2>做图片和视频时用得上的部分</h2>
+            <div className="lp-grid">
+              {FEATURES.map((f) => (
+                <article key={f.title} className={`lp-card${f.wide ? ' wide' : ''}`}>
+                  <div className="lp-card-img"><img src={`/landing/${f.img}.webp`} alt="" loading="lazy" decoding="async" width={1600} height={1000} /></div>
+                  <h3>{f.title}</h3>
+                  <p>{f.text}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="lp-sec" id="run">
+          <div className="lp-wrap lp-run">
+            <h2>三种运行方式，模型和 Key 始终是你自己的</h2>
+            <dl className="lp-rows">
+              {RUN_WAYS.map(([t, d]) => <div key={t}><dt>{t}</dt><dd>{d}</dd></div>)}
+            </dl>
+            <p className="lp-note">调用直接发给你选的服务商，费用按你和服务商的价格结算。API Key 加密保存，只在服务器上使用，不会出现在浏览器里。</p>
+          </div>
+        </section>
+      </main>
+
+      <footer className="lp-close">
+        <div className="lp-wrap">
+          <p className="lp-close-type">接入一个模型，就能运行第一条流程。</p>
+          <a className="lp-btn primary lg" href={primary.href} onClick={(e) => go(e, primary.href)}>{guest ? primary.label : '打开画布'}<ArrowRight className="lp-arrow" aria-hidden="true" /></a>
+          <div className="lp-legal">
+            <span className="lp-brand sm"><Mark size={18} />Haizhu Infinity Canvas</span>
+            <span>© {new Date().getFullYear()} Haizhu</span>
+            <span>界面截图来自真实运行，图片为演示用示意图</span>
+          </div>
         </div>
-      </section>
-
-      <section className="lp-sec" id="features">
-        <div className="lp-head reveal"><span className="lp-kicker">功能</span><h2>一块画布，完成整条创作链路</h2></div>
-        <div className="lp-bento">
-          {FEATURES.map((f) => (
-            <article key={f.title} className={`lp-card reveal${f.wide ? ' wide' : ''}`}>
-              <div className="lp-card-txt"><span className="lp-ico" aria-hidden="true"><f.Icon /></span><h3>{f.title}</h3><p>{f.text}</p></div>
-              {f.img && <div className="lp-card-img"><img src={`/landing/${f.img}.webp`} alt="" loading="lazy" decoding="async" width={1600} height={1000} /></div>}
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="lp-sec" id="how">
-        <div className="lp-head reveal"><span className="lp-kicker">怎么用</span><h2>三步，从空画布到成片</h2></div>
-        <ol className="lp-steps">
-          {STEPS.map(([t, d], i) => <li key={t} className="reveal"><span className="no">{String(i + 1).padStart(2, '0')}</span><h3>{t}</h3><p>{d}</p></li>)}
-        </ol>
-      </section>
-
-      <section className="lp-sec" id="deploy">
-        <div className="lp-head reveal"><span className="lp-kicker">{guest ? '安全' : '部署'}</span><h2>{guest ? '每个人的空间，互相看不见' : '你的数据，留在你的机器上'}</h2></div>
-        <div className="lp-trio">
-          <article className="reveal"><span className="lp-ico" aria-hidden="true"><KeyRound /></span><h3>自带模型与 Key</h3><p>直接调用你选的服务商，费用按你和服务商的价格结算。Key 加密保存，不会出现在浏览器里。</p></article>
-          {guest
-            ? <article className="reveal"><span className="lp-ico" aria-hidden="true"><LockKeyhole /></span><h3>独立空间</h3><p>每个账号一个独立的数据库和文件夹：画布、模型档案、素材和生成记录只属于你，自动备份。</p></article>
-            : <article className="reveal"><span className="lp-ico" aria-hidden="true"><Boxes /></span><h3>三种运行方式</h3><p>Windows 与 Linux 桌面版，或用 Docker 部署成网站，在浏览器里使用。</p></article>}
-          <article className="reveal"><span className="lp-ico" aria-hidden="true"><Layers /></span><h3>项目可带走</h3><p>一个文件带走画布、素材和全部生成结果，换电脑也不用重新生成。</p></article>
-        </div>
-      </section>
-
-      <section className="lp-band reveal">
-        <h2>现在就搭第一条流程</h2>
-        <p>{guest ? '注册后空画布上有四个常用模板，接入一个模型就能运行。' : '空画布上有四个常用模板，接入一个模型就能运行。'}</p>
-        <button className="lp-btn primary" onClick={primary.go}><Play />{guest ? primary.label : '进入画布'}</button>
-      </section>
-
-      <footer className="lp-foot"><span>Haizhu Infinity Canvas（海柱无限画布）</span><span>界面截图来自真实运行，图片为演示用示意图</span></footer>
+      </footer>
     </div>
   )
 }

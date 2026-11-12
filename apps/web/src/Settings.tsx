@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Sparkles, Trash, X } from 'lucide-react'
+import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, Palette, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Trash, X } from 'lucide-react'
 import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
 import { api, auth, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
 import { useEscape } from './Overlays'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
 import { enterOverlay, motionEnabled, setMotionEnabled } from './motion'
-import { ambientOn, setAmbient, setThemePref, themePref, type ThemePref } from './theme'
+import { setThemePref, themePref, type ThemePref } from './theme'
 import { useStore, type SettingsTab } from './store'
 
 type Tab = SettingsTab
@@ -490,13 +490,12 @@ function SkillsPane() {
 function AppearancePane() {
   const [on, setOn] = useState(motionEnabled())
   const [theme, setTheme] = useState<ThemePref>(themePref())
-  const [amb, setAmb] = useState(ambientOn())
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   return (
     <div className="form">
       <div>
         <h3>外观与动效</h3>
-        <div className="muted">默认是中性深灰的工作室界面：背景不偏色，让你的图片和视频色彩如实呈现。</div>
+        <div className="muted">界面用不带色偏的石墨灰，画布上唯一的颜色来自你的图片和视频。</div>
       </div>
       <div className="field"><span>主题</span>
         <div className="seg2" role="radiogroup" aria-label="主题" style={{ maxWidth: 320 }}>
@@ -510,12 +509,7 @@ function AppearancePane() {
         <span className="track"><span className="knob" /></span>
         <span>界面动效</span>
       </label>
-      <label className="switch">
-        <input type="checkbox" checked={amb} onChange={(e) => { setAmbient(e.target.checked); setAmb(e.target.checked) }} data-testid="ambient-switch" />
-        <span className="track"><span className="knob" /></span>
-        <span>氛围星空背景（仅深色主题）</span>
-      </label>
-      <div className="hint"><Info aria-hidden="true" />{reduced ? '系统开启了「减少动态效果」，动效已自动关闭。' : '评估画面色彩时建议关闭氛围背景。'}</div>
+      {reduced && <div className="hint"><Info aria-hidden="true" />系统开启了「减少动态效果」，动效已自动关闭。</div>}
     </div>
   )
 }
@@ -538,7 +532,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.10。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.11。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>
@@ -592,7 +586,7 @@ export function Settings() {
   const TABS: { id: Tab; label: string; Icon: typeof Cpu }[] = [
     { id: 'profiles', label: '模型档案', Icon: Cpu },
     { id: 'skills', label: 'Skill', Icon: Clapperboard },
-    { id: 'appearance', label: '外观与动效', Icon: Sparkles },
+    { id: 'appearance', label: '外观与动效', Icon: Palette },
     accounts ? { id: 'account', label: '账号', Icon: CircleUser } : { id: 'access', label: '访问口令', Icon: KeyRound },
     { id: 'about', label: '关于', Icon: Boxes },
   ]

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { ArrowUp, Check, CircleAlert, Crosshair, MessageSquarePlus, Play, Plus, Sparkles } from 'lucide-react'
+import { ArrowUp, Check, CircleAlert, Crosshair, MessageSquarePlus, MessagesSquare, Play, Plus } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { CATEGORY_COLOR, NODE_ICON } from './icons'
 import { defaultProfileFor, useStore, type AssistantTurn } from './store'
@@ -96,7 +96,7 @@ export function Assistant() {
       <div className="asst-list" ref={listRef}>
         {!turns.length && (
           <div className="asst-intro">
-            <span className="asst-badge" aria-hidden="true"><Sparkles /></span>
+            <span className="asst-badge" aria-hidden="true"><MessagesSquare /></span>
             <h3>画布助手</h3>
             <p>说出你想做的，我用你的文本模型挑节点、连好线、写好提示词。方案会先给你看，确认后才加到画布上。</p>
             {textModels.length ? (

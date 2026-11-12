@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Sparkles, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
 import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -202,7 +202,7 @@ function MediaInput({ id, kind, assetId, mime, name, error }: { id: string; kind
 /** On a reverse node that uses an imported skill: which one (the node's own label says what it does). */
 function ReverseSkillChip({ name }: { name: string }) {
   const label = useStore((s) => s.skills.find((x) => x.name === name)?.label)
-  return <div className={`skill-chip${label ? '' : ' missing'}`} data-testid="reverse-skill-chip" title={label ? `反推方式：${label}（Skill）` : '找不到这个 Skill'}><Sparkles aria-hidden="true" />{label ?? `${name}（已删除）`}</div>
+  return <div className={`skill-chip${label ? '' : ' missing'}`} data-testid="reverse-skill-chip" title={label ? `反推方式：${label}（Skill）` : '找不到这个 Skill'}><ScrollText aria-hidden="true" />{label ?? `${name}（已删除）`}</div>
 }
 
 /** Text box that steps aside when an upstream edge supplies the text. */

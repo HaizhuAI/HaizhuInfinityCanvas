@@ -22,15 +22,27 @@ export const CATEGORY_COLOR: Record<NodeCategory, string> = {
 }
 
 export const KIND_COLOR: Record<ModelKind, string> = {
-  llm: '#fbbf24', vlm: '#38bdf8', image: '#f472b6', video: '#fb923c', tts: '#34d399',
+  llm: '#6cb6ff', vlm: '#39c5cf', image: '#f0808f', video: '#e3b341', tts: '#56d364',
 }
 
 export const ASPECT_CSS: Record<string, string> = { '1:1': '1 / 1', '16:9': '16 / 9', '9:16': '9 / 16', '4:3': '4 / 3', '3:4': '3 / 4', '21:9': '21 / 9' }
 
+/** data types on ports and wires: distinct from each other and from the accent (orange = action, selection, running) */
 export const PORT_COLOR: Record<PortType, string> = {
-  text: '#60a5fa', image: '#f472b6', video: '#fb923c', audio: '#34d399', storyboard: '#facc15', file: '#22d3ee', any: '#94a3b8',
+  text: '#6cb6ff', image: '#f0808f', video: '#e3b341', audio: '#56d364', storyboard: '#b8bcc2', file: '#39c5cf', any: '#8b8d92',
 }
 
 export const PORT_LABEL: Record<PortType, string> = {
   text: '文本', image: '图片', video: '视频', audio: '音频', storyboard: '分镜', file: '文件', any: '任意',
+}
+
+/** The Haizhu mark: a pillar (柱) standing in the sea (海). Ink waves, the pillar in the accent. */
+export function Mark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect className="pillar" x="9.5" y="2.5" width="5" height="13.5" rx="1" fill="#ff4a1f" />
+      <path d="M3 18.5c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6 21.5h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
 }

@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useStore as useFlowStore, type Edge, type NodeMouseHandler, type OnConnectEnd, type OnMove, type OnNodeDrag } from '@xyflow/react'
+import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useStore as useFlowStore, type Edge, type NodeMouseHandler, type OnConnectEnd, type OnNodeDrag } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Infinity as InfinityIcon, Info, LoaderCircle, Package, PanelRightOpen, Play, Plus, Sparkles, TriangleExclamationPoint, Keyboard, LayoutGrid, Moon, Sun, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Info, LoaderCircle, MessagesSquare, Package, PanelRightOpen, Play, Plus, TriangleExclamationPoint, Keyboard, LayoutGrid, Moon, Sun, X } from 'lucide-react'
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode } from './CanvasNode'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
@@ -10,7 +10,7 @@ import { copySelection, duplicateSelection, leaveCopies, paste } from './clipboa
 import { initHistory, redo, undo } from './history'
 import { CommandPalette } from './CommandPalette'
 import { DND_MIME, readDrag } from './dnd'
-import { CATEGORY_COLOR, NODE_ICON, PORT_COLOR } from './icons'
+import { CATEGORY_COLOR, Mark, NODE_ICON, PORT_COLOR } from './icons'
 import { Inspector } from './Inspector'
 import { Assistant } from './Assistant'
 import { CompareSetup, CompareView } from './Compare'
@@ -18,7 +18,6 @@ import { Projects } from './Projects'
 import { Assets, Library, PromptLibrary } from './LeftPanel'
 import { enterMenu, enterOverlay } from './motion'
 import { Settings } from './Settings'
-import { Starfield, setParallax } from './Starfield'
 import { TEMPLATES } from './templates'
 import { inspectorPref, setInspectorPref, resolvedTheme, setThemePref } from './theme'
 import { useAddNode } from './useAddNode'
@@ -27,7 +26,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.10'
+export const APP_VERSION = 'v1.0.0-rc.11'
 
 const nodeTypes = Object.fromEntries(
   ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
@@ -126,7 +125,6 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }
     return (
       <div className="canvas-empty" role="alert" style={{ position: 'relative' }}>
         <div className="empty-card">
-          <div className="eyebrow">出错了</div>
           <h2>界面遇到了一个问题</h2>
           <p>你的画布已经自动保存在本机。重新加载即可继续；如果反复出现，请把下面这行信息告诉我们。</p>
           <pre className="err" style={{ marginBottom: 16 }}>{this.state.error.message}</pre>
@@ -262,9 +260,8 @@ function EmptyState() {
   return (
     <div className="canvas-empty">
       <div className="empty-card">
-        <div className="eyebrow">Haizhu Infinity Canvas</div>
-        <h2>从一个想法，到一部成片。</h2>
-        <p>把你的模型当作创作团队：导演拆分镜，画师出图，摄影成片，配音收尾。挑一个起点：</p>
+        <h2>从模板开始一条流程</h2>
+        <p>每个模板是一组连好的节点，选上你接入的模型就能运行。也可以从左侧拖入单个节点。</p>
         <div className="tpl-grid">
           {TEMPLATES.filter((t) => t.featured).map((t) => (
             <button key={t.id} className="tpl" onClick={() => addTemplate(t.graph())} data-testid={`template-${t.id}`}>
@@ -287,7 +284,7 @@ function EmptyState() {
         </div>
         <div className="empty-actions">
           {!hasProfiles && <button className="btn primary" onClick={() => openSettings({ addKind: 'llm' })} data-testid="empty-add-model"><Plus />接入第一个模型</button>}
-          <button className="btn" onClick={() => openPalette()}><Sparkles />浏览全部节点 <kbd>/</kbd></button>
+          <button className="btn" onClick={() => openPalette()}><LayoutGrid />浏览全部节点 <kbd>/</kbd></button>
           <span>或从左侧拖入 · 双击空白处添加</span>
         </div>
       </div>
@@ -297,7 +294,8 @@ function EmptyState() {
 
 /** ids of running nodes as one string (a stable selector value): their incoming wires animate */
 const runningKey = (st: State) => Object.keys(st.runStates).filter((id) => st.runStates[id]!.status === 'running').sort().join(',')
-const miniColor = (n: { type?: string }) => { const d = NODE_TYPE_MAP[n.type ?? '']; return d ? CATEGORY_COLOR[d.category] : '#555' }
+/** minimap: the layout in quiet greys, the selected node in the accent (inline style, so tokens work) */
+const miniColor = (n: { selected?: boolean }) => (n.selected ? 'var(--accent)' : 'var(--surface-3)')
 const MINIMAP_STYLE = { width: 168, height: 112 }
 const FAR_ZOOM = 0.4
 const FIT_ON_OPEN = { maxZoom: 1, minZoom: 0.6, padding: 0.12 }
@@ -352,7 +350,6 @@ function Canvas() {
     e.preventDefault()
     setCtx({ x: e.clientX, y: e.clientY, at: screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }) })
   }, [screenToFlowPosition])
-  const onMove = useCallback<OnMove>((_, vp) => setParallax(vp.x, vp.y), [])
   const onNodeDragStart = useCallback<OnNodeDrag<CanvasNode>>((e, _n, dragged) => {
     if (e.altKey && leaveCopies(dragged.map((d) => d.id))) useStore.getState().showToast('已复制（按住 Alt 拖动）', { action: { label: '撤销', run: () => void undo() } })
   }, [])
@@ -390,14 +387,16 @@ function Canvas() {
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
         onConnectEnd={onConnectEnd} onNodeContextMenu={onNodeContextMenu} onPaneContextMenu={onPaneContextMenu}
-        onMove={onMove} onNodeDragStart={onNodeDragStart}
+         onNodeDragStart={onNodeDragStart}
         fitView={fitOnOpen} fitViewOptions={FIT_ON_OPEN}
         zoomOnDoubleClick={false} onlyRenderVisibleElements={nodes.length > 60}
         snapToGrid={snap} snapGrid={SNAP_GRID} panOnDrag={PAN_BUTTONS}
         deleteKeyCode={DELETE_KEYS} minZoom={0.1} maxZoom={2}
         colorMode="system" proOptions={PRO_OPTIONS}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.3} />
+        {/* grid — after Uiverse.io "curvy-earwig" by adamgiebl (MIT): fine lines, a stronger line every 5 cells */}
+        <Background id="minor" variant={BackgroundVariant.Lines} gap={24} lineWidth={1} color="var(--dot)" />
+        <Background id="major" variant={BackgroundVariant.Lines} gap={120} lineWidth={1} color="var(--grid-major)" />
         {nodes.length > 0 && minimap && <MiniMap pannable zoomable nodeBorderRadius={8} style={MINIMAP_STYLE} nodeColor={miniColor} />}
       </ReactFlow>
       {nodes.length > 0 && <FloatingToolbar />}
@@ -417,7 +416,7 @@ function RightPanel({ onClose }: { onClose: () => void }) {
       <div className="rtabs" role="tablist" aria-label="右侧面板">
         <button role="tab" aria-selected={tab === 'inspector'} className={tab === 'inspector' ? 'on' : ''} onClick={() => setTab('inspector')} data-testid="tab-inspector">属性</button>
         <button role="tab" aria-selected={tab === 'assistant'} className={tab === 'assistant' ? 'on' : ''} onClick={() => setTab('assistant')} data-testid="tab-assistant">
-          {busy ? <span className="orbit" style={{ '--s': '12px' } as React.CSSProperties} aria-hidden="true" /> : <Sparkles aria-hidden="true" />}助手
+          {busy ? <span className="orbit" style={{ '--s': '12px' } as React.CSSProperties} aria-hidden="true" /> : <MessagesSquare aria-hidden="true" />}助手
         </button>
       </div>
       {tab === 'inspector' ? <Inspector onClose={onClose} /> : <Assistant />}
@@ -559,14 +558,12 @@ export function App() {
 
   return (
     <>
-      <Starfield />
       <div className="app">
         <header className="topbar">
           <div className="tb-left">
             <div className="brand">
-              <span className="logo" aria-hidden="true"><InfinityIcon /></span>
+              <span className="logo" aria-hidden="true"><Mark /></span>
               <span className="brand-name">Haizhu <span>Infinity Canvas</span></span>
-              <span className="ver">{APP_VERSION}</span>
             </div>
           </div>
           <ProjectMenu />
@@ -577,7 +574,7 @@ export function App() {
               ? <button className="btn danger running sm" onClick={() => void s.cancelRun()} data-testid="stop-run"><CircleStop />停止</button>
               : <button className="btn primary sm" onClick={() => void s.runNodes()} disabled={!hasNodes} data-testid="run-all"><Play />运行全部</button>}
             <button className="btn ghost sm icon" onClick={() => setInspector(!inspector)} aria-label={inspector ? '收起属性面板' : '打开属性面板'} aria-pressed={inspector} data-testid="toggle-inspector"><PanelRightOpen /></button>
-            <button className={`btn sm${inspector && rightTab === 'assistant' ? ' on' : ''}`} onClick={() => { if (inspector && rightTab === 'assistant') setInspector(false); else { setInspector(true); s.setRightTab('assistant') } }} aria-pressed={inspector && rightTab === 'assistant'} title="画布助手：一句话搭节点" data-testid="open-assistant"><Sparkles />助手</button>
+            <button className={`btn sm${inspector && rightTab === 'assistant' ? ' on' : ''}`} onClick={() => { if (inspector && rightTab === 'assistant') setInspector(false); else { setInspector(true); s.setRightTab('assistant') } }} aria-pressed={inspector && rightTab === 'assistant'} title="画布助手：一句话搭节点" data-testid="open-assistant"><MessagesSquare />助手</button>
             <ThemeToggle />
             <button className="btn ghost sm icon" onClick={() => s.setShortcutsOpen(true)} aria-label="快捷键" title="快捷键（?）" data-testid="open-shortcuts"><Keyboard /></button>
             <button className="btn ghost sm" onClick={() => s.setSettingsOpen(true)} data-testid="open-settings">设置</button>
