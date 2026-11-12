@@ -9,8 +9,51 @@ export const ADAPTERS = [
   'wavespeed',
   'comfyui',
   'custom-http',
+  // provider-native APIs (video / image / speech)
+  'ark',
+  'dashscope',
+  'kling',
+  'minimax',
+  'runway',
+  'zhipu',
+  'siliconflow',
+  'elevenlabs',
 ] as const
 export type AdapterId = (typeof ADAPTERS)[number]
+
+/**
+ * What each provider-native adapter can do. Chat, vision and most images on the same services go
+ * through `openai-compat` (same key, often the same address); these adapters cover what that can't.
+ */
+export const NATIVE_ADAPTER_KINDS: Partial<Record<AdapterId, readonly ModelKind[]>> = {
+  ark: ['video'],
+  dashscope: ['image', 'video'],
+  kling: ['image', 'video'],
+  minimax: ['video', 'tts'],
+  runway: ['image', 'video', 'tts'],
+  zhipu: ['video'],
+  siliconflow: ['video'],
+  elevenlabs: ['tts'],
+}
+
+/** human names for the adapters, shown in settings */
+export const ADAPTER_LABEL: Record<AdapterId, string> = {
+  'openai-compat': 'OpenAI 兼容',
+  ollama: 'Ollama',
+  replicate: 'Replicate',
+  fal: 'fal.ai',
+  wavespeed: 'WaveSpeed',
+  comfyui: 'ComfyUI',
+  'custom-http': '自定义 HTTP',
+  ark: '火山方舟 Seedance',
+  dashscope: '阿里云百炼 万相',
+  kling: '可灵 Kling',
+  minimax: 'MiniMax 海螺',
+  runway: 'Runway',
+  zhipu: '智谱 CogVideoX',
+  siliconflow: '硅基流动 视频',
+  elevenlabs: 'ElevenLabs',
+}
 
 /**
  * A user-configured model. Each profile appears as a draggable icon in the sidebar.
@@ -56,6 +99,8 @@ export function validateProfileInput(input: unknown): { ok: true; value: ModelPr
   if (typeof o.name !== 'string' || !o.name.trim()) return { ok: false, error: 'name is required' }
   if (!MODEL_KINDS.includes(o.kind as ModelKind)) return { ok: false, error: `kind must be one of ${MODEL_KINDS.join(', ')}` }
   if (!ADAPTERS.includes(o.adapter as AdapterId)) return { ok: false, error: `adapter must be one of ${ADAPTERS.join(', ')}` }
+  const native = NATIVE_ADAPTER_KINDS[o.adapter as AdapterId]
+  if (native && !native.includes(o.kind as ModelKind)) return { ok: false, error: `adapter ${String(o.adapter)} supports ${native.join(', ')} only` }
   if (typeof o.endpoint !== 'string') return { ok: false, error: 'endpoint must be a string' }
   if (o.endpoint && !/^https?:\/\//i.test(o.endpoint)) return { ok: false, error: 'endpoint must start with http:// or https://' }
   if (typeof o.model !== 'string' || !o.model.trim()) return { ok: false, error: 'model is required' }

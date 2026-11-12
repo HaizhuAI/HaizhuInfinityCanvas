@@ -1,7 +1,7 @@
 services:
   haizhu-canvas:
     build: .
-    image: haizhu-infinity-canvas:1.0.0-rc.12
+    image: haizhu-infinity-canvas:1.0.0-rc.13
     ports:
       - "8787:8787"
     environment:

@@ -18,13 +18,15 @@ API Key 只保存在本机服务端（AES-256-GCM 加密），浏览器拿不到
 | --- | --- |
 | 名称 | 侧边栏图标上显示的名字，如「通义视觉」「DeepSeek 编剧」 |
 | 类型 | 文本模型 / 视觉分析 / 图片生成 / 视频生成 / 语音 TTS。决定它能绑定到哪些节点 |
-| 适配器（高级设置） | 调用协议，选服务商时自动填写。文本/视觉：`openai-compat`、`ollama`；图片生成：`openai-compat`、`replicate`、`fal`；视频生成：`replicate`、`fal` |
+| 适配器（高级设置） | 调用协议，选服务商时自动填写。文本/视觉：`openai-compat`、`ollama`；图片生成：`openai-compat`、`replicate`、`fal`、`dashscope`、`kling`、`runway`；视频生成：`replicate`、`fal`、`ark`、`dashscope`、`kling`、`minimax`、`runway`、`zhipu`、`siliconflow`；语音：`openai-compat`、`minimax`、`elevenlabs`、`runway`、`replicate`、`fal`（各家怎么填见[接入各家模型服务商](./model-providers.md)） |
 | 接口地址（高级设置） | 服务商的 Base URL（填到 `/v1` 这一级即可，`/chat/completions` 会自动补上）。选「其他（自定义地址）」时手动填写 |
 | 模型 ID | 服务商的模型名。「测试连接」成功后可从列表里点选 |
 | API Key | 可留空（本地模型）。编辑时留空表示保持不变 |
 | 单次调用费用 | 可选。按你在服务商处的实际价格填写，用于运行前的费用确认 |
 
 ## 常见服务商填写示例
+
+> rc.13 起，火山方舟 Seedance、阿里云百炼万相、可灵、MiniMax 海螺、智谱 CogVideoX、硅基流动、Runway、ElevenLabs 等视频 / 图片 / 语音服务可以直接接入，见 **[接入各家模型服务商](./model-providers.md)**。下面是 OpenAI 兼容的文本 / 视觉接口。
 
 > 以下地址为各服务商公开的 OpenAI 兼容接口地址，模型 ID 请以服务商控制台/文档为准；能否看图取决于所选模型是否支持视觉输入。
 

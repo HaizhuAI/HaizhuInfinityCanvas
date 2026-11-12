@@ -11,7 +11,8 @@ import { join } from 'node:path'
 import { detectScenes, extractFrame, MediaError, probe, segmentsFromCuts, withTemp } from './media'
 import { editorPackage, exportFilm } from './exporter'
 import { endpointIsPrivate, privateNetworkBlocked } from './netguard'
-import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type JobCtx } from './generation'
+import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type GenRequest, type JobCtx } from './generation'
+import { NATIVE_PROVIDERS, SYNC_SPEECH } from './vendors'
 
 export class NodeError extends Error {}
 
@@ -117,15 +118,31 @@ function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: str
 type Want = 'image' | 'video' | 'audio'
 const WANT_LABEL: Record<Want, string> = { image: '图片', video: '视频', audio: '音频' }
 
+/** every adapter that runs generations as remote jobs (submit → poll → download) */
+const JOB_PROVIDERS = { ...ASYNC_PROVIDERS, ...NATIVE_PROVIDERS }
+
 async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; first?: string; last?: string }, prompt: string, negative = '') {
   const profile = requireProfile(ctx)
-  const provider = ASYNC_PROVIDERS[profile.adapter]
+  const provider = JOB_PROVIDERS[profile.adapter]
   if (!provider) {
     const sync = want === 'image' ? '（或 openai-compat 的 /images/generations）' : want === 'audio' ? '（或 openai-compat 的 /audio/speech）' : ''
-    throw new NodeError(`${WANT_LABEL[want]}生成请使用 replicate 或 fal 适配器${sync}`)
+    throw new NodeError(`${WANT_LABEL[want]}生成请使用 replicate 或 fal 适配器，或服务商专用的适配器（火山方舟、阿里云百炼、可灵、MiniMax、Runway…）${sync}`)
   }
+  let input: Record<string, unknown>
+  if (provider.input) {
+    const p = ctx.node.data.params ?? {}
+    const req: GenRequest = {
+      want, prompt, negative, images: media.image ?? [], first: media.first, last: media.last,
+      aspect: typeof p.aspect_ratio === 'string' && p.aspect_ratio ? p.aspect_ratio : undefined,
+      duration: typeof p.duration === 'number' ? p.duration : undefined,
+      voice: typeof p.voice === 'string' && p.voice ? p.voice : undefined,
+      speed: typeof p.speed === 'number' ? p.speed : undefined,
+      extra: extraParams(ctx),
+    }
+    try { input = provider.input(profile, req) } catch (e) { throw e instanceof ProviderError ? new NodeError(e.message) : e }
+  } else input = asyncInput(ctx, profile, media, want, prompt, negative)
   const timeoutSec = Number(profile.defaults?._timeoutSec ?? (want === 'video' ? 45 * 60 : 15 * 60))
-  const output = await runJob({ ...ctx.job, signal: ctx.signal }, provider, profile.adapter, profile, ctx.apiKey, asyncInput(ctx, profile, media, want, prompt, negative), timeoutSec)
+  const output = await runJob({ ...ctx.job, signal: ctx.signal }, provider, profile.adapter, profile, ctx.apiKey, input, timeoutSec)
   const urls = extractMediaUrls(output)
   if (!urls.length) throw new ProviderError(`模型完成了任务，但结果里没有找到${WANT_LABEL[want]}地址`)
   ctx.job.report('下载结果…')
@@ -237,8 +254,9 @@ export const HANDLERS: Record<string, Handler> = {
     if (!text) throw new NodeError('没有要朗读的文本：请连接文本节点，或在节点内填写台词')
     const profile = requireProfile(ctx)
     const p = ctx.node.data.params ?? {}
-    if (profile.adapter === 'openai-compat') {
-      const { bytes, mime } = await openaiSpeech(profile, ctx.apiKey, {
+    const speak = profile.adapter === 'openai-compat' ? openaiSpeech : SYNC_SPEECH[profile.adapter]
+    if (speak) {
+      const { bytes, mime } = await speak(profile, ctx.apiKey, {
         input: text, voice: typeof p.voice === 'string' && p.voice ? p.voice : undefined,
         speed: typeof p.speed === 'number' ? p.speed : undefined, signal: ctx.signal,
       })

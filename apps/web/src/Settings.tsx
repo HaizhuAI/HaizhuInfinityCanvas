@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, Palette, ShieldCheck, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Trash, X } from 'lucide-react'
-import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
+import { ADAPTER_LABEL, ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
+import { GROUP_LABEL, PRESETS, presetOf, type Preset, type PresetGroup, type PresetTarget } from './presets'
 import { api, auth, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
 import { useEscape } from './Overlays'
 import { KIND_COLOR, KIND_ICON, KIND_LABEL } from './icons'
@@ -11,22 +12,6 @@ import { useStore, type SettingsTab } from './store'
 type Tab = SettingsTab
 type FormState = Omit<ModelProfileInput, 'defaults' | 'cost'> & { id?: string; defaultsText: string; costAmount: string; costCurrency: string }
 
-/** Providers with their published OpenAI-compatible (or native) endpoints. Model IDs come from the
- *  provider's list (测试连接) or its docs. `keyUrl` is where the user creates a key. */
-const PRESETS: { id: string; label: string; adapter: AdapterId; endpoint: string; kinds: ModelKind[]; keyUrl?: string; local?: boolean }[] = [
-  { id: 'openai', label: 'OpenAI', adapter: 'openai-compat', endpoint: 'https://api.openai.com/v1', kinds: ['llm', 'vlm', 'image', 'tts'], keyUrl: 'https://platform.openai.com/api-keys' },
-  { id: 'dashscope', label: '阿里云百炼（通义）', adapter: 'openai-compat', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', kinds: ['llm', 'vlm'], keyUrl: 'https://bailian.console.aliyun.com/' },
-  { id: 'ark', label: '火山方舟（豆包）', adapter: 'openai-compat', endpoint: 'https://ark.cn-beijing.volces.com/api/v3', kinds: ['llm', 'vlm'], keyUrl: 'https://console.volcengine.com/ark' },
-  { id: 'deepseek', label: 'DeepSeek', adapter: 'openai-compat', endpoint: 'https://api.deepseek.com/v1', kinds: ['llm'], keyUrl: 'https://platform.deepseek.com/api_keys' },
-  { id: 'openrouter', label: 'OpenRouter', adapter: 'openai-compat', endpoint: 'https://openrouter.ai/api/v1', kinds: ['llm', 'vlm'], keyUrl: 'https://openrouter.ai/keys' },
-  { id: 'replicate', label: 'Replicate', adapter: 'replicate', endpoint: 'https://api.replicate.com/v1', kinds: ['image', 'video', 'tts'], keyUrl: 'https://replicate.com/account/api-tokens' },
-  { id: 'fal', label: 'fal.ai', adapter: 'fal', endpoint: 'https://queue.fal.run', kinds: ['image', 'video', 'tts'], keyUrl: 'https://fal.ai/dashboard/keys' },
-  { id: 'ollama', label: 'Ollama（本机）', adapter: 'ollama', endpoint: 'http://127.0.0.1:11434', kinds: ['llm', 'vlm'], local: true },
-  { id: 'lmstudio', label: 'LM Studio（本机）', adapter: 'openai-compat', endpoint: 'http://127.0.0.1:1234/v1', kinds: ['llm', 'vlm'], local: true },
-  { id: 'kokoro', label: 'Kokoro / 本机 TTS', adapter: 'openai-compat', endpoint: 'http://127.0.0.1:8880/v1', kinds: ['tts'], local: true },
-]
-const presetOf = (f: { adapter: string; endpoint: string }) => PRESETS.find((p) => p.adapter === f.adapter && p.endpoint === f.endpoint.replace(/\/+$/, ''))
-
 const blank = (kind: ModelKind = 'llm'): FormState => ({ name: '', kind, adapter: 'openai-compat', endpoint: '', model: '', apiKey: '', defaultsText: '{}', costAmount: '', costCurrency: 'CNY' })
 
 type TestState = { status: 'idle' | 'busy' } | ConnTest
@@ -36,17 +21,39 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
   const [form, setForm] = useState<FormState>(initial)
   const [err, setErr] = useState('')
   const [test, setTest] = useState<TestState>({ status: 'idle' })
-  const preset = presetOf(form)
+  const match = presetOf(form)
+  const preset = match?.preset
   const [advanced, setAdvanced] = useState(!!initial.id && !presetOf(initial))
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }))
   useEscape(() => onDone())
-  const presets = PRESETS.filter((p) => p.kinds.includes(form.kind))
+  const presets = PRESETS.filter((p) => p.kinds[form.kind])
+  const groups = (['cn', 'global', 'local'] as PresetGroup[]).map((g) => [g, presets.filter((p) => p.group === g)] as const).filter(([, list]) => list.length)
 
-  function choosePreset(p: (typeof PRESETS)[number] | null) {
+  /** the provider's own default params replace the previous provider's, never the user's edits */
+  function defaultsFor(target: PresetTarget, from: FormState) {
+    const prev = presetOf(from)?.target.defaults
+    const untouched = !from.defaultsText.trim() || from.defaultsText.trim() === '{}' || (prev && from.defaultsText === JSON.stringify(prev, null, 2))
+    if (!untouched) return from.defaultsText
+    return target.defaults ? JSON.stringify(target.defaults, null, 2) : '{}'
+  }
+
+  function apply(p: Preset, kind: ModelKind, from: FormState): Partial<FormState> {
+    const target = p.kinds[kind]!
+    const autoName = !from.name || PRESETS.some((x) => from.name.startsWith(x.label))
+    return { kind, adapter: target.adapter, endpoint: target.endpoint, defaultsText: defaultsFor(target, from), name: autoName ? `${p.label} · ${KIND_LABEL[kind]}` : from.name }
+  }
+
+  function choosePreset(p: Preset | null) {
     setTest({ status: 'idle' })
     if (!p) { setAdvanced(true); set({ adapter: 'openai-compat', endpoint: '' }); return }
-    const autoName = !form.name || PRESETS.some((x) => form.name.startsWith(x.label))
-    set({ adapter: p.adapter, endpoint: p.endpoint, name: autoName ? `${p.label} · ${KIND_LABEL[form.kind]}` : form.name })
+    set(apply(p, form.kind, form))
+  }
+
+  /** switching the kind keeps the provider when it offers that kind too */
+  function chooseKind(k: ModelKind) {
+    setTest({ status: 'idle' })
+    if (preset?.kinds[k]) { set(apply(preset, k, form)); return }
+    set(preset ? { kind: k, adapter: 'openai-compat', endpoint: '', defaultsText: defaultsFor({ adapter: 'openai-compat', endpoint: '' }, form) } : { kind: k })
   }
 
   async function runTest() {
@@ -84,6 +91,7 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
   const models = test.status === 'ok' ? test.models : []
   const q = form.model.trim().toLowerCase()
   const suggestions = models.filter((m) => !q || m.toLowerCase().includes(q)).slice(0, 10)
+  const common = !models.length ? match?.target.models ?? [] : []
 
   return (
     <form className="form" onSubmit={(e) => { e.preventDefault(); void submit() }}>
@@ -98,7 +106,7 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
             const Icon = KIND_ICON[k]
             return (
               <button type="button" key={k} role="radio" aria-checked={form.kind === k} className={form.kind === k ? 'on' : ''}
-                style={{ '--c': KIND_COLOR[k] } as React.CSSProperties} onClick={() => set({ kind: k })} data-testid={`kind-${k}`}>
+                style={{ '--c': KIND_COLOR[k] } as React.CSSProperties} onClick={() => chooseKind(k)} data-testid={`kind-${k}`}>
                 <Icon />{KIND_LABEL[k]}
               </button>
             )
@@ -107,13 +115,25 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
       </div>
 
       <div className="field"><span>服务商</span>
-        <div className="pchips" role="radiogroup" aria-label="服务商">
-          {presets.map((p) => (
-            <button type="button" key={p.id} role="radio" aria-checked={preset?.id === p.id} className={`pchip${preset?.id === p.id ? ' on' : ''}`} onClick={() => choosePreset(p)} data-testid={`preset-${p.id}`}>
-              {p.label}
-            </button>
+        <div className="pgroups" role="radiogroup" aria-label="服务商">
+          {groups.map(([g, list]) => (
+            <div className="pgroup" key={g}>
+              <span className="pgroup-label">{GROUP_LABEL[g]}</span>
+              <div className="pchips">
+                {list.map((p) => (
+                  <button type="button" key={p.id} role="radio" aria-checked={preset?.id === p.id} className={`pchip${preset?.id === p.id ? ' on' : ''}`} onClick={() => choosePreset(p)} data-testid={`preset-${p.id}`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
-          <button type="button" role="radio" aria-checked={!preset} className={`pchip${!preset ? ' on' : ''}`} onClick={() => choosePreset(null)} data-testid="preset-custom">其他（自定义地址）</button>
+          <div className="pgroup">
+            <span className="pgroup-label" />
+            <div className="pchips">
+              <button type="button" role="radio" aria-checked={!preset} className={`pchip${!preset ? ' on' : ''}`} onClick={() => choosePreset(null)} data-testid="preset-custom">其他（自定义地址）</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -142,6 +162,12 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
         {test.status === 'skipped' && <span className="test-msg" data-testid="pf-test-result"><Info aria-hidden="true" />{test.message}</span>}
         {test.status === 'idle' && <span className="test-msg">只读取模型列表或账号信息，不会产生费用。</span>}
       </div>
+      {common.length > 0 && (
+        <div className="pchips models" aria-label="常用模型">
+          <span className="more">常用</span>
+          {common.map((m) => <button type="button" key={m} className={`pchip mono${form.model === m ? ' on' : ''}`} onClick={() => set({ model: m })} data-testid="pf-common-model">{m}</button>)}
+        </div>
+      )}
       {suggestions.length > 0 && (
         <div className="pchips models" aria-label="可用模型">
           {suggestions.map((m) => <button type="button" key={m} className={`pchip mono${form.model === m ? ' on' : ''}`} onClick={() => set({ model: m })} data-testid="pf-model-chip">{m}</button>)}
@@ -163,14 +189,14 @@ function ProfileForm({ initial, onDone }: { initial: FormState; onDone: (created
 
       <div className="advanced">
         <button type="button" className="adv-toggle" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)} data-testid="pf-advanced">
-          <ChevronRight aria-hidden="true" />高级设置<span className="muted">{form.adapter}{form.endpoint ? ` · ${form.endpoint}` : ''}</span>
+          <ChevronRight aria-hidden="true" />高级设置<span className="muted">{ADAPTER_LABEL[form.adapter] ?? form.adapter}{form.endpoint ? ` · ${form.endpoint}` : ''}</span>
         </button>
         {advanced && (
           <div className="adv-body">
             <div className="row2">
               <label className="field"><span>适配器</span>
                 <select value={form.adapter} onChange={(e) => { set({ adapter: e.target.value as AdapterId }); setTest({ status: 'idle' }) }} data-testid="pf-adapter">
-                  {ADAPTERS.map((a) => <option key={a} value={a}>{a}</option>)}
+                  {ADAPTERS.map((a) => <option key={a} value={a}>{ADAPTER_LABEL[a]}{ADAPTER_LABEL[a] === a ? '' : ` (${a})`}</option>)}
                 </select>
               </label>
               <label className="field"><span>接口地址</span>
@@ -538,7 +564,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.12。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.13。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>

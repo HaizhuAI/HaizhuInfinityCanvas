@@ -87,7 +87,7 @@ export function Landing({ onEnter }: { onEnter: () => void }) {
             <div className="lp-hero-row">
               <div>
                 <p className="lp-lead">把你自己的文本、视觉、图片、视频和语音模型放到同一块画布上连线运行，从一句文字做到带配音和字幕的成片。</p>
-                <p className="lp-fact">接 OpenAI 兼容接口、Replicate、fal 和本机 Ollama；Windows、Linux 桌面版和网页版。</p>
+                <p className="lp-fact">接火山方舟、阿里云百炼、可灵、MiniMax、Runway 等服务商，OpenAI 兼容接口和本机 Ollama；Windows、Linux 桌面版和网页版。</p>
               </div>
               <div className="lp-actions">
                 <a className="lp-btn primary" href={primary.href} onClick={(e) => go(e, primary.href)} data-testid="landing-enter">{primary.label}<ArrowRight className="lp-arrow" aria-hidden="true" /></a>

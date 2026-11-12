@@ -17,7 +17,7 @@ export function providerDefaults(d: Record<string, unknown> | undefined) {
   return Object.fromEntries(Object.entries(d ?? {}).filter(([k]) => !k.startsWith('_')))
 }
 
-function base(profile: Pick<ModelProfile, 'endpoint'>, fallback: string) {
+export function base(profile: Pick<ModelProfile, 'endpoint'>, fallback: string) {
   return (profile.endpoint || fallback).replace(/\/+$/, '')
 }
 
@@ -31,7 +31,7 @@ function sameOrigin(url: string | undefined, baseUrl: string): string | undefine
  * reads are retried on transient failures; starting a paid generation only when it surely was not
  * processed.
  */
-async function call(url: string, init: RequestInit & { apiKey?: string }, signal: AbortSignal, retry: RetryPolicy = 'none'): Promise<{ status: number; json: any; text: string }> {
+export async function call(url: string, init: RequestInit & { apiKey?: string }, signal: AbortSignal, retry: RetryPolicy = 'none'): Promise<{ status: number; json: any; text: string }> {
   try { await checkUrl(url) } catch (e) { throw new ProviderError((e as Error).message) }
   const tries = attempts(retry)
   for (let attempt = 0; ; attempt++) {
@@ -52,7 +52,7 @@ async function call(url: string, init: RequestInit & { apiKey?: string }, signal
   }
 }
 
-function fail(status: number, text: string): never {
+export function fail(status: number, text: string): never {
   throw new ProviderError(`模型服务返回 ${status}：${text.slice(0, 500)}`)
 }
 
@@ -116,7 +116,12 @@ const OPENAI_SIZE: Record<string, string> = { '1:1': '1024x1024', '16:9': '1536x
 export async function openaiImages(profile: ModelProfile, apiKey: string | undefined, req: { prompt: string; aspect?: string; signal: AbortSignal }): Promise<string[]> {
   if (!profile.endpoint) throw new ProviderError('模型档案未填写接口地址')
   const body: Record<string, unknown> = { n: 1, ...providerDefaults(profile.defaults), model: profile.model, prompt: req.prompt }
-  if (req.aspect && body.size === undefined && OPENAI_SIZE[req.aspect]) body.size = OPENAI_SIZE[req.aspect]
+  // most services call it "size"; some (e.g. SiliconFlow: image_size) use another name, which also means it is required
+  const sizeField = typeof profile.defaults?._sizeField === 'string' && /^\w{1,32}$/.test(profile.defaults._sizeField) ? profile.defaults._sizeField : 'size'
+  if (body[sizeField] === undefined) {
+    if (req.aspect && OPENAI_SIZE[req.aspect]) body[sizeField] = OPENAI_SIZE[req.aspect]
+    else if (sizeField !== 'size') body[sizeField] = OPENAI_SIZE['1:1']
+  }
   const url = base(profile, '') + (profile.endpoint.replace(/\/+$/, '').endsWith('/images/generations') ? '' : '/images/generations')
   const r = await call(url, {
     method: 'POST', apiKey,
@@ -124,9 +129,10 @@ export async function openaiImages(profile: ModelProfile, apiKey: string | undef
     body: JSON.stringify(body),
   }, req.signal, 'paid')
   if (r.status < 200 || r.status >= 300) fail(r.status, r.text)
-  const data = (r.json?.data ?? []) as { b64_json?: string; url?: string }[]
-  const urls = data.map((d) => (d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url)).filter((u): u is string => !!u)
-  if (!urls.length) throw new ProviderError('模型服务响应中没有图片（data[].b64_json / data[].url）')
+  // OpenAI and most compatible services answer data[]; SiliconFlow answers images[]
+  const data = ([...(r.json?.data ?? []), ...(r.json?.images ?? [])]) as { b64_json?: string; url?: string }[]
+  const urls = data.map((d) => (d?.b64_json ? `data:image/png;base64,${d.b64_json}` : d?.url)).filter((u): u is string => !!u)
+  if (!urls.length) throw new ProviderError('模型服务响应中没有图片（data[].b64_json / data[].url / images[].url）')
   return urls
 }
 
@@ -151,37 +157,41 @@ export async function openaiSpeech(
   if (fmt === 'pcm') throw new ProviderError('response_format=pcm 是无封装的原始音频，无法直接播放，请改用 mp3 / wav / flac')
   const b = profile.endpoint.replace(/\/+$/, '')
   const url = b.endsWith('/audio/speech') ? b : `${b}/audio/speech`
+  return fetchAudio(url, {
+    headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+    body: JSON.stringify(body),
+  }, req.signal, apiKey, FORMAT_MIME[fmt])
+}
+
+/**
+ * POST a speech request whose answer is the audio itself. Paid: retried only when surely not processed.
+ * `fallbackMime` is used when the server does not say what it sent.
+ */
+export async function fetchAudio(url: string, init: { headers: Record<string, string>; body: string }, signal: AbortSignal, apiKey: string | undefined, fallbackMime = ''): Promise<{ bytes: Buffer; mime: string }> {
   try { await checkUrl(url) } catch (e) { throw new ProviderError((e as Error).message) }
+  const redact = (t: string) => (apiKey ? t.split(apiKey).join('***') : t)
   let res!: Response
   for (let attempt = 0, tries = attempts('paid'); ; attempt++) {
     try {
-      res = await fetch(url, {
-        method: 'POST', redirect: 'error',
-        headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
-        body: JSON.stringify(body),
-        signal: AbortSignal.any([req.signal, AbortSignal.timeout(180_000)]),
-      })
+      res = await fetch(url, { method: 'POST', redirect: 'error', ...init, signal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]) })
     } catch (e) {
-      if (req.signal.aborted) throw e
-      if (attempt + 1 < tries && retryError('paid', e)) { await sleepFor(retryDelay(attempt), req.signal); continue }
+      if (signal.aborted) throw e
+      if (attempt + 1 < tries && retryError('paid', e)) { await sleepFor(retryDelay(attempt), signal); continue }
       const err = e as Error & { cause?: { code?: string } }
       throw new ProviderError(`请求失败：${err.name === 'TimeoutError' ? '超时' : (err.cause?.code ?? err.message)}`)
     }
-    if (attempt + 1 < tries && retryStatus('paid', res.status)) { await res.text().catch(() => ''); await sleepFor(retryDelay(attempt, res.headers.get('retry-after')), req.signal); continue }
+    if (attempt + 1 < tries && retryStatus('paid', res.status)) { await res.text().catch(() => ''); await sleepFor(retryDelay(attempt, res.headers.get('retry-after')), signal); continue }
     break
   }
-  if (!res.ok) {
-    const t = await res.text()
-    fail(res.status, apiKey ? t.split(apiKey).join('***') : t)
-  }
+  if (!res.ok) fail(res.status, redact(await res.text()))
   const bytes = Buffer.from(await res.arrayBuffer())
   let mime = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
   mime = MIME_ALIAS[mime] ?? mime
-  // only infer the type from response_format when the server did not say what it sent
-  if (!mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream') mime = FORMAT_MIME[fmt] || mime
+  // only infer the type when the server did not say what it sent
+  if (!mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream') mime = fallbackMime || mime
   if (!mime.startsWith('audio/') || !MIME_EXT[mime]) {
     const raw = bytes.toString('utf8', 0, 300)
-    const peek = mime.startsWith('application/json') || mime.startsWith('text/') ? `：${apiKey ? raw.split(apiKey).join('***') : raw}` : ''
+    const peek = mime.startsWith('application/json') || mime.startsWith('text/') ? `：${redact(raw)}` : ''
     throw new ProviderError(`语音服务返回了非音频内容（${mime || '未知类型'}）${peek}`)
   }
   if (!bytes.length) throw new ProviderError('语音服务返回了空音频')
@@ -197,7 +207,28 @@ export type PollResult =
 
 export interface Submitted { remoteId: string; pollUrl?: string; resultUrl?: string; cancelUrl?: string }
 
+/** what a generation node asks for, before it is shaped into one provider's request */
+export interface GenRequest {
+  want: 'image' | 'video' | 'audio'
+  prompt: string
+  /** what the result should not contain (empty = nothing) */
+  negative: string
+  /** reference images (data URIs) */
+  images: string[]
+  /** first / last frame (data URIs) */
+  first?: string
+  last?: string
+  aspect?: string
+  duration?: number
+  voice?: string
+  speed?: number
+  /** the node's advanced params (JSON), applied last */
+  extra: Record<string, unknown>
+}
+
 export interface AsyncProvider {
+  /** shape the request for this provider (replicate / fal use flat field names instead, see handlers.ts) */
+  input?(profile: ModelProfile, req: GenRequest): Record<string, unknown>
   submit(profile: ModelProfile, apiKey: string | undefined, input: Record<string, unknown>, signal: AbortSignal): Promise<Submitted>
   poll(profile: ModelProfile, apiKey: string | undefined, job: Submitted, signal: AbortSignal): Promise<PollResult>
   cancel(profile: ModelProfile, apiKey: string | undefined, job: Submitted): Promise<void>

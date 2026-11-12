@@ -9,6 +9,7 @@ import { ErrorBox, FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
 import { VersionStrip } from './Versions'
 import { CATEGORY_COLOR, KIND_LABEL, NODE_ICON } from './icons'
 import { useStore, type CanvasNode } from './store'
+import { VOICE_HINT } from './presets'
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5]
 /** node types that have a parameters section */
@@ -40,6 +41,8 @@ function JsonField({ id, value }: { id: string; value: unknown }) {
 function Params({ node }: { node: CanvasNode }) {
   const setNodeParam = useStore((s) => s.setNodeParam)
   const skills = useStore((s) => s.skills)
+  const adapter = useStore((s) => s.profiles.find((x) => x.id === node.data.profileId)?.adapter)
+  const voiceHint = (adapter && VOICE_HINT[adapter]) || '如 alloy'
   const p = node.data.params ?? {}
   const set = (k: string, v: unknown) => setNodeParam(node.id, k, v)
   const aspectSelect = (testid?: string, none = '模型默认') => (
@@ -72,7 +75,7 @@ function Params({ node }: { node: CanvasNode }) {
     case 'tts':
       return (
         <div className="grid2">
-          <label className="field"><span>音色</span><input value={String(p.voice ?? '')} placeholder="如 alloy" onChange={(e) => set('voice', e.target.value || undefined)} data-testid="tts-voice" /></label>
+          <label className="field"><span>音色</span><input value={String(p.voice ?? '')} placeholder={voiceHint} onChange={(e) => set('voice', e.target.value || undefined)} data-testid="tts-voice" /></label>
           <label className="field"><span>语速</span>
             <select value={String(p.speed ?? '')} onChange={(e) => set('speed', e.target.value ? Number(e.target.value) : undefined)}>
               <option value="">默认</option>{SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
