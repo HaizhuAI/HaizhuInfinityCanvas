@@ -70,7 +70,18 @@ From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlie
   - the locally packaged Linux desktop app passes its launch test under a virtual display: UI, automatic recovery from a server crash, and 17 tools through the bridge;
   - with the app closed, the bridge opened it and completed the call.
 - Seventeen E2E suites all pass, plus the screenshot script. The new mcp-flow suite: switch agent access on in Settings, and the page shows the Claude Code command with the key masked → nodes added over MCP appear on the open page without a reload → the person types in one node while the agent changes another; after saving, both changes are there → a paid run first asks for confirmation; once confirmed, the agent's run progress and result show on the page. `pnpm audit` reports no known vulnerabilities.
-- GitHub Actions: added after the push.
+- GitHub Actions (commit 6630f26):
+  - CI run 43299369479 passed: typecheck, unit tests, seventeen E2E suites (including mcp-flow) and the screenshot script.
+  - Installer run 43299369530: these jobs passed on the first attempt, and every desktop launch test includes "mcp bridge ok" (17 tools):
+    - the Windows installer and portable build;
+    - Linux x64 / arm64 AppImage + deb;
+    - Docker: token mode, the HTTP MCP smoke test, the arm64 image built and started under QEMU, and accounts mode.
+  - The macOS job got no runner on the first attempt (no logs; cancelled after 15 minutes) and passed when re-run:
+    - the Apple silicon build passed signature verification (ad-hoc);
+    - the master key went into Keychain;
+    - the bridge returned 17 tools;
+    - the app recovered after its server was killed.
+  - macOS output: `HaizhuInfinityCanvas-1.0.0-rc.16-mac-arm64.dmg` / `-mac-x64.dmg` plus matching `.zip` files. The app inside is named `haizhu-infinity-canvas.app`; rc.17 renames it to `HaizhuInfinityCanvas.app`.
 
 ### Not verified yet
 - A full conversation in Claude Code that calls real paid models. Locally only the connection and tool calls were checked, with models replaced by a local mock.
