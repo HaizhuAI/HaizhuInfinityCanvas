@@ -2,6 +2,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0-rc.14] — 进行中
+
+### Added（文档）
+- **平台调研**：[图片 / 视频创作平台调研](./docs/00-research/05-creative-platforms.md)——Google Flow、即梦 / Dreamina、LibTV、可灵、海螺、Vidu、Runway、Krea、Flora、Figma Weave、Freepik Spaces、LTX Studio、Lovart、星流、Higgsfield、Luma、Midjourney、Firefly Boards、Leonardo 等闭源产品，以及 ComfyUI、InvokeAI、Krita AI Diffusion、SwarmUI、Jaaz 与开源短剧流水线；归纳出提示词栏、变体挑选、参考与一致性、延长与截帧、分镜与时间线、批量、提示词优化与 Skill、Agent、复用、导出、流畅度十一类共性，以及万相、Seedance、可灵、海螺的官方写法要点；列出本项目的缺口与不借鉴的部分。只借鉴交互思路，不复制任何产品的代码、文案或外观。
+- **优化方案与路线图**：[优化方案（2026-11）](./docs/02-roadmap/optimization-plan-2026-11.md)，路线图新增 rc.14「创作台」、rc.15「参考与分镜」、rc.16「批量与一致性」、rc.17「Agent 与应用」。
+
 ## [1.0.0-rc.13] — 2026-11-12（候选版，代码完成，未打 tag）
 
 接入创作者最常用的模型服务商：视频、图片、语音不再只能通过 Replicate / fal 中转。同时开始提供英文版更新记录（[CHANGELOG.en.md](./CHANGELOG.en.md)），以后每个版本中英文同步更新。

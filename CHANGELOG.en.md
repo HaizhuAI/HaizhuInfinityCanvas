@@ -4,6 +4,12 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.14] — in progress
+
+### Added (docs)
+- **Platform research**: [image / video creation platforms](./docs/00-research/05-creative-platforms.md) (in Chinese) — closed products Google Flow, Jimeng / Dreamina, LibTV, Kling, Hailuo, Vidu, Runway, Krea, Flora, Figma Weave, Freepik Spaces, LTX Studio, Lovart, Xingliu, Higgsfield, Luma, Midjourney, Firefly Boards and Leonardo, plus open-source ComfyUI, InvokeAI, Krita AI Diffusion, SwarmUI, Jaaz and short-drama pipelines. It distils eleven common patterns (prompt bar, variations and picking, references and consistency, extend and frame grabs, storyboard and timeline, batches, prompt optimisation and skills, agents, reuse, export, smoothness) and the official prompt-writing rules of Wan, Seedance, Kling and Hailuo, and lists this project's gaps and what it will not borrow. Only interaction ideas are borrowed; no product's code, copy or look is copied.
+- **Optimisation plan and roadmap**: [optimisation plan (2026-11)](./docs/02-roadmap/optimization-plan-2026-11.md) (in Chinese); the roadmap gains rc.14 "Studio", rc.15 "References and storyboard", rc.16 "Batches and consistency" and rc.17 "Agent and apps".
+
 ## [1.0.0-rc.13] — 2026-11-12 (release candidate, code complete, not tagged)
 
 Connects the model services creators use most: video, images and speech no longer have to go through Replicate / fal. Also starts English release notes (this file); from now on every release is written in both Chinese and English.
