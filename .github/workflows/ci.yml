@@ -12,7 +12,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
@@ -23,13 +23,33 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Ubuntu package mirrors are sometimes unreachable from the runner (every package then waits on a
+      # DNS timeout until the job is cancelled). Check them first, give apt a time limit, and otherwise use
+      # a static FFmpeg build from GitHub (CI only, never shipped); the melt render test is then skipped.
       - name: Install FFmpeg + MLT melt (video reverse / export / editor-project tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg melt
+        timeout-minutes: 10
+        run: |
+          APT="sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+          if timeout 10 getent hosts azure.archive.ubuntu.com >/dev/null && timeout 10 getent hosts security.ubuntu.com >/dev/null \
+            && timeout 180 $APT update && timeout 300 $APT install -y --no-install-recommends ffmpeg melt; then
+            echo "APT_OK=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Ubuntu package mirrors unreachable: using a static FFmpeg build; the melt render test will be skipped"
+            curl -fsSL --retry 4 --retry-delay 5 -o "$RUNNER_TEMP/ffmpeg.tar.xz" https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+            mkdir -p "$RUNNER_TEMP/ffmpeg" && tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP/ffmpeg" --strip-components=1
+            sudo install -m 755 "$RUNNER_TEMP/ffmpeg/bin/ffmpeg" "$RUNNER_TEMP/ffmpeg/bin/ffprobe" /usr/local/bin/
+          fi
+          ffmpeg -hide_banner -version | head -1
+          ffmpeg -hide_banner -encoders | grep -q libx264
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 8
+        run: |
+          # --with-deps needs the Ubuntu mirrors; the runner image already has Chromium's libraries
+          if [ "${APT_OK:-0}" = 1 ] && timeout 300 pnpm exec playwright install --with-deps chromium; then exit 0; fi
+          pnpm exec playwright install chromium
       - name: E2E (each suite on a fresh data dir, bundled server)
         run: |
           for suite in smoke run-flow gen-flow director-flow video-flow ux-flow versions-flow agent-flow compare-flow reverse-skill-flow perf-flow resilience-flow; do
