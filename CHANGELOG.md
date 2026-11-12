@@ -36,7 +36,7 @@
 - 新增环境变量：`HZC_ALLOWED_HOSTS`、`HZC_HSTS`、`HZC_TRUST_PROXY`、`HZC_BLOCK_PRIVATE_NETWORK`、`HZC_BACKUP_HOURS`、`HZC_BACKUP_KEEP`，见[部署指南](./docs/03-guide/projects-and-desktop.md#安全部署清单)。
 
 ### Verified
-- GitHub Actions：等待本次提交的 CI 与安装包构建结果（完成后补充）。
+- GitHub Actions：安装包 run 43050400270（commit ebe38ea）一次通过——Windows 安装包与便携版、Linux AppImage + deb、打包后应用在 Windows / Linux 上启动并在后台服务被强制结束后自动恢复；Docker 镜像以只读根文件系统、无 capabilities 运行，检查安全头、跨站请求被拒、备份、`docker stop` 安全退出（退出码 0）与重启后数据仍在，弱令牌 / 示例令牌拒绝启动。CI run 43148406304（commit e98a2bf，应用代码与 ebe38ea 相同）通过：类型检查、单测、十二套 E2E（含 resilience-flow）与截图脚本。此前三次 CI 因 GitHub 运行器解析不了 Ubuntu 软件源域名、卡在安装 FFmpeg 而超时取消；CI 现在先检查软件源、限时，连不上时改用 GitHub 上的 FFmpeg 静态构建。
 - 本机：类型检查通过；146 个单元 / 集成测试（core 29、server 117）；十二套 E2E（新增 resilience-flow：保存失败时保留并自动重试成功、刷新后恢复未保存的修改、SIGTERM 安全退出、损坏的数据库从备份恢复）与截图脚本（新增 2 张：保存失败自动重试、数据备份，共 22 张）通过；桌面版在虚拟显示器上启动，强制结束后台服务后自动重启并重新显示界面，退出时后台服务按请求安全关闭、没有残留进程。
 - 注：本机 shell 没有设置 UTF-8 区域设置时，无头 Chromium 会把中文下载文件名退回为 `download`，video-flow 因此失败；与应用无关（裸服务器同样复现），在 `LANG=C.UTF-8`（与 CI 相同）下通过。
 - 新增测试覆盖：主机名白名单（DNS 重绑定）、跨站 POST（其他网站、本机其他端口、`null` 来源均被拒绝）、`text/plain` 被拒、令牌只在指定路由接受网址参数、错误次数锁定、安全头与 CSP、5xx 不泄露内部信息、压缩炸弹被拒、地址分类（含 IPv4 映射的 IPv6 地址）、指向元数据地址的跳转被拒、公网模型的结果不能指向内网、下载大小上限、503 重试成功、扣费请求只在未受理时重试；备份轮换与保留份数、损坏 / 清空的数据库从最近一份完好的备份恢复（跳过同样损坏的备份）、没有可用备份时保留损坏文件并以空数据启动、错误的备份设置不会清空备份、半截素材文件被修复。
