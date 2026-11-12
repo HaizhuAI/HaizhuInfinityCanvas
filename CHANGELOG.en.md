@@ -45,7 +45,14 @@ From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlie
   - It saves the group as a template and inserts a copy from "/" (three more nodes). It ungroups one group from the context menu, and the nodes stay.
   - After a page reload the group's name and size and the timeline are all still there.
 - `pnpm audit` reports no known vulnerabilities.
-- GitHub Actions: added after the push.
+- GitHub Actions (commit c9c574d) passed on the first attempt:
+  - CI run 43322219306: typecheck, unit tests, eighteen E2E suites (including timeline-flow) and the screenshot script.
+  - Installer run 43322218900:
+    - Windows installer and portable build;
+    - Linux x64 / arm64 AppImage + deb;
+    - macOS Apple silicon / Intel dmg + zip (the app is now `HaizhuInfinityCanvas.app`; ad-hoc signature verified);
+    - Docker: token mode, HTTP MCP, the arm64 image, accounts mode.
+  - Launch tests passed on all three systems: the bridge returned 18 tools, and the app recovered after its server was killed.
 
 ### Not verified yet
 - How the timeline feels on a real long project with dozens of shots.
