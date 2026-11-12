@@ -1,5 +1,5 @@
 import {
-  ASPECT_RATIOS, extractJson, variationCount, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
+  ASPECT_RATIOS, extractJson, variationCount, resolveMentions, shotsPromptText, subjectOf, subjectsOf, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
   DEFAULT_VLM_INSTRUCTION, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, pickReversed, reversePromptInstruction, splitReversedPrompt, valuesOfType, valuesToText,
   type GraphNode, type ModelProfile, type ProjectGraph, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
 } from '@hzc/core'
@@ -77,10 +77,23 @@ function dataUri(ctx: HandlerCtx, assetId: string) {
   return `data:${mime};base64,${base64}`
 }
 
-function genPrompt(ctx: HandlerCtx) {
-  const prompt = valuesToText(ctx.inputs.prompt).trim() || str(ctx.node.data.text)
-  if (!prompt) throw new NodeError('没有提示词：请连接文本/反推节点，或在节点内填写')
-  return prompt
+/** `@name` mentions of the canvas's subjects: plain names + their descriptions, and their pictures */
+function withSubjects(ctx: HandlerCtx, text: string): { text: string; images: string[] } {
+  const { text: out, used } = resolveMentions(text, ctx.graph ? subjectsOf(ctx.graph) : [])
+  const images: string[] = []
+  for (const s of used) for (const im of s.images) {
+    if (images.length >= 4) break
+    try { images.push(dataUri(ctx, im.assetId)) } catch { /* a deleted picture: the description still applies */ }
+  }
+  return { text: out, images }
+}
+
+/** the prompt of a generation node, with its @subjects resolved */
+function genInput(ctx: HandlerCtx): { prompt: string; subjectImages: string[] } {
+  const raw = valuesToText(ctx.inputs.prompt).trim() || str(ctx.node.data.text)
+  if (!raw) throw new NodeError('没有提示词：请连接文本/反推节点，或在节点内填写')
+  const { text, images } = withSubjects(ctx, raw)
+  return { prompt: text, subjectImages: images }
 }
 
 /** what the result should not contain (the 负面词 port, e.g. from a reverse node) */
@@ -98,8 +111,8 @@ function extraParams(ctx: HandlerCtx): Record<string, unknown> {
 }
 
 /** Build the provider input for replicate / fal from node inputs + profile defaults + node params. */
-function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: string[]; first?: string; last?: string }, want: Want, prompt: string, negative = '') {
-  const userFields = (profile.defaults?._fields ?? {}) as Partial<Record<'prompt' | 'image' | 'first' | 'last' | 'negative', string>>
+function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: string[]; first?: string; last?: string; soft?: string[] }, want: Want, prompt: string, negative = '') {
+  const userFields = (profile.defaults?._fields ?? {}) as Partial<Record<'prompt' | 'image' | 'first' | 'last' | 'negative' | 'ref', string>>
   // speech models usually call their input "text"
   const f = { ...FIELD_DEFAULTS[profile.adapter]!, ...(want === 'audio' ? { prompt: 'text' } : {}), ...userFields }
   const p = ctx.node.data.params ?? {}
@@ -108,7 +121,15 @@ function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: str
   if (want === 'audio' && typeof p.speed === 'number') input.speed = p.speed
   if (typeof p.aspect_ratio === 'string' && p.aspect_ratio) input.aspect_ratio = p.aspect_ratio
   if (typeof p.duration === 'number') input.duration = p.duration
-  if (media.image?.length) input[f.image] = media.image.length === 1 ? media.image[0] : media.image
+  if (want === 'video') {
+    // video models name their reference-image field differently: it has to be configured
+    const refs = [...(media.image ?? []), ...(userFields.ref ? media.soft ?? [] : [])]
+    if (media.image?.length && !userFields.ref) throw new NodeError('这个模型的参考图字段名需要先设置：在模型档案的默认参数里写 {"_fields": {"ref": "字段名"}}（按模型文档，例如 reference_images）')
+    if (refs.length && userFields.ref) input[userFields.ref] = refs
+  } else {
+    const pics = [...(media.image ?? []), ...(media.soft ?? [])]
+    if (pics.length) input[f.image] = pics.length === 1 ? pics[0] : pics
+  }
   if (media.first) input[f.first] = media.first
   if (media.last) input[f.last] = media.last
   if (negative) input[f.negative] = negative
@@ -121,7 +142,12 @@ const WANT_LABEL: Record<Want, string> = { image: '图片', video: '视频', aud
 /** every adapter that runs generations as remote jobs (submit → poll → download) */
 const JOB_PROVIDERS = { ...ASYNC_PROVIDERS, ...NATIVE_PROVIDERS }
 
-async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; first?: string; last?: string }, prompt: string, negative = '') {
+/**
+ * `image`: pictures wired into the node (reference images; for a video, its 参考图 port) — a model that
+ * can't take them says so. `soft`: pictures of @mentioned subjects — used where the model takes
+ * references, otherwise only the subject's description (already in the prompt) applies.
+ */
+async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; first?: string; last?: string; soft?: string[] }, prompt: string, negative = '') {
   const profile = requireProfile(ctx)
   const provider = JOB_PROVIDERS[profile.adapter]
   if (!provider) {
@@ -132,7 +158,7 @@ async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; 
   if (provider.input) {
     const p = ctx.node.data.params ?? {}
     const req: GenRequest = {
-      want, prompt, negative, images: media.image ?? [], first: media.first, last: media.last,
+      want, prompt, negative, images: media.image ?? [], softImages: media.soft ?? [], first: media.first, last: media.last,
       aspect: typeof p.aspect_ratio === 'string' && p.aspect_ratio ? p.aspect_ratio : undefined,
       duration: typeof p.duration === 'number' ? p.duration : undefined,
       voice: typeof p.voice === 'string' && p.voice ? p.voice : undefined,
@@ -203,13 +229,15 @@ export function directorContract(o: { shots: number; lang: 'zh' | 'en'; aspect?:
 
 export const HANDLERS: Record<string, Handler> = {
   text: async ({ node }) => ({ out: [{ type: 'text', text: node.data.text ?? '' }] }),
+  subject: async ({ node }) => ({ out: (subjectOf(node)?.images ?? []).map((i) => ({ type: 'image', assetId: i.assetId, mime: i.mime }) as PortValue) }),
   image: media('image'),
   video: media('video'),
   audio: media('audio'),
 
   llm: async (ctx) => {
-    const prompt = valuesToText(ctx.inputs.in).trim() || str(ctx.node.data.text)
-    if (!prompt) throw new NodeError('没有输入提示：请连接文本节点或在节点内填写')
+    const raw = valuesToText(ctx.inputs.in).trim() || str(ctx.node.data.text)
+    if (!raw) throw new NodeError('没有输入提示：请连接文本节点或在节点内填写')
+    const prompt = withSubjects(ctx, raw).text
     const text = await chat(ctx, prompt, { system: str(ctx.node.data.params?.system) || undefined })
     return { out: [{ type: 'text', text }] }
   },
@@ -247,13 +275,15 @@ export const HANDLERS: Record<string, Handler> = {
   'image-gen': async (ctx) => {
     const refs = valuesOfType(ctx.inputs.ref, 'image')
     const profile = requireProfile(ctx)
+    const { prompt, subjectImages } = genInput(ctx)
     if (profile.adapter === 'openai-compat') {
       if (refs.length) throw new NodeError('openai-compat 图片生成暂不支持参考图，请改用 replicate / fal 的图生图模型，或断开参考图')
+      if (subjectImages.length) ctx.job.report('这个模型不接受参考图：主体只用了文字描述')
       // the images API has no negative prompt: say it in words
       const neg = genNegative(ctx)
-      const prompt = neg ? `${genPrompt(ctx)}\n\nAvoid: ${neg}` : genPrompt(ctx)
+      const full = neg ? `${prompt}\n\nAvoid: ${neg}` : prompt
       return { out: await variants(ctx, async (c) => {
-        const urls = await openaiImages(profile, c.apiKey, { prompt, aspect: c.node.data.params?.aspect_ratio as string | undefined, signal: c.signal })
+        const urls = await openaiImages(profile, c.apiKey, { prompt: full, aspect: c.node.data.params?.aspect_ratio as string | undefined, signal: c.signal })
         c.job.report('保存结果…')
         const out: PortValue[] = []
         const allowPrivate = await resultsMayBePrivate(profile)
@@ -262,14 +292,19 @@ export const HANDLERS: Record<string, Handler> = {
       }) }
     }
     const image = refs.map((r) => dataUri(ctx, r.assetId))
-    return { out: await variants(ctx, (c) => generate(c, 'image', { image }, genPrompt(c), genNegative(c))) }
+    return { out: await variants(ctx, (c) => generate(c, 'image', { image, soft: subjectImages }, prompt, genNegative(c))) }
   },
 
   'video-gen': async (ctx) => {
     const first = valuesOfType(ctx.inputs.first, 'image')[0]
     const last = valuesOfType(ctx.inputs.last, 'image')[0]
-    const frames = { first: first && dataUri(ctx, first.assetId), last: last && dataUri(ctx, last.assetId) }
-    return { out: await variants(ctx, (c) => generate(c, 'video', frames, genPrompt(c), genNegative(c))) }
+    const refs = valuesOfType(ctx.inputs.ref, 'image')
+    const { prompt, subjectImages } = genInput(ctx)
+    const media = {
+      first: first && dataUri(ctx, first.assetId), last: last && dataUri(ctx, last.assetId),
+      image: refs.map((r) => dataUri(ctx, r.assetId)), soft: subjectImages,
+    }
+    return { out: await variants(ctx, (c) => generate(c, 'video', media, prompt, genNegative(c))) }
   },
 
   tts: async (ctx) => {
@@ -290,8 +325,9 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   director: async (ctx) => {
-    const idea = valuesToText(ctx.inputs.in).trim() || str(ctx.node.data.text)
-    if (!idea) throw new NodeError('没有创意或剧本：请连接文本节点，或在节点内填写')
+    const rawIdea = valuesToText(ctx.inputs.in).trim() || str(ctx.node.data.text)
+    if (!rawIdea) throw new NodeError('没有创意或剧本：请连接文本节点，或在节点内填写')
+    const idea = withSubjects(ctx, rawIdea).text
     const p = ctx.node.data.params ?? {}
     const skillName = str(p.skill) || DEFAULT_DIRECTOR_SKILL
     const skill = ctx.skills?.get(skillName)
@@ -368,7 +404,7 @@ export const HANDLERS: Record<string, Handler> = {
           start: Math.round(s.start * 100) / 100,
         }
       })
-      const text = shots.map((s) => `镜头 ${s.index}（${s.duration}s）\n画面：${s.imagePrompt}\n运动：${s.videoPrompt}`).join('\n\n')
+      const text = shotsPromptText(shots)
       return {
         out: [{ type: 'storyboard', ...(parsed.title ? { title: parsed.title } : {}), shots }],
         text: [{ type: 'text', text }],

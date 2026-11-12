@@ -21,6 +21,10 @@ export const NODE_TYPES: NodeTypeDef[] = [
   { type: 'image', category: 'input', label: '图片', description: '导入图片素材', inputs: [], outputs: [{ id: 'out', type: 'image', label: '图片' }] },
   { type: 'video', category: 'input', label: '视频', description: '导入视频素材', inputs: [], outputs: [{ id: 'out', type: 'video', label: '视频' }] },
   { type: 'audio', category: 'input', label: '音频', description: '导入音频素材', inputs: [], outputs: [{ id: 'out', type: 'audio', label: '音频' }] },
+  {
+    type: 'subject', category: 'input', label: '主体', description: '人物 / 物品 / 场景：名字 + 参考图，提示词里 @ 引用',
+    inputs: [], outputs: [{ id: 'out', type: 'image', label: '参考图' }],
+  },
 
   // ---- model agents (bound to profiles)
   {
@@ -40,7 +44,7 @@ export const NODE_TYPES: NodeTypeDef[] = [
   },
   {
     type: 'video-gen', category: 'model', modelKind: 'video', label: '视频生成', description: '文生视频 / 图生视频 / 首尾帧',
-    inputs: [{ id: 'prompt', type: 'text', label: '提示词' }, { id: 'negative', type: 'text', label: '负面词' }, { id: 'first', type: 'image', label: '首帧' }, { id: 'last', type: 'image', label: '尾帧' }],
+    inputs: [{ id: 'prompt', type: 'text', label: '提示词' }, { id: 'negative', type: 'text', label: '负面词' }, { id: 'first', type: 'image', label: '首帧' }, { id: 'last', type: 'image', label: '尾帧' }, { id: 'ref', type: 'image', label: '参考图', multiple: true }],
     outputs: [{ id: 'out', type: 'video', label: '视频' }],
   },
   {

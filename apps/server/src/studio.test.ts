@@ -212,3 +212,44 @@ async function pixel(file: string) {
   const raw = execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', file, '-vf', 'scale=1:1:flags=area', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
   return { r: raw[0]!, g: raw[1]!, b: raw[2]! }
 }
+
+describe('storyboard table (rc.15)', () => {
+  const storyboard = JSON.stringify({ title: '海边', shots: [
+    { title: '开场', visual: '海边的灯塔', camera: '远景', dialogue: '', duration: 4, image_prompt: '灯塔', video_prompt: '推近' },
+    { title: '猫', visual: '橘猫看海', camera: '中景', dialogue: '喵', duration: 5, image_prompt: '橘猫', video_prompt: '抬头' },
+  ] })
+  const directorGraph = (profileId: string): ProjectGraph => ({ version: 1, nodes: [{ id: 'd', type: 'director', position: { x: 0, y: 0 }, data: { profileId, text: '一个海边的小故事', params: { shots: 2 } } }], edges: [] })
+  const put = (projectId: string, nodeId: string, payload: object) => app.inject({ method: 'PUT', url: `/api/projects/${projectId}/nodes/${nodeId}/storyboard`, payload })
+
+  it('an edited storyboard becomes a new version and what the node gives downstream; the next run reuses it', async () => {
+    const llm = prof({ kind: 'llm', adapter: 'openai-compat', model: 'writer' })
+    chatReply = storyboard
+    const p = store.createProject('t', directorGraph(llm.id))
+    expect((await put(p.id, 'd', { shots: [{ title: 'x' }] })).statusCode).toBe(409) // nothing to edit before the first run
+    await run(p.id)
+    expect(chats).toHaveLength(1)
+    const r = await put(p.id, 'd', { title: '海边（改）', shots: [
+      { title: '猫', visual: '橘猫看海', duration: 99, imagePrompt: '橘猫，夕阳', videoPrompt: '慢慢抬头', keyframe: { assetId: '00000000-0000-0000-0000-000000000000', mime: 'image/png' } },
+      { title: '', visual: '新加的镜头' },
+    ] })
+    expect(r.statusCode).toBe(200)
+    const sb = r.json().outputs.out[0]
+    expect(sb.title).toBe('海边（改）')
+    expect(sb.shots.map((s: any) => [s.index, s.title, s.duration])).toEqual([[1, '猫', 60], [2, '镜头 2', 5]])
+    expect(sb.shots[0].keyframe).toBeUndefined() // a keyframe the storyboard never had is dropped
+    expect(r.json().versions).toBe(2)
+    const again = await run(p.id)
+    expect(chats).toHaveLength(1) // reused, not regenerated
+    expect(again.last.get('d').outputs.out[0].shots[1].visual).toBe('新加的镜头')
+  })
+
+  it('refuses empty storyboards and nodes without one', async () => {
+    const llm = prof({ kind: 'llm', adapter: 'openai-compat', model: 'writer' })
+    chatReply = storyboard
+    const p = store.createProject('t', { ...directorGraph(llm.id), nodes: [...directorGraph(llm.id).nodes, { id: 't', type: 'text', position: { x: 0, y: 300 }, data: { text: 'x' } }] })
+    await run(p.id)
+    expect((await put(p.id, 'd', { shots: [] })).json().error).toMatch(/至少/)
+    expect((await put(p.id, 't', { shots: [{ title: 'a' }] })).statusCode).toBe(400)
+    expect((await put(p.id, 'nope', { shots: [{ title: 'a' }] })).statusCode).toBe(400)
+  })
+})

@@ -1,11 +1,11 @@
 import {
-  AudioLines, Clapperboard, Eye, FilePlay, Image, ImagePlus, MessageSquareText, Mic, MonitorPlay, ScanSearch, ScanText, Type, Video,
+  AudioLines, Clapperboard, Eye, FilePlay, Image, ImagePlus, MessageSquareText, Mic, MonitorPlay, ScanSearch, ScanText, Type, UserRound, Video,
   type LucideIcon,
 } from 'lucide-react'
 import type { ModelKind, NodeCategory, PortType } from '@hzc/core'
 
 export const NODE_ICON: Record<string, LucideIcon> = {
-  text: Type, image: Image, video: Video, audio: AudioLines,
+  text: Type, image: Image, video: Video, audio: AudioLines, subject: UserRound,
   llm: MessageSquareText, vlm: Eye, 'image-gen': ImagePlus, 'video-gen': Clapperboard, tts: Mic,
   'image-reverse': ScanText, 'video-reverse': ScanSearch, director: Clapperboard,
   preview: MonitorPlay, export: FilePlay,

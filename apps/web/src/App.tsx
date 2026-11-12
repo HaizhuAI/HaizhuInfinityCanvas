@@ -5,6 +5,7 @@ import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudChec
 import { NODE_TYPE_MAP } from '@hzc/core'
 import { HzcNode, RUNNABLE } from './CanvasNode'
 import { Composer } from './Composer'
+import { StoryboardTable } from './StoryboardTable'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
 import { CanvasHelpers, ContextMenu, PreflightDialog, ShortcutsSheet, ToastView, useEscape, type CtxMenu } from './Overlays'
 import { copySelection, duplicateSelection, leaveCopies, paste } from './clipboard'
@@ -27,10 +28,10 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.14'
+export const APP_VERSION = 'v1.0.0-rc.15'
 
 const nodeTypes = Object.fromEntries(
-  ['text', 'image', 'video', 'audio', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
+  ['text', 'image', 'video', 'audio', 'subject', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
 )
 
 const fmt = (n: number, cur: string) => `${cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : cur + ' '}${n.toFixed(n < 1 ? 3 : 2).replace(/0+$/, '').replace(/\.$/, '')}`
@@ -509,7 +510,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState()
       const editing = !!(e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')
-      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox || st.projectsOpen || !!st.compareSetup || !!st.compareView
+      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox || st.projectsOpen || !!st.compareSetup || !!st.compareView || !!st.storyboardEdit
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key === 'Enter' && !overlay) { e.preventDefault(); if (!st.runId && st.nodes.length) void st.runNodes(); return }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void st.save().then(() => { if (useStore.getState().saveState === 'saved') st.showToast('已保存') }); return }
@@ -554,7 +555,7 @@ export function App() {
       if (!dir || e.metaKey || e.ctrlKey || e.altKey) return
       const st = useStore.getState()
       if ((e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], .assistant, .lpanel, [role="menu"]')) return
-      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen || st.compareSetup || st.compareView) return
+      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen || st.compareSetup || st.compareView || st.storyboardEdit) return
       const step = st.snap ? 24 : e.shiftKey ? 10 : 1
       if (st.nudge(dir[0] * step, dir[1] * step)) { e.preventDefault(); e.stopPropagation() }
     }
@@ -598,6 +599,7 @@ export function App() {
         <Lightbox />
         <CompareSetup />
         <CompareView />
+        <StoryboardTable />
         <ToastView />
       </div>
     </>

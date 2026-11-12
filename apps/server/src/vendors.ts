@@ -56,6 +56,13 @@ function noRefs(r: GenRequest, name: string) {
 function needKey(apiKey: string | undefined, name: string): asserts apiKey is string {
   if (!apiKey) throw new ProviderError(`${name}需要 API Key：在模型档案里填写`)
 }
+/** a model without reference images: wired ones are an error, a subject's pictures are left out */
+function noVideoRefs(r: GenRequest, name: string) {
+  if (r.images.length) throw new ProviderError(`${name}不接受参考图：请断开「参考图」，或换用支持参考图的模型（如 Seedance、MiniMax-H3）`)
+}
+/** wired references first, then the pictures of @mentioned subjects */
+const allRefs = (r: GenRequest, max = 9) => [...r.images, ...(r.softImages ?? [])].slice(0, max)
+
 function lastNeedsFirst(r: GenRequest, name: string) {
   if (r.last && !r.first) throw new ProviderError(`${name}的尾帧需要同时连接首帧`)
 }
@@ -72,6 +79,7 @@ export const ark: AsyncProvider = {
     const content: Body[] = [{ type: 'text', text: withAvoid(r) }]
     if (r.first) content.push({ type: 'image_url', image_url: { url: r.first }, role: 'first_frame' })
     if (r.last) content.push({ type: 'image_url', image_url: { url: r.last }, role: 'last_frame' })
+    for (const url of allRefs(r, 4)) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' })
     const built = clean({ model: profile.model, content, ratio: r.aspect, duration: r.duration })
     return { path: '/contents/generations/tasks', body: deepMerge(providerDefaults(profile.defaults), built, r.extra) }
   },
@@ -114,6 +122,7 @@ const isLegacyWanImage = (model: string) => /^wanx|^wan2\.[0-5]\b/i.test(model)
 const isMediaWan = (model: string) => /^wan(2\.(7|8|9)|[3-9])/i.test(model)
 
 function wanVideo(profile: ModelProfile, r: GenRequest): Native {
+  noVideoRefs(r, '万相视频')
   const m = profile.model
   const input: Body = { prompt: r.prompt, negative_prompt: r.negative || undefined }
   const parameters: Body = { duration: r.duration }
@@ -208,16 +217,18 @@ export const kling: AsyncProvider = {
     const d = providerDefaults(profile.defaults)
     if (r.want === 'image') {
       if (r.images.length > 1) throw new ProviderError('可灵图片生成只接受 1 张参考图')
+      const ref = allRefs(r, 1)[0]
       const built = clean({
         model_name: profile.model, prompt: r.prompt,
-        negative_prompt: r.images.length ? undefined : r.negative || undefined, // not allowed together with a reference image
-        image: r.images[0] ? stripDataUri(r.images[0]) : undefined,
+        negative_prompt: ref ? undefined : r.negative || undefined, // not allowed together with a reference image
+        image: ref ? stripDataUri(ref) : undefined,
         aspect_ratio: r.aspect && KLING_IMAGE_RATIOS.has(r.aspect) ? r.aspect : undefined,
         n: 1,
       })
       return { path: KLING_IMAGES, body: deepMerge(d, built, r.extra) }
     }
     if (r.want !== 'video') throw new ProviderError('可灵适配器用于图片和视频生成')
+    noVideoRefs(r, '可灵视频')
     lastNeedsFirst(r, '可灵')
     const model = encodeURIComponent(profile.model)
     if (r.first) {
@@ -287,10 +298,12 @@ export const minimax: AsyncProvider = {
       const content: Body[] = [{ type: 'text', text: withAvoid(r) }]
       if (r.first) content.push({ type: 'image_url', image_url: { url: r.first }, role: 'first_frame' })
       if (r.last) content.push({ type: 'image_url', image_url: { url: r.last }, role: 'last_frame' })
+      for (const url of allRefs(r, 9)) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' })
       const duration = Math.min(15, Math.max(4, Math.round(r.duration ?? 6)))
       const ratio = r.aspect && MINIMAX_V2_RATIOS.has(r.aspect) ? r.aspect : r.first ? 'adaptive' : '16:9'
       return { path: '/v2/video_generation', body: deepMerge({ resolution: '768P' }, d, { model: profile.model, content, duration, ratio }, r.extra) }
     }
+    noVideoRefs(r, `${profile.model}（MiniMax-H3 可以）`)
     // v1 takes 6 or 10 seconds
     const duration = r.duration === undefined ? undefined : r.duration >= 8 ? 10 : 6
     const built = clean({ model: profile.model, prompt: withAvoid(r), first_frame_image: r.first, last_frame_image: r.last, duration })
@@ -384,12 +397,14 @@ export const runway: AsyncProvider = {
     const model = profile.model
     if (r.want === 'image') {
       if (r.images.length > 3) throw new ProviderError('Runway 最多接受 3 张参考图')
-      const built = clean({ model, promptText: withAvoid(r), ratio: RUNWAY_IMAGE_RATIO[r.aspect ?? ''] ?? '1920:1080', referenceImages: r.images.length ? r.images.map((u) => ({ uri: runwayUri(u) })) : undefined })
+      const refs = allRefs(r, 3)
+      const built = clean({ model, promptText: withAvoid(r), ratio: RUNWAY_IMAGE_RATIO[r.aspect ?? ''] ?? '1920:1080', referenceImages: refs.length ? refs.map((u) => ({ uri: runwayUri(u) })) : undefined })
       return { path: '/v1/text_to_image', body: deepMerge(d, built, r.extra) }
     }
     if (r.want === 'audio') {
       return { path: '/v1/text_to_speech', body: deepMerge(d, { model, promptText: r.prompt, voice: { type: 'runway-preset', presetId: r.voice || 'Maya' } }, r.extra) }
     }
+    noVideoRefs(r, 'Runway 视频')
     lastNeedsFirst(r, 'Runway ')
     const ratio = RUNWAY_VIDEO_RATIO[r.aspect ?? ''] ?? '1280:720'
     const duration = r.duration ?? 5
@@ -436,6 +451,7 @@ const ZHIPU_SIZE: Record<string, string> = { '16:9': '1920x1080', '9:16': '1080x
 export const zhipu: AsyncProvider = {
   input(profile, r) {
     onlyVideo(r, '智谱 CogVideoX ', '；对话、视觉和 CogView 图片请用 openai-compat 适配器，地址相同')
+    noVideoRefs(r, 'CogVideoX ')
     lastNeedsFirst(r, 'CogVideoX ')
     const v3 = /cogvideox-3/i.test(profile.model)
     const built = clean({
@@ -475,6 +491,7 @@ const SILICONFLOW_RATIOS = new Set(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']
 export const siliconflow: AsyncProvider = {
   input(profile, r) {
     onlyVideo(r, '硅基流动', '；对话、图片和语音请用 openai-compat 适配器，地址相同')
+    noVideoRefs(r, '硅基流动视频')
     lastNeedsFirst(r, '硅基流动')
     const images = r.first ? [{ url: r.first, role: 'first_frame' }, ...(r.last ? [{ url: r.last, role: 'last_frame' }] : [])] : undefined
     const built = clean({ model: profile.model, prompt: withAvoid(r), duration: r.duration, ratio: r.aspect && SILICONFLOW_RATIOS.has(r.aspect) ? r.aspect : undefined, images })

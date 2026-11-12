@@ -38,6 +38,17 @@
 | zhipu（CogVideoX） | `image_url`（首尾帧为两张图的列表） | 文生视频换算成 `size` | 仅 cogvideox-3：5 / 10 秒 | 写进提示词 |
 | siliconflow | `images` 列表，`role` 为 `first_frame` / `last_frame` | `ratio` | `duration` | 写进提示词 |
 
+### 视频参考图（rc.15 起）
+
+视频生成节点新增「参考图」端口（可以连多张），主体的图片也走这里：
+
+| 适配器 | 参考图怎么传 |
+| --- | --- |
+| ark（Seedance） | `content` 里 `role` 为 `reference_image` 的图片（最多 4 张） |
+| minimax（MiniMax-H3） | `content` 里 `role` 为 `reference_image` 的图片（最多 9 张）；Hailuo-02 / 2.3 不支持 |
+| replicate / fal | 各模型字段名不同：在档案默认参数里写 `{"_fields": {"ref": "字段名"}}` 后发送；没设置时连了参考图会提示 |
+| 万相、可灵、Runway、CogVideoX、硅基流动 | 不支持：连了参考图会提示；主体的图片会被跳过，只用文字描述 |
+
 「高级参数（JSON）」最后合并，并且**按层合并**：例如在万相节点里写 `{"parameters": {"seed": 42, "watermark": false}}`，只会加上这两项，不会把画面比例和时长冲掉。档案的「默认参数」在最底层。
 
 ### 语音

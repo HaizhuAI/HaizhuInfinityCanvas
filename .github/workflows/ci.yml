@@ -52,7 +52,7 @@ jobs:
           pnpm exec playwright install chromium
       - name: E2E (each suite on a fresh data dir, bundled server)
         run: |
-          for suite in smoke run-flow gen-flow director-flow video-flow ux-flow versions-flow agent-flow compare-flow reverse-skill-flow perf-flow resilience-flow saas-flow admin-flow studio-flow; do
+          for suite in smoke run-flow gen-flow director-flow video-flow ux-flow versions-flow agent-flow compare-flow reverse-skill-flow perf-flow resilience-flow saas-flow admin-flow studio-flow story-flow; do
             export HZC_DATA_DIR="$(mktemp -d)" PORT=8788
             node apps/server/dist/index.mjs & SERVER=$!
             for i in $(seq 1 30); do curl -sf localhost:8788/api/health >/dev/null && break; sleep 1; done

@@ -185,6 +185,8 @@ export const api = {
   duplicateProject: (id: string, name?: string) => req<Project>('POST', `/api/projects/${id}/duplicate`, { name }),
   uploadAsset,
   assetFrame: (id: string, at: number | 'last') => req<{ id: string; mime: string; size: number }>('POST', `/api/assets/${encodeURIComponent(id)}/frame`, { at }),
+  saveStoryboard: (projectId: string, nodeId: string, sb: { title?: string; shots: unknown[] }) =>
+    req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('PUT', `/api/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/storyboard`, sb),
   pickResult: (projectId: string, nodeId: string, index: number) =>
     req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('POST', `/api/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/pick`, { index }),
   optimizePrompt: (body: { profileId: string; prompt: string; target: { profileId?: string; kind: 'image' | 'video' }; fromImage?: boolean; imageIds?: string[]; lang?: OptimizeLang; skill?: string }) =>

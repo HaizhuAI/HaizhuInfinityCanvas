@@ -3,7 +3,7 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, pickCompareWinner, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, pickCompareWinner, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { api, auth, markBooted, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
@@ -201,7 +201,12 @@ export interface State {
   useVersion: (nodeId: string, seq: number) => Promise<void>
   closePalette: () => void
   /** turn a director node's storyboard into per-shot image → video (→ voice) rows; returns new node ids */
-  expandStoryboard: (directorId: string) => string[]
+  /** the storyboard's shots as rows of nodes; `only`: shot numbers (1-based) to expand, default all */
+  expandStoryboard: (directorId: string, only?: number[]) => string[]
+  /** the storyboard table editor */
+  storyboardEdit: { nodeId: string } | null
+  openStoryboard: (nodeId: string | null) => void
+  saveStoryboard: (nodeId: string, sb: { title?: string; shots: Shot[] }) => Promise<boolean>
   runNodes: (nodeIds?: string[], force?: boolean, opts?: { confirmed?: boolean; checked?: boolean }) => Promise<void>
   /** run these nodes now, or after the current run ends (never cancels it); the caller already showed the cost */
   queueRun: (nodeIds: string[]) => void
@@ -218,7 +223,7 @@ export interface State {
 
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
-  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null, runQueue: [], composerOpen: viewPref('composer', false),
+  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null, runQueue: [], storyboardEdit: null, composerOpen: viewPref('composer', false),
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
   settingsIntent: null, account: null, accounts: false, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
@@ -419,11 +424,13 @@ export const useStore = create<State>((set, get) => ({
   },
   closePalette: () => set({ palette: { open: false } }),
 
-  expandStoryboard: (directorId) => {
+  expandStoryboard: (directorId, only) => {
     const { nodes, runStates, profiles } = get()
     const dir = nodes.find((n) => n.id === directorId)
-    const sb = runStates[directorId]?.outputs?.out?.find((v) => v.type === 'storyboard')
-    if (!dir || !sb || sb.type !== 'storyboard') return []
+    const full = runStates[directorId]?.outputs?.out?.find((v) => v.type === 'storyboard')
+    if (!dir || !full || full.type !== 'storyboard') return []
+    const sb = only ? { ...full, shots: full.shots.filter((x) => only.includes(x.index)) } : full
+    if (!sb.shots.length) return []
     const first = (type: string) => { const id = defaultProfileFor(type, profiles); return id ? { id } : undefined }
     const img = first('image-gen'), vid = first('video-gen'), tts = first('tts')
     const aspect = dir.data.params?.aspect_ratio
@@ -463,6 +470,21 @@ export const useStore = create<State>((set, get) => ({
     if (sb.shots.some((s) => s.dialogue)) newEdges.push({ id: `e_${uid()}`, source: subsId, sourceHandle: 'out', target: exportId, targetHandle: 'subs' })
     set((s) => ({ nodes: [...s.nodes, ...newNodes], edges: [...s.edges, ...newEdges], saveState: 'dirty' }))
     return newNodes.map((n) => n.id)
+  },
+
+  openStoryboard: (nodeId) => set({ storyboardEdit: nodeId ? { nodeId } : null }),
+
+  async saveStoryboard(nodeId, sb) {
+    const { projectId } = get()
+    if (!projectId) return false
+    try {
+      const r = await api.saveStoryboard(projectId, nodeId, sb)
+      set((s) => ({
+        runStates: { ...s.runStates, [nodeId]: { ...(s.runStates[nodeId] ?? { status: 'done' }), status: 'done', outputs: r.outputs, finishedAt: r.finishedAt, versions: r.versions } },
+        versionLists: Object.fromEntries(Object.entries(s.versionLists).filter(([k]) => k !== nodeId)),
+      }))
+      return true
+    } catch (e) { get().showToast(`保存分镜失败：${(e as Error).message}`, { tone: 'error' }); return false }
   },
 
   async init() {

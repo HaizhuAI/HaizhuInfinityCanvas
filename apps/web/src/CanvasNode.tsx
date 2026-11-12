@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, StepForward, TriangleExclamationPoint, Upload, Video } from 'lucide-react'
+import { Ban, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, StepForward, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
-import { NODE_TYPE_MAP, type ModelKind, type NodeStatus, type PortValue, type Shot } from '@hzc/core'
+import { MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KIND_LABEL, SUBJECT_KINDS, type ModelKind, type NodeStatus, type PortValue, type Shot, type SubjectKind } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { ASPECT_CSS, CATEGORY_COLOR, KIND_LABEL, NODE_ICON, PORT_COLOR, PORT_LABEL } from './icons'
 import { enterNode, successPulse } from './motion'
 import { VersionSwitch } from './Versions'
 import { CompareBar } from './Compare'
-import { useStore, type CanvasNode } from './store'
+import { useStore, type CanvasNode, type CanvasNodeData } from './store'
+import { MentionTextarea } from './Mentions'
 
 export const STATUS: Record<NodeStatus, { label: string; Icon?: typeof Check }> = {
   idle: { label: '' },
@@ -212,11 +213,81 @@ function ReverseSkillChip({ name }: { name: string }) {
 }
 
 /** Text box that steps aside when an upstream edge supplies the text. */
-function OwnText({ id, port, text, placeholder, testid, rows }: { id: string; port: string; text?: string; placeholder: string; testid: string; rows?: number }) {
+function OwnText({ id, port, text, placeholder, testid, rows, mentions }: { id: string; port: string; text?: string; placeholder: string; testid: string; rows?: number; mentions?: boolean }) {
   const setNodeData = useStore((s) => s.setNodeData)
   const wired = useStore((s) => s.edges.some((e) => e.target === id && e.targetHandle === port))
   if (wired) return <div className="hint"><Info aria-hidden="true" />内容来自上游连线</div>
-  return <textarea className="nodrag nowheel" rows={rows} placeholder={placeholder} value={text ?? ''} onChange={(e) => setNodeData(id, { text: e.target.value })} data-testid={testid} style={rows ? { minHeight: rows * 20 + 20 } : undefined} />
+  const style = rows ? { minHeight: rows * 20 + 20 } : undefined
+  if (mentions) return <MentionTextarea className="nodrag nowheel" rows={rows} placeholder={placeholder} value={text ?? ''} onValue={(v) => setNodeData(id, { text: v })} data-testid={testid} style={style} />
+  return <textarea className="nodrag nowheel" rows={rows} placeholder={placeholder} value={text ?? ''} onChange={(e) => setNodeData(id, { text: e.target.value })} data-testid={testid} style={style} />
+}
+
+/** 主体：a named character / product / scene with up to four reference pictures, cited as @name */
+function SubjectBody({ id, data }: { id: string; data: CanvasNodeData }) {
+  const setNodeData = useStore((s) => s.setNodeData)
+  const setNodeParam = useStore((s) => s.setNodeParam)
+  const showToast = useStore((s) => s.showToast)
+  const loadAssets = useStore((s) => s.loadAssets)
+  const p = data.params ?? {}
+  const name = String(p.name ?? '')
+  const kind = (String(p.kind ?? 'character')) as SubjectKind
+  const images = (Array.isArray(p.images) ? p.images : []) as { assetId: string; mime: string }[]
+  const duplicate = useStore((s) => !!name && s.nodes.some((n) => n.id !== id && n.type === 'subject' && String(n.data.params?.name ?? '').trim() === name.trim() && s.nodes.indexOf(n) < s.nodes.findIndex((x) => x.id === id)))
+  const ref = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [over, setOver] = useState(false)
+  const addImages = (more: { assetId: string; mime: string }[]) => setNodeParam(id, 'images', [...images, ...more].slice(0, MAX_SUBJECT_IMAGES))
+  async function upload(files: File[]) {
+    const pics = files.filter((f) => f.type.startsWith('image/')).slice(0, MAX_SUBJECT_IMAGES - images.length)
+    if (!pics.length) { showToast('这里需要图片'); return }
+    setBusy(true)
+    try {
+      const out: { assetId: string; mime: string }[] = []
+      for (const f of pics) { const a = await api.uploadAsset(f); out.push({ assetId: a.id, mime: a.mime }) }
+      addImages(out)
+      void loadAssets()
+    } catch (e) { showToast(`上传失败：${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  const rename = (v: string) => {
+    const next = v.replace(/[\s@]/g, '').slice(0, 24)
+    setNodeParam(id, 'name', next)
+    if (!data.label || data.label === '主体' || data.label === `@${name}`) setNodeData(id, { label: next ? `@${next}` : '主体' })
+  }
+  return (
+    <div className="subject" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(DND_MIME)) { e.preventDefault(); e.stopPropagation(); setOver(true) } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false)
+        if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); void upload(Array.from(e.dataTransfer.files)); return }
+        const d = readDrag(e)
+        if (d && 'assetId' in d) { e.preventDefault(); e.stopPropagation(); if (d.type === 'image') addImages([{ assetId: d.assetId, mime: d.mime }]); else showToast('这里需要图片') }
+      }}>
+      <label className="subj-name"><span aria-hidden="true">@</span>
+        <input className="nodrag" value={name} onChange={(e) => rename(e.target.value)} placeholder="名字，例如 小橘" aria-label="主体名字（提示词里用 @名字 引用）" data-testid="subject-name" />
+      </label>
+      {duplicate && <div className="hint warn">画布上已有同名主体，只有第一个生效</div>}
+      <div className="seg2 sm nodrag" role="radiogroup" aria-label="类型">
+        {SUBJECT_KINDS.map((k) => <button type="button" key={k} role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setNodeParam(id, 'kind', k)}>{SUBJECT_KIND_LABEL[k]}</button>)}
+      </div>
+      <div className={`subj-images${over ? ' over' : ''}`}>
+        {images.map((im, i) => (
+          <span className="subj-img" key={`${im.assetId}-${i}`}>
+            <img src={assetUrl(im.assetId)} alt="" loading="lazy" />
+            <button type="button" className="nodrag" aria-label="移除这张" onClick={() => setNodeParam(id, 'images', images.filter((_, j) => j !== i))}><X /></button>
+          </span>
+        ))}
+        {images.length < MAX_SUBJECT_IMAGES && (
+          <button type="button" className="subj-add nodrag" disabled={busy} onClick={() => ref.current?.click()} aria-label="添加参考图" title="添加参考图（也可以把图片或结果拖进来）" data-testid="subject-add-image">
+            {busy ? <span className="orbit" style={{ '--s': '14px' } as React.CSSProperties} aria-hidden="true" /> : <Plus />}
+          </button>
+        )}
+        <input ref={ref} type="file" accept="image/*" multiple hidden data-testid="subject-upload" onChange={(e) => { void upload(Array.from(e.target.files ?? [])); e.target.value = '' }} />
+      </div>
+      <textarea className="nodrag nowheel" rows={3} value={data.text ?? ''} onChange={(e) => setNodeData(id, { text: e.target.value })}
+        placeholder="外貌、服装、材质、性格……会写进提到它的提示词" data-testid="subject-desc" />
+      <div className="hint"><Info aria-hidden="true" /><span>在提示词里写 <code>@{name || '名字'}</code>：带上这段描述，支持参考图的模型还会收到这些图</span></div>
+    </div>
+  )
 }
 
 function ModelChip({ id, kind, profileId, label, defLabel }: { id: string; kind: NonNullable<(typeof NODE_TYPE_MAP)[string]['modelKind']>; profileId?: string; label?: string; defLabel: string }) {
@@ -251,6 +322,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
   const runNodes = useStore((s) => s.runNodes)
   const expandStoryboard = useStore((s) => s.expandStoryboard)
   const pickResult = useStore((s) => s.pickResult)
+  const openStoryboard = useStore((s) => s.openStoryboard)
   const runState = useStore((s) => s.runStates[id])
   const running = useStore((s) => s.runId !== null)
   const { fitView } = useReactFlow()
@@ -310,11 +382,12 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
               </div>
             : <Frame aspect={params.aspect_ratio as string | undefined} kind={genKind} running={isRunning} progress={runState?.progress} />)}
 
-          {type === 'text' && <textarea className="nodrag nowheel" placeholder="写下剧本、创意或提示词…" value={data.text ?? ''} onChange={(e) => useStore.getState().setNodeData(id, { text: e.target.value })} />}
-          {(type === 'image-gen' || type === 'video-gen') && <OwnText id={id} port="prompt" text={data.text} rows={3} testid="gen-prompt" placeholder={type === 'video-gen' ? '画面、主体动作与运镜…' : '描述你想生成的画面…'} />}
+          {type === 'text' && <MentionTextarea className="nodrag nowheel" placeholder="写下剧本、创意或提示词…（@ 引用主体）" value={data.text ?? ''} onValue={(v) => useStore.getState().setNodeData(id, { text: v })} />}
+          {type === 'subject' && <SubjectBody id={id} data={data} />}
+          {(type === 'image-gen' || type === 'video-gen') && <OwnText id={id} port="prompt" text={data.text} rows={3} testid="gen-prompt" mentions placeholder={type === 'video-gen' ? '画面、主体动作与运镜…（@ 引用主体）' : '描述你想生成的画面…（@ 引用主体）'} />}
           {type === 'tts' && <OwnText id={id} port="in" text={data.text} rows={3} testid="tts-text" placeholder="要朗读的台词或旁白…" />}
-          {type === 'director' && <OwnText id={id} port="in" text={data.text} rows={3} testid="director-idea" placeholder="一句创意、一段故事或完整剧本…" />}
-          {type === 'llm' && <OwnText id={id} port="in" text={data.text} rows={3} testid="llm-text" placeholder="提示词（或连接上游文本）" />}
+          {type === 'director' && <OwnText id={id} port="in" text={data.text} rows={3} testid="director-idea" mentions placeholder="一句创意、一段故事或完整剧本…" />}
+          {type === 'llm' && <OwnText id={id} port="in" text={data.text} rows={3} testid="llm-text" mentions placeholder="提示词（或连接上游文本）" />}
           {type === 'image-reverse' && typeof params.skill === 'string' && params.skill && <ReverseSkillChip name={params.skill} />}
 
           {!genKind && isRunning && runState?.progress && <div className="progress" data-testid="node-progress"><span className="orbit" style={{ '--s': '13px' } as React.CSSProperties} aria-hidden="true" />{runState.progress}</div>}
@@ -328,7 +401,10 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
           {data.compare && <CompareBar id={id} group={data.compare} />}
           {!isRunning && <VersionSwitch nodeId={id} />}
           {hasStoryboard && (
-            <button className="btn sm block nodrag" disabled={running} onClick={expand} data-testid="expand-storyboard"><LayoutGrid />展开到画布</button>
+            <div className="sb-actions">
+              <button className="btn sm nodrag" onClick={() => openStoryboard(id)} data-testid="edit-storyboard"><Table2 />分镜表</button>
+              <button className="btn sm nodrag" disabled={running} onClick={expand} data-testid="expand-storyboard"><LayoutGrid />展开到画布</button>
+            </div>
           )}
         </div>
       )}

@@ -4,6 +4,27 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.15] — 2026-11-12 (release candidate, code complete, not tagged)
+
+"References and storyboard": keep the same character, product or scene consistent across shots, and edit a storyboard like a table. These are the "references and consistency" and "storyboard and timeline" patterns from the research (Flow's ingredients and characters, Jimeng's subject nodes, LibTV's subject library and editable shot table, LTX's Elements), built this project's own way.
+
+### Added
+- **Subject node** (library → inputs): a name (e.g. `小橘`), character / product / scene, 1–4 reference pictures (upload, drop files, or drag results from the canvas in) and a description. The node outputs its pictures, so it can also be wired into a 参考图 port.
+- **`@` mentions**: typing `@` in the prompts of image / video generation, text models, director skills and the generate bar lists the canvas's subjects (↑ ↓ to choose, Enter to insert). At run time `@小橘` becomes the name and the description is added under 「设定」 at the end of the prompt; models that take reference images also receive the subject's pictures (images: Replicate / fal, Kling, Runway; video: Seedance, MiniMax-H3, Replicate / fal with `_fields.ref`), others use the description only, without an error. Changing a subject's description or pictures re-runs the nodes that mention it. With two subjects of the same name the first wins; project bundles carry subject pictures.
+- **Video 参考图 (reference image) port** (several allowed): sent as `reference_image` to Seedance and MiniMax-H3; Replicate / fal need the field name in the profile defaults, `{"_fields": {"ref": "field_name"}}`; Wan, Kling, Runway, CogVideoX and SiliconFlow say clearly that they don't take one (nothing is silently dropped).
+- **Storyboard table**: 「分镜表」 on a director / video-reverse node opens a full-screen table — edit title, visual, shot and camera, dialogue, duration, image / video prompts in place; move up / down, duplicate, delete, add shots; show or hide columns (remembered); `Ctrl/⌘ S` saves. Saving makes a new version of that node's result (no model call; downstream and expansion use it); tick rows to expand only those shots. Video reverse's prompt-text output is updated with the table.
+- API: `PUT /api/projects/:id/nodes/:nodeId/storyboard` (every field checked and capped, at most 60 shots, keyframes only from the storyboard's own).
+
+### Changed
+- Roadmap: the **timeline** and **groups** move to rc.16 (with the batch node: "Timeline, groups and batches"), consistency and review becomes rc.17, agent and apps rc.18 — timeline and groups touch canvas layout, copy and paste, project bundles and undo, so they get a version of their own.
+- New E2E suite story-flow; CI now runs sixteen suites.
+
+### Verified
+- Locally: typecheck passes; 215 unit / integration tests (core 36, server 179; new: reading subjects and rejecting bad names, `@` detection (longer names first, order of appearance, e-mail addresses ignored), replacement with each description added once; an image model receives the description and pictures, a model without references uses the description only, editing a subject re-runs what mentions it and nothing else, the subject node outputs its pictures; Seedance receives wired references and subject pictures as `reference_image`, Replicate video without `_fields.ref` explains and sends nothing and sends them once it is set, Kling video explains when a reference is wired; the storyboard table saves a new version that the next run reuses, durations and shot numbers are normalised, keyframes the storyboard never had are dropped, empty storyboards and non-storyboard nodes are refused, nothing can be edited before the first run); sixteen E2E suites (new story-flow: create a subject with a picture → `@小` suggests it, Enter inserts it → the image model gets the description and picture → Seedance gets the subject picture as `reference_image` → the director knows the subject → in the storyboard table edit a cell, delete one, add one, save as a version → expand only the ticked shot) and the screenshot script pass. `pnpm audit` reports no known vulnerabilities.
+
+### Not verified yet
+- How real providers use reference images (tests use local mocks); Seedance's behaviour when reference images and a first frame are combined is up to the provider.
+
 ## [1.0.0-rc.14] — 2026-11-12 (release candidate, code complete, not tagged)
 
 "Studio": a survey of 30+ image / video creation platforms first, then the most common, step-saving patterns built into the canvas in this project's own way — generate as soon as you think of it, write prompts the way the target model reads them, make several and pick one, generate shot after shot. Only interaction ideas are borrowed; no product's code, copy or look is copied.

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, topoOrder, variationCount,
+  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, mentionedSubjects, subjectOf, subjectsOf, topoOrder, variationCount,
   type Estimate, type EstimateItem, type GraphNode, type NodeOutputs, type NodeRunState, type ProjectGraph, type RunEvent,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
@@ -38,7 +38,7 @@ const clampInt = (v: unknown, min: number, max: number) => {
 }
 
 /** Node types that never call a provider — always recomputed, never "cached" in the UI sense. */
-const TRIVIAL = new Set(['text', 'image', 'video', 'audio', 'preview'])
+const TRIVIAL = new Set(['text', 'image', 'video', 'audio', 'subject', 'preview'])
 
 /**
  * Multi-input ports receive values in canvas order (top-to-bottom, then left-to-right), so a column
@@ -57,6 +57,7 @@ function canvasOrderedEdges(graph: ProjectGraph) {
 function trivialOutputs(node: GraphNode, inputs: Record<string, NodeOutputs[string]>): NodeOutputs | undefined {
   if (node.type === 'text') return { out: [{ type: 'text', text: node.data.text ?? '' }] }
   if (node.type === 'preview') return { in: inputs.in ?? [] }
+  if (node.type === 'subject') return { out: (subjectOf(node)?.images ?? []).map((i) => ({ type: 'image' as const, assetId: i.assetId, mime: i.mime })) }
   if (!node.data.assetId || !node.data.mime) return undefined
   return { out: [{ type: node.type as 'image' | 'video' | 'audio', assetId: node.data.assetId, mime: node.data.mime }] }
 }
@@ -209,6 +210,8 @@ export class Engine {
       skill: n.type === 'director' ? (this.skills?.instructions(String(n.data.params?.skill || DEFAULT_DIRECTOR_SKILL)) ?? null)
         : n.type === 'image-reverse' && n.data.params?.skill ? (this.skills?.instructions(String(n.data.params.skill)) ?? null) : undefined,
       inputs,
+      // the subjects its text mentions (@name): editing one must re-run what uses it
+      subjects: mentionedSubjects(JSON.stringify([n.data.text ?? '', inputs]), subjectsOf(graph)).map((x) => ({ name: x.name, kind: x.kind, description: x.description, images: x.images })),
     }
     return createHash('sha256').update(JSON.stringify(material)).digest('hex')
   }

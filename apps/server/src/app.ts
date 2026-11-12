@@ -3,7 +3,7 @@ import fastifyStatic from '@fastify/static'
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { ADAPTERS, cleanOptimizedPrompt, isOptimizeLang, optimizePromptRequest, promptFamily, PROMPT_FAMILY_LABEL, validateProfileInput, type AdapterId, type ModelKind, type ProjectGraph } from '@hzc/core'
+import { ADAPTERS, sanitizeEditedStoryboard, shotsPromptText, StoryboardParseError, type Shot, cleanOptimizedPrompt, isOptimizeLang, optimizePromptRequest, promptFamily, PROMPT_FAMILY_LABEL, validateProfileInput, type AdapterId, type ModelKind, type ProjectGraph } from '@hzc/core'
 import type { Store } from './db'
 import { QuotaError, type AssetStore } from './assets'
 import type { Engine } from './engine'
@@ -21,7 +21,7 @@ import type { Backups, RecoveryNote } from './backup'
 import { installAuth, type AuthConfig } from './auth'
 import type { Workspace } from './workspaces'
 
-export const APP_VERSION = '1.0.0-rc.14'
+export const APP_VERSION = '1.0.0-rc.15'
 
 export interface AppOptions {
   /** single-user mode (desktop app, one WebUI): the one workspace. Absent in accounts mode. */
@@ -476,6 +476,32 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (ws(req).engine.isRunning(req.params.id)) return reply.code(409).send({ error: '运行中不能切换版本，请等运行结束' })
     const cur = ws(req).store.useNodeVersion(req.params.id, req.params.nodeId, Number(req.params.seq))
     return cur ? { outputs: cur.outputs, finishedAt: cur.finishedAt, versions: ws(req).store.countNodeVersions(req.params.id, req.params.nodeId) } : reply.code(404).send({ error: 'no such version' })
+  })
+
+  // the storyboard of a director / video-reverse node edited in the table: saved as a new version of
+  // that node's result (same inputs, so nothing re-runs), and what flows downstream from now on
+  app.put<{ Params: { id: string; nodeId: string }; Body: { title?: unknown; shots?: unknown } }>('/api/projects/:id/nodes/:nodeId/storyboard', async (req, reply) => {
+    const { store, engine } = ws(req)
+    const p = store.getProject(req.params.id)
+    if (!p) return reply.code(404).send({ error: 'not found' })
+    const node = p.graph.nodes.find((n) => n.id === req.params.nodeId)
+    if (!node || (node.type !== 'director' && node.type !== 'video-reverse')) return reply.code(400).send({ error: '只有导演和视频反推节点有分镜' })
+    if (engine.isRunning(req.params.id)) return reply.code(409).send({ error: '运行中不能保存分镜，请等运行结束' })
+    const cur = store.getNodeOutput(req.params.id, req.params.nodeId)
+    const outputs = (cur?.outputs ?? {}) as Record<string, { type: string; shots?: Shot[] }[]>
+    const before = outputs.out?.find((v) => v.type === 'storyboard')
+    if (!cur || !before) return reply.code(409).send({ error: '先运行一次，得到分镜后再编辑' })
+    let sb
+    try { sb = sanitizeEditedStoryboard(req.body, before.shots ?? []) } catch (e) {
+      if (e instanceof StoryboardParseError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
+    const next: Record<string, unknown> = { ...outputs, out: [{ type: 'storyboard', ...sb }] }
+    if (node.type === 'video-reverse') next.text = [{ type: 'text', text: shotsPromptText(sb.shots) }]
+    store.setNodeOutput(req.params.id, req.params.nodeId, cur.cacheKey, next)
+    const versions = store.addNodeVersion(req.params.id, req.params.nodeId, cur.cacheKey, next)
+    const now = store.getNodeOutput(req.params.id, req.params.nodeId)!
+    return { outputs: now.outputs, finishedAt: now.finishedAt, versions }
   })
 
   // keep one result of a node that made several (variations): only it flows downstream, all stay in the versions

@@ -213,8 +213,10 @@ export interface GenRequest {
   prompt: string
   /** what the result should not contain (empty = nothing) */
   negative: string
-  /** reference images (data URIs) */
+  /** reference images wired into the node (data URIs); a model that can't take them must say so */
   images: string[]
+  /** pictures of @mentioned subjects: use them where the model takes references, else leave them out */
+  softImages?: string[]
   /** first / last frame (data URIs) */
   first?: string
   last?: string

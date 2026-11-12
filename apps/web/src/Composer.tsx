@@ -6,6 +6,7 @@ import { api, assetUrl } from './api'
 import { useStore, uid, type CanvasNode } from './store'
 import { useAddNode } from './useAddNode'
 import { PromptOptimizer } from './PromptOptimizer'
+import { MentionTextarea } from './Mentions'
 import { useReactFlow, type Edge } from '@xyflow/react'
 
 type Kind = 'image' | 'video'
@@ -128,8 +129,8 @@ function ComposerBar({ onClose, low }: { onClose?: () => void; low?: boolean }) 
         </div>
       )}
       <div className="cmp-main">
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2} data-testid="composer-prompt"
-          placeholder={kind === 'video' ? '描述画面里发生什么：主体、动作、镜头……（Enter 生成，Shift Enter 换行）' : '描述你想生成的画面……（Enter 生成，Shift Enter 换行）'}
+        <MentionTextarea value={prompt} onValue={setPrompt} rows={2} data-testid="composer-prompt"
+          placeholder={kind === 'video' ? '描述画面里发生什么：主体、动作、镜头……（@ 引用主体，Enter 生成）' : '描述你想生成的画面……（@ 引用主体，Enter 生成）'}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); generate() }
           }} />
