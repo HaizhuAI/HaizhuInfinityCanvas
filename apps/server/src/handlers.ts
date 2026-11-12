@@ -2,6 +2,7 @@ import {
   ASPECT_RATIOS, extractJson, variationCount, resolveMentions, shotsPromptText, subjectOf, subjectsOf, normalizeStoryboard, StoryboardParseError, videoReverseInstruction, type Shot,
   DEFAULT_VLM_INSTRUCTION, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, pickReversed, reversePromptInstruction, splitReversedPrompt, valuesOfType, valuesToText,
   type GraphNode, type ModelProfile, type ProjectGraph, type NodeOutputs, type PortValue, type ReverseLang, type ReverseStyle,
+  timelineOf, timelineOrder,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
 import { chatAdapterFor, ProviderError, type ChatAdapter } from './providers'
@@ -24,6 +25,8 @@ async function resultsMayBePrivate(profile: ModelProfile) {
 export interface HandlerCtx {
   node: GraphNode
   inputs: Record<string, PortValue[]>
+  /** per input port: which node each wire's values come from (the timeline orders clips by node) */
+  sources?: Record<string, { nodeId: string; count: number }[]>
   profile?: ModelProfile
   apiKey?: string
   assets: AssetStore
@@ -416,8 +419,15 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   export: async (ctx) => {
-    const clips = valuesOfType(ctx.inputs.video, 'video')
-    if (!clips.length) throw new NodeError('请把要合成的视频片段连到「视频」端口（按画布上从上到下、从左到右的顺序拼接）')
+    const wired = valuesOfType(ctx.inputs.video, 'video')
+    if (!wired.length) throw new NodeError('请把要合成的视频片段连到「视频」端口（按画布上从上到下、从左到右的顺序拼接，或在「时间线」里排序）')
+    // the timeline: clips in the order set there (else canvas order), each trimmed to its in / out
+    const tl = timelineOf(ctx.node.data.params)
+    const fromNode = (ctx.sources?.video ?? []).flatMap((s) => Array<string>(s.count).fill(s.nodeId))
+    const sourcesKnown = fromNode.length === wired.length
+    const perm = sourcesKnown ? timelineOrder(fromNode, tl.order) : wired.map((_, i) => i)
+    const clips = perm.map((i) => wired[i]!)
+    const clipTrims = perm.map((i) => (sourcesKnown ? tl.trims[fromNode[i]!] : undefined))
     const file = (id: string) => { const a = ctx.assets.get(id); if (!a) throw new NodeError('有一个素材已不存在'); return a.file }
     const p = ctx.node.data.params ?? {}
     // keep blank lines: line i belongs to clip i, a blank line is a silent shot
@@ -431,12 +441,13 @@ export const HANDLERS: Record<string, Handler> = {
     let voiceClip: number[] | undefined
     if (clipY.length === clips.length && voiceY.length === voices.length && voices.length !== clips.length) {
       const m = voiceY.map((y) => { let best = -1, d = Infinity; clipY.forEach((cy, i) => { const dd = Math.abs(cy - y); if (dd < d) { d = dd; best = i } }); return d <= 240 ? best : -1 })
-      if (m.every((i) => i >= 0)) voiceClip = m
+      // rows are in canvas order; the timeline may have moved the clips
+      if (m.every((i) => i >= 0)) voiceClip = m.map((i) => perm.indexOf(i))
     }
     try {
       ctx.job.report('准备片段…')
       const r = await exportFilm({
-        clips: clips.map((c) => ({ file: file(c.assetId) })),
+        clips: clips.map((c, i) => ({ file: file(c.assetId), in: clipTrims[i]?.in, out: clipTrims[i]?.out })),
         voices: voices.map((a) => file(a.assetId)),
         voiceClip,
         subtitles: subs,

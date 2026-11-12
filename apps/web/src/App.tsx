@@ -2,10 +2,12 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Reac
 import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useStore as useFlowStore, type Edge, type NodeMouseHandler, type OnConnectEnd, type OnNodeDrag } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { ArrowRight, Check, ChevronDown, Download, FileUp, CircleStop, CloudCheck, Info, LoaderCircle, MessagesSquare, Package, PanelRightOpen, Play, Plus, TriangleExclamationPoint, Keyboard, LayoutGrid, Moon, Sun, X } from 'lucide-react'
-import { NODE_TYPE_MAP } from '@hzc/core'
+import { NODE_TYPE_MAP, groupMembers, isGroup } from '@hzc/core'
 import { HzcNode, RUNNABLE } from './CanvasNode'
 import { Composer } from './Composer'
 import { StoryboardTable } from './StoryboardTable'
+import { Timeline } from './Timeline'
+import { GroupNode } from './Group'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
 import { CanvasHelpers, ContextMenu, PreflightDialog, ShortcutsSheet, ToastView, useEscape, type CtxMenu } from './Overlays'
 import { copySelection, duplicateSelection, leaveCopies, paste } from './clipboard'
@@ -23,16 +25,19 @@ import { Settings } from './Settings'
 import { TEMPLATES } from './templates'
 import { inspectorPref, setInspectorPref, resolvedTheme, setThemePref } from './theme'
 import { useAddNode } from './useAddNode'
-import { useStore, type CanvasNode, type State } from './store'
+import { frameSize, useStore, type CanvasNode, type State } from './store'
 import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.16'
+export const APP_VERSION = 'v1.0.0-rc.17'
 
-const nodeTypes = Object.fromEntries(
-  ['text', 'image', 'video', 'audio', 'subject', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
-)
+const nodeTypes = {
+  ...Object.fromEntries(
+    ['text', 'image', 'video', 'audio', 'subject', 'llm', 'vlm', 'image-gen', 'video-gen', 'tts', 'image-reverse', 'video-reverse', 'director', 'preview', 'export'].map((t) => [t, HzcNode]),
+  ),
+  group: GroupNode,
+}
 
 const fmt = (n: number, cur: string) => `${cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : cur + ' '}${n.toFixed(n < 1 ? 3 : 2).replace(/0+$/, '').replace(/\.$/, '')}`
 
@@ -352,9 +357,40 @@ function Canvas() {
     e.preventDefault()
     setCtx({ x: e.clientX, y: e.clientY, at: screenToFlowPosition({ x: e.clientX - 150, y: e.clientY - 40 }) })
   }, [screenToFlowPosition])
+  // dragging a group frame takes the nodes inside it along (those not dragged themselves)
+  const groupDrag = useRef<{ start: Map<string, { x: number; y: number }>; members: Map<string, { x: number; y: number; frame: string }> } | null>(null)
   const onNodeDragStart = useCallback<OnNodeDrag<CanvasNode>>((e, _n, dragged) => {
     if (e.altKey && leaveCopies(dragged.map((d) => d.id))) useStore.getState().showToast('已复制（按住 Alt 拖动）', { action: { label: '撤销', run: () => void undo() } })
+    const frames = dragged.filter((d) => isGroup(d))
+    groupDrag.current = null
+    if (!frames.length) return
+    const moving = new Set(dragged.map((d) => d.id))
+    const all = useStore.getState().nodes
+    const members = new Map<string, { x: number; y: number; frame: string }>()
+    for (const f of frames) for (const m of groupMembers({ position: f.position, size: frameSize(f) }, all)) if (!moving.has(m.id) && !members.has(m.id)) members.set(m.id, { ...m.position, frame: f.id })
+    if (members.size) groupDrag.current = { start: new Map(frames.map((f) => [f.id, { ...f.position }])), members }
   }, [])
+  const moveMembers = (dragged: CanvasNode[]) => {
+    const g = groupDrag.current
+    if (!g) return
+    // where the frames are now (the store has the latest position; `dragged` may lag a frame behind)
+    const live = new Map(useStore.getState().nodes.filter((n) => g.start.has(n.id)).map((n) => [n.id, n.position]))
+    for (const d of dragged) if (!live.has(d.id) && g.start.has(d.id)) live.set(d.id, d.position)
+    useStore.setState((st) => ({
+      nodes: st.nodes.map((n) => {
+        const m = g.members.get(n.id)
+        const from = m && g.start.get(m.frame), to = m && live.get(m.frame)
+        return m && from && to ? { ...n, position: { x: m.x + to.x - from.x, y: m.y + to.y - from.y } } : n
+      }),
+    }))
+  }
+  const onNodeDrag = useCallback<OnNodeDrag<CanvasNode>>((_e, _n, dragged) => moveMembers(dragged), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const onNodeDragStop = useCallback<OnNodeDrag<CanvasNode>>((_e, _n, dragged) => {
+    if (!groupDrag.current) return
+    // the last pointer move may come after the last drag event: settle on the final position
+    moveMembers(dragged)
+    requestAnimationFrame(() => { moveMembers(dragged); groupDrag.current = null; useStore.setState({ saveState: 'dirty' }) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // colour each edge by its source port's data type; animate it while its target runs. Unchanged edges
   // keep their object, so editing one node doesn't make React Flow redraw every wire.
@@ -389,7 +425,7 @@ function Canvas() {
         onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange}
         onConnect={s.onConnect} isValidConnection={s.isValidConnection}
         onConnectEnd={onConnectEnd} onNodeContextMenu={onNodeContextMenu} onPaneContextMenu={onPaneContextMenu}
-         onNodeDragStart={onNodeDragStart}
+         onNodeDragStart={onNodeDragStart} onNodeDrag={onNodeDrag} onNodeDragStop={onNodeDragStop}
         fitView={fitOnOpen} fitViewOptions={FIT_ON_OPEN}
         zoomOnDoubleClick={false} onlyRenderVisibleElements={nodes.length > 60}
         snapToGrid={snap} snapGrid={SNAP_GRID} panOnDrag={PAN_BUTTONS}
@@ -510,7 +546,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState()
       const editing = !!(e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')
-      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox || st.projectsOpen || !!st.compareSetup || !!st.compareView || !!st.storyboardEdit
+      const overlay = st.settingsOpen || st.palette.open || !!st.pendingRun || !!st.pendingCheck || st.shortcutsOpen || !!st.lightbox || st.projectsOpen || !!st.compareSetup || !!st.compareView || !!st.storyboardEdit || !!st.timelineEdit
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key === 'Enter' && !overlay) { e.preventDefault(); if (!st.runId && st.nodes.length) void st.runNodes(); return }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void st.save().then(() => { if (useStore.getState().saveState === 'saved') st.showToast('已保存') }); return }
@@ -537,6 +573,9 @@ export function App() {
       if (k === 'v') { pasteSeen = false; setTimeout(() => { if (!pasteSeen) pasteNodes() }, 80); return }
       if (k === 'd') { e.preventDefault(); const n = duplicateSelection(); if (n) st.showToast(`已创建 ${n} 个副本`, { action: { label: '撤销', run: () => void undo() } }); return }
       if (k === 'a') { e.preventDefault(); useStore.setState({ nodes: st.nodes.map((n) => (n.selected ? n : { ...n, selected: true })) }) }
+      // Ctrl G frames the selection in a group; Ctrl Shift G removes the selected frames (nodes stay)
+      if (k === 'g' && !e.shiftKey) { e.preventDefault(); if (st.groupSelection()) st.showToast('已分组：拖动标题栏整组移动，双击标题改名'); else st.showToast('先选中要分组的节点'); return }
+      if (k === 'g' && e.shiftKey) { e.preventDefault(); const n = st.ungroup(st.nodes.filter((x) => x.selected && isGroup(x)).map((x) => x.id)); if (n) st.showToast(`已解散 ${n} 个分组`); return }
     }
     // paste: media files from the system clipboard become nodes; otherwise copied nodes are pasted
     const onPaste = (e: ClipboardEvent) => {
@@ -555,7 +594,7 @@ export function App() {
       if (!dir || e.metaKey || e.ctrlKey || e.altKey) return
       const st = useStore.getState()
       if ((e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], .assistant, .lpanel, [role="menu"]')) return
-      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen || st.compareSetup || st.compareView || st.storyboardEdit) return
+      if (st.settingsOpen || st.palette.open || st.pendingRun || st.pendingCheck || st.shortcutsOpen || st.lightbox || st.projectsOpen || st.compareSetup || st.compareView || st.storyboardEdit || st.timelineEdit) return
       const step = st.snap ? 24 : e.shiftKey ? 10 : 1
       if (st.nudge(dir[0] * step, dir[1] * step)) { e.preventDefault(); e.stopPropagation() }
     }
@@ -600,6 +639,7 @@ export function App() {
         <CompareSetup />
         <CompareView />
         <StoryboardTable />
+        <Timeline />
         <ToastView />
       </div>
     </>

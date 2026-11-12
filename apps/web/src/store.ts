@@ -3,14 +3,15 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { GROUP_TYPE, NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { ApiError, CLIENT_ID, api, auth, markBooted, type ChangeEvent, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
+import { instantiate, saveMyTemplate, type MyTemplate } from './myTemplates'
 import { setViewPref, viewPref } from './theme'
 import { clearDraft, readDraft, sameGraph, writeDraft } from './draft'
 
-export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string; /** multi-model comparison group */ compare?: string }
+export type CanvasNodeData = { label?: string; profileId?: string; text?: string; params?: Record<string, unknown>; assetId?: string; mime?: string; /** multi-model comparison group */ compare?: string; /** group frames: their size */ size?: { w: number; h: number } }
 export type CanvasNode = Node<CanvasNodeData>
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -62,8 +63,17 @@ const toGraph = (nodes: CanvasNode[], edges: Edge[]): ProjectGraph => ({
   edges: edges.map((e): GraphEdge => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? 'out', target: e.target, targetHandle: e.targetHandle ?? 'in' })),
 })
 
+/** a group frame on the canvas: a fixed size, drawn behind the nodes, dragged by its title bar */
+export const GROUP_DEFAULT = { w: 520, h: 360 }
+function toCanvasNode(n: GraphNode): CanvasNode {
+  if (n.type !== GROUP_TYPE) return { id: n.id, type: n.type, position: n.position, data: n.data }
+  const size = n.data.size ?? GROUP_DEFAULT
+  return { id: n.id, type: n.type, position: n.position, data: n.data, width: size.w, height: size.h, zIndex: -1, dragHandle: '.grp-head' }
+}
+export const frameSize = (n: CanvasNode) => ({ w: n.width ?? n.data.size?.w ?? GROUP_DEFAULT.w, h: n.height ?? n.data.size?.h ?? GROUP_DEFAULT.h })
+
 const fromGraph = (g: ProjectGraph) => ({
-  nodes: g.nodes.map((n): CanvasNode => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+  nodes: g.nodes.map(toCanvasNode),
   edges: g.edges.map((e): Edge => ({ ...e })),
 })
 
@@ -83,7 +93,7 @@ function adoptGraph(g: ProjectGraph, nodes: CanvasNode[], edges: Edge[]) {
     nodes: g.nodes.map((n): CanvasNode => {
       const cur = byId.get(n.id)
       if (cur && cur.type === n.type && same(cur.position, n.position) && same(cur.data, n.data)) return cur
-      return cur ? { ...cur, type: n.type, position: n.position, data: n.data } : { id: n.id, type: n.type, position: n.position, data: n.data }
+      return cur ? { ...toCanvasNode(n), selected: cur.selected, measured: cur.measured } : toCanvasNode(n)
     }),
     edges: g.edges.map((e): Edge => {
       const cur = eById.get(e.id)
@@ -231,6 +241,9 @@ export interface State {
   /** the storyboard table editor */
   storyboardEdit: { nodeId: string } | null
   openStoryboard: (nodeId: string | null) => void
+  /** the export node whose timeline is open */
+  timelineEdit: string | null
+  openTimeline: (nodeId: string | null) => void
   saveStoryboard: (nodeId: string, sb: { title?: string; shots: Shot[] }) => Promise<boolean>
   runNodes: (nodeIds?: string[], force?: boolean, opts?: { confirmed?: boolean; checked?: boolean }) => Promise<void>
   /** run these nodes now, or after the current run ends (never cancels it); the caller already showed the cost */
@@ -244,6 +257,16 @@ export interface State {
   saveFrame: (assetId: string, t: number, nearNodeId?: string) => Promise<string | undefined>
   dismissPendingRun: () => void
   cancelRun: () => Promise<void>
+  /** frame the selected nodes in a group (Ctrl G); returns the frame's id */
+  groupSelection: () => string | null
+  /** remove group frames; their nodes stay where they are */
+  ungroup: (ids: string[]) => number
+  /** the nodes inside a frame */
+  groupMemberIds: (id: string) => string[]
+  /** keep a frame's nodes (and the wires between them) as 我的模板 */
+  saveGroupTemplate: (id: string, name?: string) => MyTemplate | null
+  /** put a saved template on the canvas, to the right of what is there */
+  insertMyTemplate: (t: MyTemplate) => string[]
   /** show a run's progress (one started here, or by an agent on this canvas) */
   followRun: (runId: string) => Promise<void>
   /** bring in what changed on the server (an agent's edit), merged with the edits on screen */
@@ -254,7 +277,7 @@ export interface State {
 
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
-  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null, runQueue: [], storyboardEdit: null, composerOpen: viewPref('composer', false),
+  saveState: 'idle', saveFailures: 0, saveBlocked: false, toast: null, settingsOpen: false, runStates: {}, runId: null, pendingRun: null, runQueue: [], storyboardEdit: null, timelineEdit: null, composerOpen: viewPref('composer', false),
   skills: [], palette: { open: false }, assets: [], leftPanel: 'library', lightbox: null, savedPrompts: [],
   versionLists: {}, runNodeIds: [], rightTab: 'inspector', assistantTurns: [], assistantBusy: false,
   settingsIntent: null, account: null, accounts: false, ffmpegOk: null, maxParallel: 4, pendingCheck: null, focusRequest: null, compareSetup: null, compareView: null, shortcutsOpen: false, projectsOpen: false, minimap: viewPref('minimap', true), snap: viewPref('snap', false), canUndo: false, canRedo: false,
@@ -381,12 +404,65 @@ export const useStore = create<State>((set, get) => ({
     if (moved) set({ nodes: next, saveState: 'dirty' })
     return moved
   },
-  tidy: () => {
+  groupSelection: () => {
+    const { nodes } = get()
+    const sel = nodes.filter((n) => n.selected && !isGroup(n))
+    if (!sel.length) return null
+    const pad = 32, head = 44
+    const x0 = Math.min(...sel.map((n) => n.position.x)), y0 = Math.min(...sel.map((n) => n.position.y))
+    const x1 = Math.max(...sel.map((n) => n.position.x + (n.measured?.width ?? 300))), y1 = Math.max(...sel.map((n) => n.position.y + (n.measured?.height ?? 200)))
+    const count = nodes.filter(isGroup).length
+    const frame = toCanvasNode({
+      id: `g_${uid()}`, type: GROUP_TYPE, position: { x: Math.round(x0 - pad), y: Math.round(y0 - pad - head) },
+      data: { label: `分组 ${count + 1}`, size: { w: Math.round(x1 - x0 + pad * 2), h: Math.round(y1 - y0 + pad * 2 + head) } },
+    })
+    // frames go first, so they are drawn under the nodes
+    set({ nodes: [frame, ...nodes.map((n) => (n.selected ? { ...n, selected: false } : n))], saveState: 'dirty' })
+    return frame.id
+  },
+
+  ungroup: (ids) => {
+    const drop = new Set(ids.filter((id) => get().nodes.some((n) => n.id === id && isGroup(n))))
+    if (drop.size) set((st) => ({ nodes: st.nodes.filter((n) => !drop.has(n.id)), saveState: 'dirty' }))
+    return drop.size
+  },
+
+  groupMemberIds: (id) => {
+    const { nodes } = get()
+    const f = nodes.find((n) => n.id === id)
+    return f ? groupMembers({ position: f.position, size: frameSize(f) }, nodes).map((n) => n.id) : []
+  },
+
+  saveGroupTemplate: (id, name) => {
     const { nodes, edges } = get()
+    const f = nodes.find((n) => n.id === id)
+    if (!f) return null
+    const members = new Set(get().groupMemberIds(id))
+    const picked = toGraph(nodes.filter((n) => n.id === id || members.has(n.id)), edges)
+    return saveMyTemplate(name ?? f.data.label ?? '我的模板', picked.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, size: frameSize(f) } } : n)), picked.edges)
+  },
+
+  insertMyTemplate: (t) => {
+    const { nodes } = get()
+    const x0 = nodes.length ? Math.max(...nodes.map((n) => n.position.x + (isGroup(n) ? frameSize(n).w : n.measured?.width ?? 300))) + 120 : 0
+    const y0 = nodes.length ? Math.min(...nodes.map((n) => n.position.y)) : 0
+    const g = instantiate(t.graph, { x: x0, y: y0 })
+    const added = fromGraph(g)
+    const bound = added.nodes.map((n) => withDefaultProfile({ ...n, selected: !isGroup(n) }, get().profiles))
+    set((st) => ({
+      nodes: [...bound.filter(isGroup), ...st.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...bound.filter((n) => !isGroup(n))],
+      edges: [...st.edges, ...added.edges], saveState: 'dirty',
+    }))
+    return bound.map((n) => n.id)
+  },
+
+  tidy: () => {
+    const { edges } = get()
+    const nodes = get().nodes.filter((n) => !isGroup(n)) // frames keep their place
     if (nodes.length < 2) return 0
     const pos = tidyLayout(nodes, edges)
     let moved = 0
-    const next = nodes.map((n) => {
+    const next = get().nodes.map((n) => {
       const p = pos.get(n.id)
       if (!p || (Math.round(p.x) === Math.round(n.position.x) && Math.round(p.y) === Math.round(n.position.y))) return n
       moved++
@@ -396,11 +472,16 @@ export const useStore = create<State>((set, get) => ({
     return moved
   },
 
-  insertGraph: (nodes, edges, select = true) => set((s) => ({
-    nodes: select ? [...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...nodes.map((n) => ({ ...n, selected: true }))] : [...s.nodes, ...nodes.map((n) => ({ ...n, selected: false }))],
+  insertGraph: (rawNodes, edges, select = true) => set((s) => {
+    // copied group frames get their size back; frames go first so they are drawn under the nodes
+    const nodes = rawNodes.map((n) => (isGroup(n) ? { ...toCanvasNode({ id: n.id, type: n.type!, position: n.position, data: n.data }), selected: n.selected } : n))
+    const frames = nodes.filter(isGroup).map((n) => ({ ...n, selected: select }))
+    const rest = nodes.filter((n) => !isGroup(n)).map((n) => ({ ...n, selected: select }))
+    return {
+    nodes: select ? [...frames, ...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...rest] : [...frames, ...s.nodes, ...rest],
     edges: [...s.edges, ...edges],
     saveState: 'dirty',
-  })),
+  } }),
 
   async loadProfiles() { set({ profiles: await api.listProfiles() }) },
 
@@ -504,6 +585,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   openStoryboard: (nodeId) => set({ storyboardEdit: nodeId ? { nodeId } : null }),
+  openTimeline: (nodeId) => set({ timelineEdit: nodeId }),
 
   async saveStoryboard(nodeId, sb) {
     const { projectId } = get()

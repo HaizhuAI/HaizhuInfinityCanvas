@@ -84,7 +84,8 @@ Agent 可用的工具：
 | `get_canvas` | 读取画布：节点、参数、模型、连线、当前结果摘要 |
 | `list_node_types` / `list_models` | 可用的节点类型（端口、参数）与你的模型档案、Skill（不含 API Key） |
 | `add_nodes` | 一次添加多个节点和连线（也可以只连线）；自动排在画布右侧 |
-| `update_node` / `remove` | 改提示词、参数、模型、素材、位置；删除节点或连线 |
+| `update_node` / `remove` | 改提示词、参数、模型、素材、位置（导出节点的时间线：`order` / `trims`）；删除节点或连线 |
+| `group_nodes` | 把几个节点框成一个有名字的分组（例如一场戏一组） |
 | `upload_asset` | 导入本机文件（桌面版 / 本机服务）或 base64 数据，可直接成为输入节点或主体图片 |
 | `prompt_guide` | 目标模型的提示词写法（与「优化提示词」用的同一套规则） |
 | `estimate` / `run` / `wait_for_run` / `cancel_run` | 预估费用、运行（可只运行部分节点）、等待、停止 |

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, isAbsolute, join } from 'node:path'
 import {
-  NODE_TYPES, NODE_TYPE_MAP, PROMPT_FAMILY_LABEL, promptFamily, promptGuide,
+  NODE_TYPES, NODE_TYPE_MAP, PROMPT_FAMILY_LABEL, groupMembers, isGroup, promptFamily, promptGuide,
   type NodeOutputs, type NodeRunState, type PortValue, type ProjectGraph, type RunEvent,
 } from '@hzc/core'
 import type { Store } from './db'
@@ -10,7 +10,7 @@ import type { Engine } from './engine'
 import type { SkillStore } from './skills'
 import { extractFrame, ffmpegInfo, probe, run as runCmd, withTemp } from './media'
 import {
-  AGENT_PARAMS, CanvasEditError, TEXT_TYPES, addToGraph, hubFor, removeFromGraph, updateInGraph,
+  AGENT_PARAMS, CanvasEditError, TEXT_TYPES, addToGraph, groupInGraph, hubFor, removeFromGraph, updateInGraph,
   type EdgeSpec, type NodePatch, type NodeSpec,
 } from './agent'
 
@@ -58,7 +58,7 @@ export const MCP_INSTRUCTIONS = [
   'Prompts: before writing an image or video prompt call prompt_guide for the target node or model and follow its rules. With a first frame wired in, describe only motion and camera.',
   'Wiring: text → a generation node\'s prompt port; images → ref (references) or first / last (video frames); a director node turns an idea into a storyboard; a subject node (params.name, text = description, params.images = asset ids) can be referenced as @name in any prompt.',
   'Files: upload_asset brings a picture, video or audio in (optionally as an input node). Results are assets: view_asset shows images (and frames of videos) to you.',
-  'Node ids look like n_xxxx; in add_nodes, refer to nodes created in the same call by your own keys and to existing nodes by id.',
+  'Node ids look like n_xxxx; in add_nodes, refer to nodes created in the same call by your own keys and to existing nodes by id. group_nodes frames nodes in a named group; an export node\'s params.order / params.trims set its timeline (clip order and in / out points).',
 ].join('\n')
 
 // ---------------------------------------------------------------- helpers
@@ -198,6 +198,8 @@ const TOOLS: Tool[] = [
         project: { id: p.id, name: p.name, updated_at: p.updatedAt },
         running: runId ?? null,
         nodes: p.graph.nodes.map((n) => {
+          // a group frame: its name and the nodes inside it
+          if (isGroup(n)) return { id: n.id, type: 'group', label: n.data.label ?? '分组', members: groupMembers({ position: n.position, size: n.data.size ?? { w: 520, h: 360 } }, p.graph.nodes.map((m) => ({ ...m, measured: { width: 300, height: 260 } }))).map((m) => m.id) }
           const row: Json = { id: n.id, type: n.type, label: n.data.label ?? NODE_TYPE_MAP[n.type]?.label, position: n.position }
           if (n.data.text) row.text = clip(n.data.text, 600)
           if (n.data.params && Object.keys(n.data.params).length) row.params = n.data.params
@@ -291,6 +293,17 @@ const TOOLS: Tool[] = [
       const r = updateInGraph(ctx, p.graph, need(a, 'node_id'), a as NodePatch)
       saveGraph(ctx, p.id, r.graph)
       return { ok: true, ...(r.warnings.length ? { warnings: r.warnings } : {}) }
+    },
+  },
+  {
+    name: 'group_nodes', title: '分组',
+    description: 'Frame some nodes in a named group on the canvas (to organise it, e.g. one group per scene). Groups never run; nodes inside move with the frame in the app.',
+    inputSchema: { type: 'object', required: ['project_id', 'node_ids'], properties: { project_id: projectId, node_ids: { type: 'array', items: { type: 'string' } }, name: { type: 'string' } } },
+    run: async (a, ctx) => {
+      const p = project(ctx, a)
+      const r = groupInGraph(p.graph, ids(a.node_ids) ?? [], s(a.name) ?? '分组')
+      saveGraph(ctx, p.id, r.graph)
+      return { group_id: r.id }
     },
   },
   {

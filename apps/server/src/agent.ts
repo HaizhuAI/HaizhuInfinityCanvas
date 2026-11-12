@@ -2,7 +2,7 @@ import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  ASPECT_RATIOS, MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KINDS, checkConnection, isSubjectName, tidyLayout,
+  ASPECT_RATIOS, GROUP_TYPE, MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KINDS, checkConnection, isGroup, isSubjectName, tidyLayout, timelineOf,
   type GraphEdge, type GraphNode, type ModelProfile, type ProjectGraph,
 } from '@hzc/core'
 import { writeAtomic } from './fsutil'
@@ -147,6 +147,8 @@ export const AGENT_PARAMS: Record<string, Record<string, { rule: Rule; hint: str
     size: { rule: (v) => (typeof v === 'string' && /^\d{2,5}x\d{2,5}$/.test(v) ? v : undefined), hint: 'e.g. 1920x1080 (default: first clip)' },
     keepAudio: { rule: oneOf(['mix', 'drop'] as const), hint: 'mix | drop (the clips’ own sound)' },
     editProject: { rule: (v) => (v === true ? true : undefined), hint: 'true: also an editor project (Shotcut) zip' },
+    order: { rule: (v) => { const o = timelineOf({ order: v }).order; return Array.isArray(v) && o.length ? o : undefined }, hint: 'timeline: node ids of the wired clips in play order (others follow in canvas order)' },
+    trims: { rule: (v) => { const t = timelineOf({ trims: v }).trims; return Object.keys(t).length ? t : undefined }, hint: 'timeline: { "<clip node id>": { "in": seconds, "out": seconds } }' },
   },
 }
 /** node types whose `text` is meaningful (prompt, script, lines, idea, notes, subject description) */
@@ -317,4 +319,22 @@ export function removeFromGraph(graph: ProjectGraph, nodeIds: string[], edgesIn:
     && (x.from_port === undefined || x.from_port === e.sourceHandle) && (x.to_port === undefined || x.to_port === e.targetHandle))
   const edges = graph.edges.filter((e) => !isRemoved(e))
   return { graph: { ...graph, nodes: graph.nodes.filter((n) => !drop.has(n.id)), edges }, nodes: drop.size, edges: graph.edges.length - edges.length }
+}
+
+/** frame some nodes in a named group (sizes are estimated: the server never sees the drawn nodes) */
+export function groupInGraph(graph: ProjectGraph, nodeIds: string[], name: string): { graph: ProjectGraph; id: string } {
+  const picked = graph.nodes.filter((n) => nodeIds.includes(n.id) && !isGroup(n))
+  const missing = nodeIds.filter((id) => !graph.nodes.some((n) => n.id === id))
+  if (missing.length) throw new CanvasEditError(`画布上没有节点 ${missing.join(', ')}`)
+  if (!picked.length) throw new CanvasEditError('至少选一个节点来分组')
+  const W = 320, H = 280, pad = 32, head = 44
+  const x0 = Math.min(...picked.map((n) => n.position.x)), y0 = Math.min(...picked.map((n) => n.position.y))
+  const x1 = Math.max(...picked.map((n) => n.position.x + W)), y1 = Math.max(...picked.map((n) => n.position.y + H))
+  const id = `g_${randomBytes(6).toString('hex')}`
+  const frame: GraphNode = {
+    id, type: GROUP_TYPE, position: { x: Math.round(x0 - pad), y: Math.round(y0 - pad - head) },
+    data: { label: name.trim().slice(0, 40) || '分组', size: { w: Math.round(x1 - x0 + pad * 2), h: Math.round(y1 - y0 + pad * 2 + head) } },
+  }
+  // frames first: drawn under the nodes
+  return { graph: { ...graph, nodes: [frame, ...graph.nodes] }, id }
 }

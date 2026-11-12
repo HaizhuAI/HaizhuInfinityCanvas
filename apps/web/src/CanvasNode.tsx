@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, StepForward, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
+import { Ban, Film, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, StepForward, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
 import { MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KIND_LABEL, SUBJECT_KINDS, type ModelKind, type NodeStatus, type PortValue, type Shot, type SubjectKind } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -323,6 +323,7 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
   const expandStoryboard = useStore((s) => s.expandStoryboard)
   const pickResult = useStore((s) => s.pickResult)
   const openStoryboard = useStore((s) => s.openStoryboard)
+  const openTimeline = useStore((s) => s.openTimeline)
   const runState = useStore((s) => s.runStates[id])
   const running = useStore((s) => s.runId !== null)
   const { fitView } = useReactFlow()
@@ -398,6 +399,11 @@ export function HzcNode({ id, type, data, selected }: NodeProps<CanvasNode>) {
           )}
           {type === 'export' && !media.length && <Frame kind="video" running={isRunning} progress={runState?.progress} aspect={params.aspect_ratio as string | undefined} />}
           {type === 'export' && isRunning && media.length > 0 && <div className="progress" data-testid="node-progress"><span className="orbit" style={{ '--s': '13px' } as React.CSSProperties} aria-hidden="true" />{runState?.progress ?? '合成中…'}</div>}
+          {type === 'export' && (
+            <div className="sb-actions">
+              <button className="btn sm nodrag" onClick={() => openTimeline(id)} data-testid="open-timeline"><Film />时间线{Array.isArray(params.order) ? ' · 已排序' : ''}</button>
+            </div>
+          )}
           {data.compare && <CompareBar id={id} group={data.compare} />}
           {!isRunning && <VersionSwitch nodeId={id} />}
           {hasStoryboard && (

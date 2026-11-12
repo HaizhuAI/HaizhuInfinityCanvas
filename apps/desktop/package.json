@@ -1,6 +1,6 @@
 {
   "name": "@hzc/desktop",
-  "version": "1.0.0-rc.16",
+  "version": "1.0.0-rc.17",
   "private": true,
   "description": "Haizhu Infinity Canvas desktop shell (Electron)",
   "author": "Haizhu",
@@ -85,7 +85,8 @@
       "icon": "build/icon.png",
       "identity": null,
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "executableName": "HaizhuInfinityCanvas"
     },
     "dmg": {
       "artifactName": "HaizhuInfinityCanvas-${version}-mac-${arch}.${ext}"

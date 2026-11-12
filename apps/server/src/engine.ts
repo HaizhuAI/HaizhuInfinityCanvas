@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, mentionedSubjects, subjectOf, subjectsOf, topoOrder, variationCount,
+  GENERATIVE_TYPES, NODE_TYPE_MAP, ancestorsOf, collectInputs, inputSources, withoutGroups, mentionedSubjects, subjectOf, subjectsOf, topoOrder, variationCount,
   type Estimate, type EstimateItem, type GraphNode, type NodeOutputs, type NodeRunState, type ProjectGraph, type RunEvent,
 } from '@hzc/core'
 import type { AssetStore } from './assets'
@@ -110,7 +110,8 @@ export class Engine {
    * What a run would do, without calling anything: which provider calls will be reused from cache,
    * which are generative (paid media), and the total of the user-entered per-call prices.
    */
-  estimate(projectId: string, graph: ProjectGraph, opts: StartOptions = {}): Estimate {
+  estimate(projectId: string, fullGraph: ProjectGraph, opts: StartOptions = {}): Estimate {
+    const graph = withoutGroups(fullGraph) // group frames never run
     const targets = opts.nodeIds?.length ? new Set(opts.nodeIds) : undefined
     const order = topoOrder(graph, targets ? ancestorsOf(graph, [...targets]) : undefined)
     const sim = new Map<string, NodeOutputs>()
@@ -153,7 +154,7 @@ export class Engine {
     const run: Run = { id: randomUUID(), projectId, events: [], listeners: new Set(), ctrl: new AbortController(), finished: false }
     this.runs.set(run.id, run)
     this.active.set(projectId, run.id)
-    queueMicrotask(() => void this.execute(run, graph, opts))
+    queueMicrotask(() => void this.execute(run, withoutGroups(graph), opts))
     try { this.onRun?.() } catch { /* counting must never stop a run */ }
     return run.id
   }
@@ -255,7 +256,7 @@ export class Engine {
     let inFlight = 0
 
     /** one node from "running" to its final state; never throws */
-    const runNode = async (nodeId: string, node: GraphNode, inputs: ReturnType<typeof collectInputs>, key: string, force: boolean) => {
+    const runNode = async (nodeId: string, node: GraphNode, inputs: ReturnType<typeof collectInputs>, key: string, force: boolean, sources: ReturnType<typeof inputSources>) => {
       const startedAt = new Date().toISOString()
       this.setNode(run, nodeId, { status: 'running', startedAt })
       try {
@@ -268,7 +269,7 @@ export class Engine {
           this.setNode(run, nodeId, { status: 'running', startedAt, progress })
         }
         const out = await handlerFor(node.type)({
-          node, inputs, profile,
+          node, inputs, sources, profile,
           apiKey: profile ? this.store.getApiKey(profile.id) : undefined,
           assets: this.assets, signal: run.ctrl.signal, chatAdapter: this.chatAdapter, skills: this.skills, graph,
           job: { store: this.store, projectId: run.projectId, nodeId, cacheKey: key, force, report, pollDelays: this.pollDelays },
@@ -315,7 +316,7 @@ export class Engine {
             pending.delete(nodeId)
             if (limit) { slots++; busy.set(limit.key, (busy.get(limit.key) ?? 0) + 1) }
             inFlight++
-            void runNode(nodeId, node, inputs, key, force).then(() => {
+            void runNode(nodeId, node, inputs, key, force, inputSources(edgesInOrder, nodeId, outputs)).then(() => {
               if (limit) { slots--; busy.set(limit.key, busy.get(limit.key)! - 1) }
               inFlight--
               settled.add(nodeId)

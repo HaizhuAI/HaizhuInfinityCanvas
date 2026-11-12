@@ -96,7 +96,7 @@ describe('MCP access', () => {
     expect((await app.inject({ method: 'GET', url: '/.well-known/oauth-protected-resource' })).statusCode).toBe(404)
     const list = await rpc('tools/list', {})
     const names = list.json().result.tools.map((t: { name: string }) => t.name)
-    expect(names).toEqual(expect.arrayContaining(['list_projects', 'get_canvas', 'add_nodes', 'run', 'wait_for_run', 'get_results', 'view_asset', 'prompt_guide']))
+    expect(names).toEqual(expect.arrayContaining(['list_projects', 'get_canvas', 'add_nodes', 'group_nodes', 'run', 'wait_for_run', 'get_results', 'view_asset', 'prompt_guide']))
     expect((await rpc('nope', {})).json().error.code).toBe(-32601)
   })
 })
@@ -154,6 +154,11 @@ describe('MCP tools', () => {
     expect((await tool('wait_for_run', { run_id: again.run_id, timeout_seconds: 30 })).status).toBe('done')
     expect(prompts).toEqual(['一只橘猫坐在礁石上看日落', '一只橘猫在雨中奔跑'])
 
+    // a group frame: listed with its members, never run
+    const grp = await tool('group_nodes', { project_id, node_ids: [added.created.idea, pic], name: '第一场' })
+    const withGroup = await tool('get_canvas', { project_id })
+    expect(withGroup.nodes[0]).toEqual({ id: grp.group_id, type: 'group', label: '第一场', members: [added.created.idea, pic] })
+    expect((await tool('estimate', { project_id })).calls).toHaveLength(0)
     const removed = await tool('remove', { project_id, node_ids: [added.created.idea] })
     expect(removed).toEqual({ removed_nodes: 1, removed_edges: 1 })
   })

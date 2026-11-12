@@ -14,7 +14,34 @@ export interface GraphNode {
     /** media input nodes: uploaded asset */
     assetId?: string
     mime?: string
+    /** group frames: their size on the canvas */
+    size?: { w: number; h: number }
   }
+}
+
+/**
+ * A group is a frame drawn behind nodes (rc.17): a name and a rectangle. It has no ports and never
+ * runs; the nodes whose centre lies inside it are its members (moving the frame moves them).
+ */
+export const GROUP_TYPE = 'group'
+export const isGroup = (n: { type?: string }) => n.type === GROUP_TYPE
+
+/** the graph without group frames (what runs and is estimated) */
+export function withoutGroups<G extends ProjectGraph>(g: G): G {
+  return g.nodes.some(isGroup) ? { ...g, nodes: g.nodes.filter((n) => !isGroup(n)) } : g
+}
+
+/** members of a group frame: nodes (not other frames) whose centre lies inside it */
+export function groupMembers<N extends { id: string; type?: string; position: { x: number; y: number }; measured?: { width?: number; height?: number } }>(
+  frame: { position: { x: number; y: number }; size: { w: number; h: number } },
+  nodes: N[],
+): N[] {
+  const { x, y } = frame.position, { w, h } = frame.size
+  return nodes.filter((n) => {
+    if (isGroup(n)) return false
+    const cx = n.position.x + (n.measured?.width ?? 300) / 2, cy = n.position.y + (n.measured?.height ?? 200) / 2
+    return cx >= x && cx <= x + w && cy >= y && cy <= y + h
+  })
 }
 
 export interface GraphEdge {

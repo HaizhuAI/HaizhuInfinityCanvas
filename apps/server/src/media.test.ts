@@ -163,6 +163,17 @@ describe('buildMlt (pure)', () => {
     expect(mlt.match(/mlt_service">mix</g)).toHaveLength(3)
     expect(mlt).not.toContain('hide="audio"')
   })
+
+  it('starts a trimmed clip at its in-point', () => {
+    const mlt = buildMlt({
+      width: 640, height: 360, fps: 25, total: 1.6, keepAudio: 'mix', srt: '',
+      clips: [{ file: 'b.mp4', start: 0, duration: 1, in: 0.5 }, { file: 'r.mp4', start: 1, duration: 0.6, in: 0.4 }],
+      voices: [],
+    }, { clips: ['clips/b.mp4', 'clips/r.mp4'], voices: [] }, 'T')
+    expect(mlt).toContain('<entry producer="clip0" in="13" out="37"/>') // 0.5 s in, 25 frames
+    expect(mlt).toContain('<entry producer="clip1" in="10" out="24"/>')
+    expect(mlt).toContain('<producer id="clip0" in="0" out="37">')
+  })
 })
 
 describe('buildSrt (pure)', () => {
@@ -247,6 +258,31 @@ describe.skipIf(!HAS_FFMPEG)('export node (FFmpeg)', { timeout: 60_000 }, () => 
     expect(b1).toBeGreaterThan(150); expect(r1).toBeLessThan(80)   // then blue
     expect(last.get('x').outputs.srt[0].text).toContain('00:00:01,000 --> 00:00:02,950\n第二句台词')
     expect(progress.some((p) => /合成中 \d+%/.test(p))).toBe(true)
+  })
+
+  it('follows the timeline: its clip order and each clip\'s in / out', async () => {
+    const red = put('red.mp4', 'video/mp4'), blue = put('blue.mp4', 'video/mp4')
+    const graph: ProjectGraph = {
+      version: 1,
+      nodes: [
+        { id: 'r', type: 'video', position: { x: 0, y: 0 }, data: { assetId: red.id, mime: 'video/mp4' } },
+        { id: 'b', type: 'video', position: { x: 0, y: 400 }, data: { assetId: blue.id, mime: 'video/mp4' } },
+        // blue is lower on the canvas, but the timeline puts it first; both are trimmed
+        { id: 'x', type: 'export', position: { x: 700, y: 0 }, data: { params: { size: '640x360', fps: 25, order: ['b', 'r'], trims: { b: { in: 0.5, out: 1.5 }, r: { in: 0.4 } } } } },
+      ],
+      edges: [
+        { id: 'e1', source: 'r', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+        { id: 'e2', source: 'b', sourceHandle: 'out', target: 'x', targetHandle: 'video' },
+      ],
+    }
+    const { last } = await run(graph)
+    expect(last.get('x').error).toBeUndefined()
+    const file = assets.get(last.get('x').outputs.out[0].assetId)!.file
+    expect(Number(probeJson(file).format.duration)).toBeCloseTo(1.6, 1) // 1 s of blue + 0.6 s of red
+    const [r0, , b0] = pixel(file, 0.3)
+    expect(b0).toBeGreaterThan(150); expect(r0).toBeLessThan(80)
+    const [r1, , b1] = pixel(file, 1.3)
+    expect(r1).toBeGreaterThan(150); expect(b1).toBeLessThan(80)
   })
 
   it('places a voice under the clip in the same canvas row', async () => {

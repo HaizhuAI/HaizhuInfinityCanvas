@@ -99,6 +99,21 @@ export function collectInputs(
   return res
 }
 
+/** Where a node's input values come from: per input port, each wire's source node and how many values it gave (in collectInputs order). */
+export function inputSources(
+  edges: GraphEdge[],
+  nodeId: string,
+  outputs: Map<string, NodeOutputs>,
+): Record<string, { nodeId: string; count: number }[]> {
+  const res: Record<string, { nodeId: string; count: number }[]> = {}
+  for (const e of edges) {
+    if (e.target !== nodeId) continue
+    const n = outputs.get(e.source)?.[e.sourceHandle]?.length ?? 0
+    ;(res[e.targetHandle] ??= []).push({ nodeId: e.source, count: n })
+  }
+  return res
+}
+
 /** Render values as text for text-typed consumers (storyboard → JSON, media → placeholder). */
 export function valuesToText(vals: PortValue[] | undefined): string {
   return (vals ?? [])

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { BoxSelect, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Info, Maximize, Play, Plus, Trash, Undo2, X } from 'lucide-react'
+import { BookmarkPlus, BoxSelect, CircleAlert, Group as GroupIcon, Ungroup, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Info, Maximize, Play, Plus, Trash, Undo2, X } from 'lucide-react'
 import { tidyCanvas } from './Chrome'
 import { canPaste, copySelection, duplicateSelection, paste } from './clipboard'
 import { undo } from './history'
-import { NODE_TYPE_MAP, type ModelKind } from '@hzc/core'
+import { NODE_TYPE_MAP, isGroup, type ModelKind } from '@hzc/core'
 import { CATEGORY_COLOR, KIND_COLOR, KIND_ICON, KIND_LABEL, NODE_ICON } from './icons'
 import { enterOverlay, enterToast } from './motion'
 import { preflight, type Issue } from './preflight'
@@ -245,10 +245,19 @@ export function ContextMenu({ menu, onClose }: { menu: NonNullable<CtxMenu>; onC
     <div className="menu ctx" role="menu" ref={ref} style={{ left, top }} data-testid="context-menu" onContextMenu={(e) => e.preventDefault()}>
       {menu.nodeId ? (
         <>
-          {item(selected.length > 1 ? `运行这 ${selected.length} 个节点` : '运行到这里', Play, () => void st.runNodes(selected.length ? selected.map((n) => n.id) : [menu.nodeId!]), undefined, { testid: 'ctx-run' })}
+          {target && isGroup(target)
+            ? item('运行这一组', Play, () => void st.runNodes(st.groupMemberIds(target.id)), undefined, { testid: 'ctx-run' })
+            : item(selected.length > 1 ? `运行这 ${selected.length} 个节点` : '运行到这里', Play, () => void st.runNodes(selected.length ? selected.filter((n) => !isGroup(n)).map((n) => n.id) : [menu.nodeId!]), undefined, { testid: 'ctx-run' })}
           {canCompare && item(group ? '再加一个模型对比…' : '多模型对比…', GitCompareArrows, () => st.openCompareSetup(menu.nodeId!), undefined, { testid: 'ctx-compare' })}
           {groupIds.length >= 2 && item('并排查看对比', GitCompareArrows, () => st.openCompareView(groupIds), undefined, { testid: 'ctx-compare-group' })}
           {canView && item(`并排比较这 ${selected.length} 个结果`, GitCompareArrows, () => st.openCompareView(selected.map((n) => n.id)), undefined, { testid: 'ctx-compare-view' })}
+          <div className="menu-sep" />
+          {target && isGroup(target) ? (
+            <>
+              {item('存为模板', BookmarkPlus, () => { const t = st.saveGroupTemplate(target.id); st.showToast(t ? `已存为模板「${t.name}」：按 / 搜索即可插入` : '保存模板失败') }, undefined, { testid: 'ctx-group-save' })}
+              {item('解散分组', Ungroup, () => { st.ungroup([target.id]) }, `${MOD} Shift G`, { testid: 'ctx-ungroup' })}
+            </>
+          ) : selected.filter((n) => !isGroup(n)).length > 0 && item(`分组${selected.length > 1 ? ` ${selected.length} 个节点` : ''}`, GroupIcon, () => { st.groupSelection() }, `${MOD} G`, { testid: 'ctx-group' })}
           <div className="menu-sep" />
           {item('创建副本', CopyPlus, () => { duplicateSelection() }, `${MOD} D`, { testid: 'ctx-duplicate' })}
           {item('复制', Copy, () => { const n = copySelection(); if (n) st.showToast(`已复制 ${n} 个节点`) }, `${MOD} C`, { testid: 'ctx-copy' })}

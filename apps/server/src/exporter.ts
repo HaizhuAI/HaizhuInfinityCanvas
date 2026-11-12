@@ -2,8 +2,10 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { MediaError, probe, requireFfmpeg, run, withTemp, type Probe } from './media'
 import { zipBuffer, type ZipInput } from './zip'
+import { trimmedSpan } from '@hzc/core'
 
-export interface ExportClip { file: string }
+/** `in` / `out`: the part of the clip used, in seconds (the timeline's trim); default the whole clip */
+export interface ExportClip { file: string; in?: number; out?: number }
 export interface ExportOptions {
   clips: ExportClip[]
   voices: string[]
@@ -28,7 +30,8 @@ export interface Timeline {
   fps: number
   total: number
   keepAudio: 'mix' | 'drop'
-  clips: { file: string; start: number; duration: number }[]
+  /** `in`: where in the source file the used part starts (s) */
+  clips: { file: string; start: number; duration: number; in?: number }[]
   voices: { file: string; start: number; duration: number }[]
   srt: string
 }
@@ -70,7 +73,9 @@ export async function exportFilm(o: ExportOptions): Promise<{ bytes: Buffer; srt
 
   const [W, H] = o.size && /^\d+x\d+$/.test(o.size) ? o.size.split('x').map((n) => even(Number(n))) : [even(infos[0]!.width ?? 1280), even(infos[0]!.height ?? 720)]
   const fps = o.fps && o.fps > 0 && o.fps <= 120 ? o.fps : 30
-  const durs = infos.map((i) => Math.max(0.1, i.duration))
+  // each clip's used part: the timeline's trim, kept inside the file
+  const spans = o.clips.map((c, i) => trimmedSpan({ in: c.in, out: c.out }, Math.max(0.1, infos[i]!.duration)))
+  const durs = spans.map((sp) => sp.length)
   const total = durs.reduce((a, b) => a + b, 0)
   const starts = durs.map((_, i) => durs.slice(0, i).reduce((a, b) => a + b, 0))
   // where each voice starts: explicit, else its clip's row, else one-per-clip, else back to back
@@ -92,8 +97,10 @@ export async function exportFilm(o: ExportOptions): Promise<{ bytes: Buffer; srt
     if (srt) { const srtFile = join(dir, 'subs.srt'); writeFileSync(srtFile, srt); args.push('-i', srtFile) }
     const f: string[] = []
     o.clips.forEach((_, i) => {
-      f.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,trim=duration=${durs[i]!.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`)
-      if (o.keepAudio !== 'drop' && infos[i]!.hasAudio) f.push(`[${i}:a]aresample=48000,aformat=channel_layouts=stereo,atrim=duration=${durs[i]!.toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`)
+      const cut = spans[i]!.start > 0 ? `trim=start=${spans[i]!.start.toFixed(3)},setpts=PTS-STARTPTS,` : ''
+      const acut = spans[i]!.start > 0 ? `atrim=start=${spans[i]!.start.toFixed(3)},asetpts=PTS-STARTPTS,` : ''
+      f.push(`[${i}:v]${cut}scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,trim=duration=${durs[i]!.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`)
+      if (o.keepAudio !== 'drop' && infos[i]!.hasAudio) f.push(`[${i}:a]${acut}aresample=48000,aformat=channel_layouts=stereo,atrim=duration=${durs[i]!.toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`)
       else f.push(`aevalsrc=0:c=stereo:s=48000:d=${durs[i]!.toFixed(3)}[a${i}]`)
     })
     f.push(`${o.clips.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${o.clips.length}:v=1:a=1[vout][abase]`)
@@ -125,7 +132,7 @@ export async function exportFilm(o: ExportOptions): Promise<{ bytes: Buffer; srt
     if (r.code !== 0) throw new MediaError(`合成失败：${r.stderr.split('\n').filter(Boolean).slice(-4).join(' / ').slice(0, 500)}`)
     const timeline: Timeline = {
       width: W!, height: H!, fps, total, keepAudio: o.keepAudio === 'drop' ? 'drop' : 'mix', srt,
-      clips: o.clips.map((c, i) => ({ file: c.file, start: starts[i]!, duration: durs[i]! })),
+      clips: o.clips.map((c, i) => ({ file: c.file, start: starts[i]!, duration: durs[i]!, in: spans[i]!.start })),
       voices: o.voices.map((file, j) => ({ file, start: voiceAt[j]!, duration: Math.max(0.05, voiceInfos[j]!.duration) })),
     }
     return { bytes: readFileSync(out), srt, duration: total, size: `${W}x${H}`, timeline }
@@ -148,6 +155,8 @@ export function buildMlt(t: Timeline, files: { clips: string[]; voices: string[]
   // frame positions are cumulative so rounding never drifts across many clips
   const clipIn = t.clips.map((c) => Math.round(c.start * t.fps))
   const clipLen = t.clips.map((c, i) => Math.max(1, Math.round((c.start + c.duration) * t.fps) - clipIn[i]!))
+  // a trimmed clip starts this many frames into its file
+  const srcIn = t.clips.map((c) => Math.max(0, Math.round((c.in ?? 0) * t.fps)))
   const totalFrames = Math.max(1, clipIn.length ? clipIn[clipIn.length - 1]! + clipLen[clipLen.length - 1]! : frames(t.total))
 
   // greedy track assignment for voices, in start order, clipped to the end of the film
@@ -179,13 +188,13 @@ export function buildMlt(t: Timeline, files: { clips: string[]; voices: string[]
     `    <property name="shotcut:caption">${xml(caption)}</property>`,
     '  </producer>',
   ].join('\n')
-  t.clips.forEach((_, i) => L.push(producer(`clip${i}`, files.clips[i]!, `镜头 ${i + 1}`, clipLen[i]!)))
+  t.clips.forEach((_, i) => L.push(producer(`clip${i}`, files.clips[i]!, `镜头 ${i + 1}`, srcIn[i]! + clipLen[i]!)))
   t.voices.forEach((v, j) => L.push(producer(`voice${j}`, files.voices[j]!, `配音 ${j + 1}`, frames(v.duration))))
 
   L.push('  <playlist id="video1">')
   L.push('    <property name="shotcut:video">1</property>')
   L.push('    <property name="shotcut:name">V1</property>')
-  t.clips.forEach((_, i) => L.push(`    <entry producer="clip${i}" in="0" out="${clipLen[i]! - 1}"/>`))
+  t.clips.forEach((_, i) => L.push(`    <entry producer="clip${i}" in="${srcIn[i]}" out="${srcIn[i]! + clipLen[i]! - 1}"/>`))
   L.push('  </playlist>')
   tracks.forEach((tr, k) => {
     L.push(`  <playlist id="audio${k + 1}">`)

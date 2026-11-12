@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Download, GitCompareArrows, Info, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
 import {
   ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VARIATION_COUNTS, VIDEO_DURATIONS, type PortValue,
+  GROUP_TYPE,
 } from '@hzc/core'
 import { assetUrl } from './api'
 import { ErrorBox, FileCard, RUNNABLE, StatusPill, Values } from './CanvasNode'
@@ -277,6 +278,21 @@ export function Inspector({ onClose }: { onClose: () => void }) {
             <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{selected.length > 1 ? `已选中 ${selected.length} 个节点` : '选择一个节点'}</div>
             <div>{selected.length > 1 ? '一次只能编辑一个节点的属性。' : `点选画布上的节点，在这里调整模型、参数并查看结果。画布上共有 ${nodeCount} 个节点。`}</div>
             <div className="hint" style={{ justifyContent: 'center', marginTop: 14 }}><kbd>/</kbd> 快速添加 · <kbd>Delete</kbd> 删除</div>
+          </div>
+        </div>
+      </aside>
+    )
+  }
+
+  if (node.type === GROUP_TYPE) {
+    const members = useStore.getState().groupMemberIds(node.id)
+    return (
+      <aside className="inspector" aria-label="属性面板">
+        <div className="insp-head"><div className="ttl"><strong>{node.data.label ?? '分组'}</strong><div className="kind">分组 · {members.length} 个节点</div></div><button className="btn ghost sm icon" onClick={onClose} aria-label="收起属性面板"><PanelRightClose /></button></div>
+        <div className="insp-empty">
+          <div>
+            <div>分组框住的节点会随标题栏一起移动；双击标题改名，拖动边框调整大小。</div>
+            <div className="hint" style={{ justifyContent: 'center', marginTop: 14 }}>右键可以运行这一组、存为模板或解散分组</div>
           </div>
         </div>
       </aside>

@@ -4,6 +4,53 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.17] — 2026-11-12 (release candidate, code complete, not tagged)
+
+"Timeline and groups": cutting several shots into one film no longer means ordering them by moving nodes around, and a big canvas can be organised into groups by scene, run a group at a time, and saved as your own templates. The batch node changes how nodes run (one run per node), so it moves to rc.18 together with review mode.
+
+### Added
+- **Timeline** (the 「时间线」 button on the export node): lists every clip wired into the 视频 port, with thumbnails and durations.
+  - Drag rows, or use ↑ ↓, to reorder. Once saved, the node shows 「已排序」; clips wired in later follow in canvas order.
+  - Each clip can have an **in / out point** in seconds; empty means from the start / to the end. The list shows the full length and the length used, and draws the used span.
+  - **Preview**: plays the trimmed part of every clip in order, to check the pacing.
+  - Order and trims are stored per source node (`params.order` / `params.trims`), so they survive re-generating a shot.
+  - The exported film, its soft subtitles and the editor project all follow the timeline; in Shotcut each clip starts at its in point. Voice-overs in the same row as a clip move with it.
+- **Groups**: select nodes and press `Ctrl/⌘ G` (or right-click → 分组). A named frame appears, drawn behind the nodes.
+  - Drag the title bar to move the whole group. When selected, drag the corners to resize. Double-click the title to rename.
+  - The frame's empty area doesn't block clicks, so wiring and box-selecting work as before.
+  - The title bar and context menu offer **run this group**, **save as template** and **ungroup** (`Ctrl/⌘ Shift G`; the nodes stay).
+  - Groups can be copied, pasted and undone, and are saved with the canvas and exported in project bundles. A group never runs and isn't counted in cost estimates.
+- **My templates**: keeps a group's nodes, params, model choices and wires (not results) in this browser. Search its name under `/` to insert a fresh copy.
+- **Agents (MCP)**:
+  - new `group_nodes` tool (e.g. one group per scene);
+  - `get_canvas` lists the nodes inside each group;
+  - `update_node` can set an export node's timeline.
+
+### Changed
+- On macOS the app is now named `HaizhuInfinityCanvas.app`; rc.16 used `haizhu-infinity-canvas.app`. Windows and Linux keep their executable names and install paths, so commands already added to Claude Code still work.
+- Roadmap: rc.18 "batch and review", rc.19 "consistency", rc.20 "assistant and apps".
+- New E2E suite timeline-flow; CI now runs eighteen E2E suites.
+
+### Verified
+- Locally: typecheck passes; 230 unit / integration tests (core 43, server 187). New tests:
+  - Timeline order: listed clips first, and several clips from one node stay together.
+  - In / out points are checked and capped, and the used span never runs past the clip.
+  - Export with red / blue test videos made by FFmpeg: the timeline puts the lower blue clip first and trims both. The film is 1.6 s and the pictures are in the right order.
+  - The editor project starts each clip at its in point.
+  - After an agent groups nodes, `get_canvas` lists the members and the cost estimate leaves the group out.
+- Eighteen E2E suites and the screenshot script pass. The new timeline-flow suite uses two test videos made by FFmpeg:
+  - In the timeline it moves the blue clip first, sets its in point to 0.5 s and red's out point to 1.5 s. The total shows 3 s, the preview starts with blue, and after saving the node shows 「已排序」.
+  - It runs the export; ffprobe finds a 3 s film, blue then red.
+  - It selects both video nodes and groups them with `Ctrl G`. Dragging the title bar moves both nodes by the same distance as the frame. Double-clicking renames the group.
+  - It saves the group as a template and inserts a copy from "/" (three more nodes). It ungroups one group from the context menu, and the nodes stay.
+  - After a page reload the group's name and size and the timeline are all still there.
+- `pnpm audit` reports no known vulnerabilities.
+- GitHub Actions: added after the push.
+
+### Not verified yet
+- How the timeline feels on a real long project with dozens of shots.
+- On a slow WebUI connection, the preview may briefly show black when it switches clips.
+
 ## [1.0.0-rc.16] — 2026-11-12 (release candidate, code complete, not tagged)
 
 "Agent access and installers for every system": as you asked, the MCP server for outside agents — planned for after 1.1 — is done now. The desktop app can be added to Claude Code like a local MCP server, so Claude can orchestrate workflows on the canvas. macOS and Linux arm64 installers are added too. The former rc.16 "timeline, groups and batches" moves to rc.17.

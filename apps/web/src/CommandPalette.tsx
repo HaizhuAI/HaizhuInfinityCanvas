@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { Cable, CornerDownLeft, LayoutTemplate, Search } from 'lucide-react'
+import { BookmarkCheck, Cable, CornerDownLeft, LayoutTemplate, Search } from 'lucide-react'
 import { CATEGORY_LABEL, NODE_TYPE_MAP, NODE_TYPES, canConnect, type NodeTypeDef, type PortType } from '@hzc/core'
 import { PORT_LABEL } from './icons'
 import { CATEGORY_COLOR, KIND_COLOR, KIND_ICON, KIND_LABEL, KIND_TO_NODE, NODE_ICON } from './icons'
 import { enterOverlay } from './motion'
 import { useStore } from './store'
 import { TEMPLATES } from './templates'
+import { listMyTemplates } from './myTemplates'
 import { useAddNode } from './useAddNode'
 
 interface Item { key: string; group: string; label: string; desc: string; color: string; Icon: React.ComponentType; run: () => void; terms: string }
@@ -85,6 +86,11 @@ function PaletteBody() {
       out.push({ key: `n:${n.type}`, group: CATEGORY_LABEL[n.category], label: n.label, desc: n.description, color: CATEGORY_COLOR[n.category], Icon: NODE_ICON[n.type]!,
         run: () => add(n.type), terms: `${n.label} ${n.description} ${n.type}` })
     }
+    // 我的模板: groups saved for reuse (rc.17)
+    if (!from) for (const t of listMyTemplates()) {
+      out.push({ key: `m:${t.id}`, group: '我的模板', label: t.name, desc: `${t.graph.nodes.filter((n) => n.type !== 'group').length} 个节点 · 保存于 ${new Date(t.createdAt).toLocaleDateString('zh-CN')}`, color: 'var(--accent)', Icon: BookmarkCheck,
+        run: () => { const st = useStore.getState(); const ids = st.insertMyTemplate(t); st.showNodes(ids) }, terms: `${t.name} 我的模板 template` })
+    }
     if (!from) for (const t of TEMPLATES) {
       out.push({ key: `t:${t.id}`, group: '示例模板', label: t.name, desc: t.description, color: 'var(--accent)', Icon: LayoutTemplate,
         run: () => addTemplate(t.graph()), terms: `${t.name} ${t.description} 模板` })
@@ -94,7 +100,7 @@ function PaletteBody() {
 
   const query = q.trim().toLowerCase()
   // typing also finds nodes already on the canvas (jump to them)
-  const jump: Item[] = query && !from ? canvasNodes.filter((n) => `${n.data.label ?? ''} ${NODE_TYPE_MAP[n.type ?? '']?.label ?? ''} ${n.data.text ?? ''}`.toLowerCase().includes(query)).slice(0, 8).map((n) => {
+  const jump: Item[] = query && !from ? canvasNodes.filter((n) => NODE_TYPE_MAP[n.type ?? ''] && `${n.data.label ?? ''} ${NODE_TYPE_MAP[n.type ?? '']?.label ?? ''} ${n.data.text ?? ''}`.toLowerCase().includes(query)).slice(0, 8).map((n) => {
     const def = NODE_TYPE_MAP[n.type ?? '']!
     return { key: `c:${n.id}`, group: '画布上的节点', label: n.data.label ?? def.label, desc: `${def.label} · 跳转到这个节点`, color: CATEGORY_COLOR[def.category], Icon: NODE_ICON[def.type]!,
       run: () => useStore.getState().focusNode(n.id), terms: '' }
