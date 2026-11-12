@@ -1,6 +1,5 @@
-import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { AccountError, AccountStore } from './accounts'
+import { AccountError, AccountStore, oneTimePassword } from './accounts'
 import { Workspaces } from './workspaces'
 import type { SecretBox } from './secrets'
 
@@ -12,16 +11,11 @@ import type { SecretBox } from './secrets'
  *   node server/index.mjs admin reset-password <email> new one-time password; signs the user out everywhere
  *   node server/index.mjs admin disable <email>        block sign-in (data kept); `enable` undoes it
  *   node server/index.mjs admin delete-user <email>    delete the account and its whole workspace
+ *   node server/index.mjs admin promote <email>        make an admin (the web admin console at /admin); `demote` undoes it
  *
  * In Docker: docker compose exec haizhu-canvas node server/index.mjs admin users
  */
-export const ADMIN_USAGE = `usage: admin <users | create-user EMAIL | reset-password EMAIL | disable EMAIL | enable EMAIL | delete-user EMAIL>`
-
-/** a password the user is asked to change: 18 characters from an unambiguous alphabet */
-function oneTimePassword() {
-  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-  return [...randomBytes(18)].map((b) => abc[b % abc.length]).join('')
-}
+export const ADMIN_USAGE = `usage: admin <users | create-user EMAIL | reset-password EMAIL | disable EMAIL | enable EMAIL | delete-user EMAIL | promote EMAIL | demote EMAIL>`
 
 export async function runAdmin(args: string[], dataDir: string, secrets: () => SecretBox, out: (s: string) => void = console.log): Promise<number> {
   const [cmd, emailArg] = args
@@ -35,7 +29,7 @@ export async function runAdmin(args: string[], dataDir: string, secrets: () => S
     switch (cmd) {
       case 'users': {
         const list = accounts.listUsers()
-        for (const u of list) out(`${u.email}\t创建于 ${u.createdAt}\t${u.lastLogin ? `最近登录 ${u.lastLogin}` : '从未登录'}${u.disabled ? '\t已停用' : ''}`)
+        for (const u of list) out(`${u.email}\t创建于 ${u.createdAt}\t${u.lastLogin ? `最近登录 ${u.lastLogin}` : '从未登录'}${u.isAdmin ? '\t管理员' : ''}${u.disabled ? '\t已停用' : ''}`)
         out(`共 ${list.length} 个账号`)
         return 0
       }
@@ -57,6 +51,13 @@ export async function runAdmin(args: string[], dataDir: string, secrets: () => S
         const u = user()
         accounts.setDisabled(u.id, cmd === 'disable')
         out(cmd === 'disable' ? `已停用 ${u.email}（数据保留，所有设备已退出登录）` : `已恢复 ${u.email}`)
+        return 0
+      }
+      case 'promote':
+      case 'demote': {
+        const u = user()
+        accounts.setAdmin(u.id, cmd === 'promote')
+        out(cmd === 'promote' ? `${u.email} 现在是管理员，可以打开 /admin` : `${u.email} 不再是管理员`)
         return 0
       }
       case 'delete-user': {

@@ -1,7 +1,7 @@
 services:
   haizhu-canvas:
     build: .
-    image: haizhu-infinity-canvas:1.0.0-rc.11
+    image: haizhu-infinity-canvas:1.0.0-rc.12
     ports:
       - "8787:8787"
     environment:
@@ -16,6 +16,12 @@ services:
       HZC_USER_QUOTA_MB: ${HZC_USER_QUOTA_MB:-2048}
       # accounts mode behind HTTPS: cookies only over HTTPS
       HZC_SECURE_COOKIES: ${HZC_SECURE_COOKIES:-0}
+      # accounts mode: your own email(s) — admins get the console at /admin
+      HZC_ADMIN_EMAILS: ${HZC_ADMIN_EMAILS:-}
+      # accounts mode, optional: password-reset mail (smtps://user:pass@host:465) and the site's address for links
+      HZC_SMTP_URL: ${HZC_SMTP_URL:-}
+      HZC_MAIL_FROM: ${HZC_MAIL_FROM:-}
+      HZC_PUBLIC_URL: ${HZC_PUBLIC_URL:-}
       # public / shared deployment: model endpoints and result links may not point into the private
       # network (set to 0 only if your models run on this host or LAN)
       HZC_BLOCK_PRIVATE_NETWORK: ${HZC_BLOCK_PRIVATE_NETWORK:-1}

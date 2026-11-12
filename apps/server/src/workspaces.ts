@@ -29,8 +29,11 @@ export interface WorkspaceOptions {
   secrets: SecretBox
   builtinSkills?: string
   maxParallel?: number
-  /** storage quota per workspace, in bytes */
-  quotaBytes?: number
+  /** storage quota per workspace, in bytes (a function: per user, and changes apply at once) */
+  quotaBytes?: number | ((userId: string) => number | undefined)
+  /** usage reporting (accounts mode) */
+  onStorage?: (userId: string, bytes: number) => void
+  onRun?: (userId: string) => void
   backupKeep?: number
   backupIntervalMs?: number
 }
@@ -43,9 +46,10 @@ export function openWorkspace(id: string, dir: string, o: WorkspaceOptions): Wor
   const backups = new Backups(dir, { keep: o.backupKeep, intervalMs: o.backupIntervalMs })
   const recovery = backups.recoverIfDamaged(dbFile)
   const store = new Store(dbFile, o.secrets)
-  const assets = new AssetStore(dir, store, { quotaBytes: o.quotaBytes })
+  const q = o.quotaBytes
+  const assets = new AssetStore(dir, store, { quotaBytes: typeof q === 'function' ? () => q(id) : q, onUsage: o.onStorage && ((b) => o.onStorage!(id, b)) })
   const skills = new SkillStore(o.builtinSkills, dir)
-  const engine = new Engine(store, assets, { skills, maxParallel: o.maxParallel })
+  const engine = new Engine(store, assets, { skills, maxParallel: o.maxParallel, onRun: o.onRun && (() => o.onRun!(id)) })
   const stopBackups = backups.schedule(store, () => undefined)
   return { id, dir, store, assets, skills, engine, backups, recovery, stopBackups }
 }

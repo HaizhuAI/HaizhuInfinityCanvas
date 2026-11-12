@@ -26,23 +26,29 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export class AssetStore {
   private dir: string
 
-  /** `quotaBytes`: total size of files this workspace may store (multi-user deployments) */
-  constructor(readonly dataDir: string, private store: Store, private opts: { quotaBytes?: number } = {}) {
+  /**
+   * `quotaBytes`: total size of files this workspace may store (multi-user deployments; a function so an
+   * admin's change applies at once). `onUsage`: told the stored total after every change.
+   */
+  constructor(readonly dataDir: string, private store: Store, private opts: { quotaBytes?: number | (() => number | undefined); onUsage?: (bytes: number) => void } = {}) {
     this.dir = join(dataDir, 'assets')
     mkdirSync(this.dir, { recursive: true })
   }
 
   /** bytes stored and the quota (undefined = unlimited) */
-  usage() { return { used: this.store.totalAssetBytes(), quota: this.opts.quotaBytes } }
+  private quota() { const q = this.opts.quotaBytes; return typeof q === 'function' ? q() : q }
+  usage() { return { used: this.store.totalAssetBytes(), quota: this.quota() } }
+  private changed() { try { this.opts.onUsage?.(this.store.totalAssetBytes()) } catch { /* reporting must never break a save */ } }
 
   /** Throws on unsupported mime or content that does not match the declared image type. */
   put(bytes: Buffer, mime: string, name = 'upload', id: string = randomUUID()) {
-    const q = this.opts.quotaBytes
+    const q = this.quota()
     if (q !== undefined && this.store.totalAssetBytes() + bytes.length > q) {
       throw new QuotaError(`存储空间已满（上限 ${Math.round(q / 1024 / 1024)} MB）：请删除不用的画布或素材后再试`)
     }
     const { sha256, mime: m } = this.writeFile(bytes, mime)
     this.store.insertAsset({ id, sha256, mime: m, size: bytes.length, name: name.slice(0, 200) })
+    this.changed()
     return { id, sha256, mime: m, size: bytes.length }
   }
 
@@ -88,6 +94,7 @@ export class AssetStore {
     if (!meta) return false
     this.store.deleteAssetsWithSha(meta.sha256)
     rmSync(join(this.dir, `${meta.sha256}.${MIME_EXT[meta.mime]}`), { force: true })
+    this.changed()
     return true
   }
 

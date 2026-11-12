@@ -107,8 +107,12 @@ describe('accounts mode', () => {
 
   it('a run id from another account is useless', async () => {
     const ann = as(await signup('ann@example.com'))
-    const p = (await ann.send('POST', '/api/projects', { name: 'p', graph: { nodes: [{ id: 't', type: 'text', position: { x: 0, y: 0 }, data: { text: 'hi' } }], edges: [] } })).json()
-    const { runId } = (await ann.send('POST', `/api/projects/${p.id}/run`, {})).json()
+    const p = (await ann.send('POST', '/api/projects', { name: 'p', graph: { version: 1, nodes: [{ id: 't', type: 'text', position: { x: 0, y: 0 }, data: { text: 'hi' } }], edges: [] } })).json()
+    expect(p.id).toBeTruthy()
+    const started = await ann.send('POST', `/api/projects/${p.id}/run`, {})
+    expect(started.statusCode).toBe(202)
+    const { runId } = started.json()
+    expect(runId).toBeTruthy()
     const bob = as(await signup('bob@example.com'))
     expect((await bob.send('POST', `/api/runs/${runId}/cancel`)).statusCode).toBe(404)
     const events = await bob.get(`/api/runs/${runId}/events`)

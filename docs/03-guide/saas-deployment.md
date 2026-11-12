@@ -15,8 +15,13 @@
    HZC_TRUST_PROXY=1
    HZC_HSTS=1
    HZC_SECURE_COOKIES=1
-   HZC_SIGNUP=open          # closed：只能由管理员开通账号
-   HZC_USER_QUOTA_MB=2048   # 每个账号的存储上限
+   HZC_SIGNUP=open          # invite：只能凭邀请链接注册；closed：只能由管理员开通
+   HZC_USER_QUOTA_MB=2048   # 每个账号默认的存储上限
+   HZC_ADMIN_EMAILS=you@example.com   # 你自己的邮箱：注册后就是管理员，可以打开 /admin
+   # 可选：找回密码邮件
+   HZC_SMTP_URL=smtps://user:password@smtp.example.com:465
+   HZC_MAIL_FROM="Haizhu Infinity Canvas <no-reply@example.com>"
+   HZC_PUBLIC_URL=https://canvas.example.com
    ```
 
 3. 让容器端口只监听本机：把 `docker-compose.yml` 里的 `"8787:8787"` 改成 `"127.0.0.1:8787:8787"`，然后 `docker compose up -d --build`。
@@ -28,7 +33,7 @@
    }
    ```
 
-5. 打开 `https://canvas.example.com/`：访客看到首页，点「免费注册」即可开始。
+5. 打开 `https://canvas.example.com/`：访客看到首页，点「免费注册」即可开始。用 `HZC_ADMIN_EMAILS` 里的邮箱注册的账号是管理员，在「设置 → 账号」里点「打开管理后台」（或直接打开 `/admin`）。
 
 ## 环境变量（账号模式）
 
@@ -36,8 +41,11 @@
 | --- | --- |
 | `HZC_ACCOUNTS=1` | 开启账号模式（注册 / 登录，每人一个独立空间）。不需要 `HZC_TOKEN` |
 | `HZC_ALLOWED_HOSTS` | **必填**（监听非本机地址时）：访客打开的域名或地址，逗号分隔。其他域名的请求一律拒绝（防 DNS 重绑定） |
-| `HZC_SIGNUP` | `open`（默认）允许自助注册；`closed` 只能用管理命令开通 |
-| `HZC_USER_QUOTA_MB` | 每个账号的素材与生成结果存储上限，默认 2048 MB；满了上传和生成会提示，用户可在「素材库」删除文件腾出空间 |
+| `HZC_SIGNUP` | 默认的注册方式：`open`（默认）任何人可注册；`invite` 只能凭邀请链接注册；`closed` 不能注册（账号由管理员开通）。管理后台里可以随时切换，切换后以后台的设置为准 |
+| `HZC_ADMIN_EMAILS` | 管理员邮箱，逗号分隔：这些账号注册后（或服务启动时已存在的）就是管理员，可以使用管理后台 |
+| `HZC_SMTP_URL` / `HZC_MAIL_FROM` | 可选：发送「忘记密码」重置链接的邮件服务，如 `smtps://user:pass@smtp.example.com:465`。不设置时登录页提示联系管理员 |
+| `HZC_PUBLIC_URL` | 网站的地址（如 `https://canvas.example.com`），用于邮件和邀请里的链接；不设置时用访问时的域名（只接受 `HZC_ALLOWED_HOSTS` 里的域名） |
+| `HZC_USER_QUOTA_MB` | 每个账号默认的素材与生成结果存储上限，默认 2048 MB；管理后台可以给单个账号另设上限；满了上传和生成会提示，用户可在「素材库」删除文件腾出空间 |
 | `HZC_SECURE_COOKIES=1` | 登录 Cookie 只通过 HTTPS 发送。不设置时按请求是否为 HTTPS 自动决定（反向代理后面需要 `HZC_TRUST_PROXY=1` 才能识别） |
 | `HZC_TRUST_PROXY=1` | 前面有反向代理时开启：识别访客真实地址（登录失败锁定按地址计算）和 HTTPS |
 | `HZC_HSTS=1` | 通过 HTTPS 访问时让浏览器以后只用 HTTPS |
@@ -46,9 +54,23 @@
 | `HZC_MAX_FFMPEG` | 整台服务器同时运行的 FFmpeg 进程数（导出成片、视频反推），默认 CPU 核数的一半（1–4） |
 | `HZC_BACKUP_HOURS` / `HZC_BACKUP_KEEP` | 备份间隔与保留份数（每个账号的数据库、账号库各自备份） |
 
-## 管理账号
+## 管理后台（/admin）
 
-没有邮件服务也能管理（忘记密码由管理员重置）。在服务器上运行：
+管理员在浏览器里打开 `/admin`：
+
+- **概览**：账号数、近 7 天活跃与新注册、已用存储合计、累计运行次数。
+- **注册方式**：开放注册 / 仅邀请 / 关闭，立即生效。
+- **邀请链接**：设定可用次数、有效天数和备注，生成形如 `https://canvas.example.com/signup?invite=…` 的链接发给对方。链接只显示一次（服务器只保存它的哈希），可以随时撤销；注册失败（例如密码太弱）不会占用次数。
+- **账号**：按邮箱查找；每个账号的状态、已用存储 / 上限、运行次数、最近登录、注册时间。操作菜单：停用 / 恢复（停用会让对方所有设备退出登录，数据保留）、重置密码（生成一次性临时密码，只显示一次）、存储上限（单独设置或改回默认）、设为 / 取消管理员、删除账号（需输入对方邮箱确认，删除全部数据）。
+- 为防止把自己锁在外面，管理员不能停用、删除自己或取消自己的管理员身份。
+
+## 找回密码
+
+设置了 `HZC_SMTP_URL` 后，登录页出现「忘记密码？」：填写邮箱，系统发出一个 30 分钟内有效、只能用一次的重置链接；设置新密码后，这个账号所有设备上的登录都会退出。无论邮箱是否注册过，页面给出的回答都一样（不会暴露谁有账号）；同一地址每小时最多申请 5 次，同一账号每小时最多收到 3 封。没有配置邮件服务时，由管理员在管理后台重置。
+
+## 命令行管理
+
+不方便打开浏览器时，也可以在服务器上运行：
 
 ```bash
 docker compose exec haizhu-canvas node server/index.mjs admin users                    # 列出账号
@@ -56,6 +78,7 @@ docker compose exec haizhu-canvas node server/index.mjs admin create-user a@exam
 docker compose exec haizhu-canvas node server/index.mjs admin reset-password a@example.com # 重置密码，所有设备退出登录
 docker compose exec haizhu-canvas node server/index.mjs admin disable a@example.com    # 停用（数据保留）；enable 恢复
 docker compose exec haizhu-canvas node server/index.mjs admin delete-user a@example.com # 删除账号及其全部数据
+docker compose exec haizhu-canvas node server/index.mjs admin promote a@example.com     # 设为管理员；demote 取消
 ```
 
 用户自己可以在「设置 → 账号」里：查看存储用量、修改密码（其他设备随之退出）、退出其他设备、退出登录、删除账号（需要密码并输入「删除」确认，删除全部数据）。
@@ -89,7 +112,7 @@ docker compose exec haizhu-canvas node server/index.mjs admin delete-user a@exam
 
 ## 目前的限制
 
-- 没有邮件验证与「忘记密码」邮件：注册不验证邮箱，找回密码需要管理员重置。
-- 没有付费 / 套餐：用户自带模型 Key，自己向服务商付费；网站本身只有存储上限。
+- 注册时不验证邮箱是否属于本人（找回密码邮件需要配置邮件服务）。
+- 没有付费 / 套餐：用户自带模型 Key，自己向服务商付费；网站本身只有存储上限（可按账号设置）。
 - 没有团队共享：每个账号的空间只属于自己；共享画布可以导出项目包（.hzc）发给别人导入。
 - 原来以令牌模式运行的数据（`/data/hzc.sqlite`）不会自动并入某个账号：切换前在「我的画布」里把需要的画布导出为项目包，注册后再导入。

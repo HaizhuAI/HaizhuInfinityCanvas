@@ -16,6 +16,7 @@
 | gsap | **GSAP Standard "No Charge" License**（非开源许可，见许可证审计） | 仅用于本应用自身界面的动效（`apps/web/src/motion.ts` 是唯一引用处） | beta.4 |
 | @fontsource-variable/geist、@fontsource-variable/geist-mono | OFL-1.1 | 界面字体，随包打包（rc.11 起 Geist 重新作为正文字体，Inter 已移除） | beta.4 |
 | yaml | ISC | 解析 SKILL.md 的 YAML frontmatter | beta.4 |
+| nodemailer | MIT-0 | 账号模式下发送「找回密码」邮件（可选，配置了 HZC_SMTP_URL 才使用） | rc.12 |
 | FFmpeg（独立可执行文件） | LGPL-2.1+ / GPL（视编译选项） | 抽帧/合成。**桌面安装包不包含**，使用用户自己安装的 FFmpeg；Docker 镜像内为 Debian 软件包 | beta.5 |
 
 ### 外部工具（不随产品分发）

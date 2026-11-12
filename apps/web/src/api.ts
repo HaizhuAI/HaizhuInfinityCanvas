@@ -205,8 +205,9 @@ export const api = {
 }
 
 // ---- accounts (multi-user deployments)
-export interface Me { email: string; createdAt: string }
-export interface AuthConfig { accounts: boolean; signup: boolean; passwordMin: number }
+export interface Me { email: string; createdAt: string; isAdmin?: boolean }
+export type SignupMode = 'open' | 'invite' | 'closed'
+export interface AuthConfig { accounts: boolean; signup: boolean; signupMode?: SignupMode; passwordReset?: boolean; passwordMin: number }
 /** sign-in calls report their own errors (a 401 here is "wrong password", not "go sign in") */
 async function authReq<T>(method: string, url: string, body?: unknown): Promise<T> {
   let res: Response
@@ -225,10 +226,30 @@ async function authReq<T>(method: string, url: string, body?: unknown): Promise<
 export const auth = {
   config: () => authReq<AuthConfig>('GET', '/api/auth/config'),
   me: () => authReq<Me>('GET', '/api/auth/me'),
-  signup: (email: string, password: string) => authReq<Me>('POST', '/api/auth/signup', { email, password }),
+  signup: (email: string, password: string, invite?: string) => authReq<Me>('POST', '/api/auth/signup', { email, password, ...(invite ? { invite } : {}) }),
+  forgot: (email: string) => authReq<{ ok: boolean }>('POST', '/api/auth/forgot', { email }),
+  reset: (token: string, password: string) => authReq<Me>('POST', '/api/auth/reset', { token, password }),
   login: (email: string, password: string) => authReq<Me>('POST', '/api/auth/login', { email, password }),
   logout: () => authReq<void>('POST', '/api/auth/logout'),
   logoutOthers: () => authReq<void>('POST', '/api/auth/logout-others'),
   changePassword: (current: string, next: string) => authReq<void>('POST', '/api/auth/password', { current, next }),
   deleteAccount: (password: string) => authReq<void>('POST', '/api/auth/delete-account', { password }),
+}
+
+// ---- admin console (accounts mode, admins only)
+export interface AdminOverview { users: number; admins: number; disabled: number; active7d: number; signups7d: number; bytes: number; runs: number; signupMode: SignupMode; defaultQuotaMb?: number; openWorkspaces: number }
+export interface AdminUser { id: string; email: string; createdAt: string; lastLogin?: string; disabled: boolean; isAdmin: boolean; quotaMb: number | null; effectiveQuotaMb: number | null; usage: { bytes: number; runs: number; lastRun?: string } }
+export interface AdminInvite { id: string; label: string; note?: string; createdAt: string; expiresAt: string; maxUses: number; uses: number; revoked: boolean; active: boolean }
+export const admin = {
+  overview: () => authReq<AdminOverview>('GET', '/api/admin/overview'),
+  users: (q = '', offset = 0) => authReq<{ users: AdminUser[]; total: number }>('GET', `/api/admin/users?q=${encodeURIComponent(q)}&offset=${offset}&limit=100`),
+  setDisabled: (id: string, disabled: boolean) => authReq<{ ok: boolean }>('POST', `/api/admin/users/${id}/disable`, { disabled }),
+  setAdmin: (id: string, isAdmin: boolean) => authReq<{ ok: boolean }>('POST', `/api/admin/users/${id}/admin`, { admin: isAdmin }),
+  resetPassword: (id: string) => authReq<{ password: string }>('POST', `/api/admin/users/${id}/reset-password`),
+  setQuota: (id: string, mb: number | null) => authReq<{ ok: boolean }>('PUT', `/api/admin/users/${id}/quota`, { mb }),
+  remove: (id: string) => authReq<void>('DELETE', `/api/admin/users/${id}`),
+  invites: () => authReq<AdminInvite[]>('GET', '/api/admin/invites'),
+  createInvite: (o: { maxUses: number; days: number; note?: string }) => authReq<{ invite: AdminInvite; code: string; link: string }>('POST', '/api/admin/invites', o),
+  revokeInvite: (id: string) => authReq<void>('DELETE', `/api/admin/invites/${id}`),
+  setSignupMode: (signupMode: SignupMode) => authReq<{ signupMode: SignupMode }>('PUT', '/api/admin/settings', { signupMode }),
 }

@@ -8,7 +8,8 @@ import { Engine } from './engine'
 import { SkillStore } from './skills'
 import { existsSync } from 'node:fs'
 import { Backups } from './backup'
-import { ACCOUNT_TABLES, AccountStore } from './accounts'
+import { ACCOUNT_TABLES, AccountStore, isSignupMode } from './accounts'
+import { smtpMailer } from './mail'
 import { Workspaces } from './workspaces'
 import { runAdmin } from './admin'
 
@@ -72,16 +73,27 @@ if (accountsMode) {
   accountBackups.recoverIfDamaged(join(dataDir, 'accounts.sqlite'))
   const accounts = new AccountStore(join(dataDir, 'accounts.sqlite'))
   const stopAccountBackups = accountBackups.schedule(accounts)
-  const quotaMb = Number(process.env.HZC_USER_QUOTA_MB)
+  const quotaEnv = Number(process.env.HZC_USER_QUOTA_MB)
+  const defaultQuotaMb = Number.isFinite(quotaEnv) && quotaEnv > 0 ? quotaEnv : 2048
   const workspaces = new Workspaces(dataDir, {
     secrets: secrets(), builtinSkills, maxParallel, backupKeep: backupOpts.keep, backupIntervalMs: backupOpts.intervalMs,
-    quotaBytes: (Number.isFinite(quotaMb) && quotaMb > 0 ? quotaMb : 2048) * 1024 * 1024,
+    // an admin can give one account its own limit; it applies at once
+    quotaBytes: (userId) => (accounts.getUser(userId)?.quotaMb ?? defaultQuotaMb) * 1024 * 1024,
+    onStorage: (userId, bytes) => accounts.recordStorage(userId, bytes),
+    onRun: (userId) => accounts.recordRun(userId),
   })
   const prune = setInterval(() => accounts.pruneSessions(), 3600_000)
   prune.unref()
-  appOpts = { ...common, accounts: { accounts, workspaces, signup: process.env.HZC_SIGNUP !== 'closed', secureCookies: process.env.HZC_SECURE_COOKIES === '1' ? true : 'auto' } }
+  // HZC_ADMIN_EMAILS: the operator's own accounts get the admin console (/admin)
+  const adminEmails = (process.env.HZC_ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+  accounts.promoteEmails(adminEmails)
+  const signupEnv = process.env.HZC_SIGNUP ?? 'open'
+  const signup = isSignupMode(signupEnv) ? signupEnv : 'open'
+  // HZC_SMTP_URL (+ HZC_MAIL_FROM): password-reset links by mail; links point at HZC_PUBLIC_URL
+  const mailer = process.env.HZC_SMTP_URL ? smtpMailer(process.env.HZC_SMTP_URL, process.env.HZC_MAIL_FROM || 'Haizhu Infinity Canvas <no-reply@localhost>') : undefined
+  appOpts = { ...common, accounts: { accounts, workspaces, signup, mailer, publicUrl: process.env.HZC_PUBLIC_URL || undefined, adminEmails, defaultQuotaMb, secureCookies: process.env.HZC_SECURE_COOKIES === '1' ? true : 'auto' } }
   closeData = () => { clearInterval(prune); stopAccountBackups(); workspaces.closeAll(); accounts.close() }
-  console.log(`[hzc] accounts mode: ${accounts.countUsers()} account(s); sign-up ${appOpts.accounts!.signup ? 'open' : 'closed'}`)
+  console.log(`[hzc] accounts mode: ${accounts.countUsers()} account(s), ${accounts.countAdmins()} admin(s); sign-up ${accounts.getSetting('signup') ?? signup}; password-reset mail ${mailer ? 'on' : 'off'}`)
 } else {
   // redundancy: a damaged database is set aside and the newest good backup takes its place; then a
   // consistent backup is written now (if the last one is stale) and every HZC_BACKUP_HOURS (default 6)

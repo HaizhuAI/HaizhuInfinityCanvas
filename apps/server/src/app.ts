@@ -20,7 +20,7 @@ import type { Backups, RecoveryNote } from './backup'
 import { installAuth, type AuthConfig } from './auth'
 import type { Workspace } from './workspaces'
 
-export const APP_VERSION = '1.0.0-rc.11'
+export const APP_VERSION = '1.0.0-rc.12'
 
 export interface AppOptions {
   /** single-user mode (desktop app, one WebUI): the one workspace. Absent in accounts mode. */

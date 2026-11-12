@@ -73,17 +73,19 @@ export class Engine {
   private chatAdapter?: HandlerCtx['chatAdapter']
   private pollDelays?: number[]
   private skills?: SkillStore
+  private onRun?: () => void
   /** provider calls that may be in flight at once, over all models (1 = one node at a time) */
   readonly maxParallel: number
 
   constructor(
     private store: Store,
     private assets: AssetStore,
-    opts: { chatAdapter?: HandlerCtx['chatAdapter']; /** test hook: provider polling schedule */ pollDelays?: number[]; skills?: SkillStore; maxParallel?: number } = {},
+    opts: { chatAdapter?: HandlerCtx['chatAdapter']; /** test hook: provider polling schedule */ pollDelays?: number[]; skills?: SkillStore; maxParallel?: number; /** usage counting (accounts mode) */ onRun?: () => void } = {},
   ) {
     this.chatAdapter = opts.chatAdapter
     this.pollDelays = opts.pollDelays
     this.skills = opts.skills
+    this.onRun = opts.onRun
     this.maxParallel = clampInt(opts.maxParallel, 1, MAX_PARALLEL_CAP) ?? DEFAULT_MAX_PARALLEL
   }
 
@@ -149,6 +151,7 @@ export class Engine {
     this.runs.set(run.id, run)
     this.active.set(projectId, run.id)
     queueMicrotask(() => void this.execute(run, graph, opts))
+    try { this.onRun?.() } catch { /* counting must never stop a run */ }
     return run.id
   }
 

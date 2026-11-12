@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, Palette, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Trash, X } from 'lucide-react'
+import { Boxes, ChevronRight, CircleUser, LogOut, MonitorSmartphone, Palette, ShieldCheck, CircleAlert, CircleCheck, Clapperboard, Cpu, ExternalLink, Download, FileArchive, FileUp, Info, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, RefreshCw, ScanSearch, Trash, X } from 'lucide-react'
 import { ADAPTERS, MODEL_KINDS, type AdapterId, type ModelKind, type ModelProfileInput, type ModelProfilePublic } from '@hzc/core'
 import { api, auth, getToken, setToken, type ConnTest, type SkillKind, type SkillMeta } from './api'
 import { useEscape } from './Overlays'
@@ -320,6 +320,12 @@ function AccountPane() {
         <h3>账号</h3>
         <div className="muted">{account ? <>已登录 <b data-testid="account-email">{account.email}</b> · 注册于 {new Date(account.createdAt).toLocaleDateString('zh-CN')}</> : '读取中…'}</div>
       </div>
+      {account?.isAdmin && (
+        <div className="field"><span>你是这个网站的管理员</span>
+          <div><a className="btn" href="/admin" data-testid="open-admin"><ShieldCheck />打开管理后台</a></div>
+          <span className="help">管理账号、注册方式、邀请链接和每个账号的存储上限。</span>
+        </div>
+      )}
       {storage && (
         <div className="field"><span>存储空间（素材与生成结果）</span>
           <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="已用存储空间" style={{ '--p': `${pct}%`, '--c': pct > 90 ? 'var(--danger)' : pct > 75 ? 'var(--warn)' : 'var(--accent)' } as React.CSSProperties}><span /></div>
@@ -532,7 +538,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.11。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.12。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>

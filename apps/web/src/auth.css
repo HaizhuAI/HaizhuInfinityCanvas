@@ -30,3 +30,7 @@
 .auth-trust svg { flex: none; width: 15px; height: 15px; margin-top: 2px; }
 .auth .spin { width: 18px; height: 18px; }
 @media (max-width: 480px) { .auth-card { padding: 26px 20px 22px; } .lp.auth h1 { font-size: 23px; } }
+.auth-note.ok { display: flex; gap: 10px; align-items: flex-start; border-color: rgba(63, 185, 80, .35); }
+.auth-note.ok svg { flex: none; width: 18px; height: 18px; margin-top: 3px; color: #56d364; }
+.auth-link { padding: 0; border: 0; background: none; color: var(--lp-ink); font: 500 13px var(--font); cursor: pointer; text-decoration: underline; text-decoration-color: rgba(239, 240, 241, .35); text-underline-offset: 4px; }
+.auth-link:hover { text-decoration-color: currentColor; }
