@@ -16,6 +16,7 @@
 | 短片导演（`director-short-film`） | 剧情短片、氛围短片、概念预告 |
 | 产品广告导演（`director-product-ad`） | 电商视频、社媒投放、新品预热：3 秒钩子、产品主镜头、卖点、结尾留白 |
 | 剧本拆分镜（`storyboard-from-script`） | 已经定稿的剧本或口播文案，忠实拆分，不改台词 |
+| 短剧分镜（shuohao）（`short-drama-storyboard`，rc.19） | AI 短剧：每个镜头是一段 ≤15 秒的视频生成、段内 2–5 秒一切；首帧提示词直呼 `@角色`；视频提示词按 Seedance 官方结构写（逐切量化构图、台词 `{}`、音效 `<>`、无字幕约束）。方法学自 [shuohao-skills](https://github.com/eternityspring/shuohao-skills)（Apache-2.0），见[短剧工坊](./short-drama.md) |
 
 每个 Skill 都强调**角色/产品一致性**：要求模型在每个镜头的图片提示词里重复同一段外观描述和风格描述，这样逐个生成的镜头更像同一部片子。
 
@@ -40,6 +41,7 @@ metadata:
 - `name`：1–64 个小写字母、数字和单个连字符，不能以连字符开头或结尾。
 - `description`：必填，不超过 1024 字。
 - `metadata.hzc-kind: director` 让它排在导演节点 Skill 列表的最前面；`hzc-label` 是显示名。
+- `metadata.hzc-max-duration`（rc.19 起，可选）：每个镜头最长几秒，5–60，默认 10。视频模型单段能生成更长时（如 Seedance 2 的 15 秒）再调大。
 - 在「设置 → 导演 Skill → 导入 Skill」粘贴或选择文件即可。你不需要写输出格式——画布会自动附加严格的 JSON 输出要求。
 - 修改 Skill 后，使用它的导演节点再次运行时会重新生成，不会复用旧结果。
 - 只使用 Skill 里的文字指令。Skill 文件夹里即使带有脚本，也**不会被执行**。

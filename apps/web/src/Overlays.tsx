@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { BookmarkPlus, BoxSelect, CircleAlert, Group as GroupIcon, Ungroup, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Info, Maximize, Play, Plus, Trash, Undo2, X } from 'lucide-react'
+import { BookmarkPlus, BoxSelect, Clapperboard, CircleAlert, Group as GroupIcon, Ungroup, ClipboardPaste, Copy, CopyPlus, Crosshair, Download, GitCompareArrows, Keyboard, LayoutDashboard, Info, Maximize, Play, Plus, Trash, Undo2, X } from 'lucide-react'
 import { tidyCanvas } from './Chrome'
 import { canPaste, copySelection, duplicateSelection, paste } from './clipboard'
 import { undo } from './history'
 import { NODE_TYPE_MAP, isGroup, type ModelKind } from '@hzc/core'
+import { pickDramaFiles } from './myTemplates'
 import { CATEGORY_COLOR, KIND_COLOR, KIND_ICON, KIND_LABEL, NODE_ICON } from './icons'
 import { enterOverlay, enterToast } from './motion'
 import { preflight, type Issue } from './preflight'
@@ -185,12 +186,30 @@ export function ToastView() {
 /** Inside the React Flow provider: bring requested nodes into view; Shift+1 fits the canvas. */
 export function CanvasHelpers() {
   const req = useStore((s) => s.focusRequest)
-  const { fitView } = useReactFlow()
+  const { fitView, setViewport } = useReactFlow()
   useEffect(() => {
     // two frames: nodes added in the same tick must be measured first. Never zoom out so far that the
     // nodes' text and buttons stop being drawn (below 40 %).
-    if (req) requestAnimationFrame(() => requestAnimationFrame(() => void fitView({ nodes: req.ids.map((id) => ({ id })), maxZoom: 1, minZoom: req.ids.length > 1 ? 0.42 : 0.5, padding: req.ids.length > 1 ? 0.12 : 0.6, duration: 400 })))
-  }, [req, fitView])
+    if (!req) return
+    const minZoom = req.ids.length > 1 ? 0.42 : 0.5
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const ns = req.ids.flatMap((id) => useStore.getState().nodes.filter((n) => n.id === id))
+      const box = document.querySelector('.react-flow')?.getBoundingClientRect()
+      // too big to fit at a readable zoom (an imported drama, a long storyboard): start at its top-left,
+      // where it begins, instead of somewhere in its middle
+      if (box && ns.length > 1) {
+        const size = (n: (typeof ns)[number]) => n.measured?.width ? { w: n.measured.width, h: n.measured.height ?? 240 } : (n.data as { size?: { w: number; h: number } }).size ?? { w: 320, h: 300 }
+        const x0 = Math.min(...ns.map((n) => n.position.x)), y0 = Math.min(...ns.map((n) => n.position.y))
+        const x1 = Math.max(...ns.map((n) => n.position.x + size(n).w)), y1 = Math.max(...ns.map((n) => n.position.y + size(n).h))
+        const pad = 48
+        if (Math.min((box.width - pad * 2) / Math.max(1, x1 - x0), (box.height - pad * 2) / Math.max(1, y1 - y0)) < minZoom) {
+          void setViewport({ x: pad - x0 * minZoom, y: pad - y0 * minZoom, zoom: minZoom }, { duration: 400 })
+          return
+        }
+      }
+      void fitView({ nodes: req.ids.map((id) => ({ id })), maxZoom: 1, minZoom, padding: req.ids.length > 1 ? 0.12 : 0.6, duration: 400 })
+    }))
+  }, [req, fitView, setViewport])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -273,6 +292,8 @@ export function ContextMenu({ menu, onClose }: { menu: NonNullable<CtxMenu>; onC
           {item('适应画布', Maximize, () => void fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 'Shift 1', { disabled: !st.nodes.length })}
           {item('整理画布', LayoutDashboard, () => tidyCanvas(fitView), undefined, { disabled: st.nodes.length < 2, testid: 'ctx-tidy' })}
           {item('撤销', Undo2, () => { undo() }, `${MOD} Z`, { disabled: !st.canUndo })}
+          <div className="menu-sep" />
+          {item('导入短剧工程（shuohao-skills）…', Clapperboard, () => pickDramaFiles((files) => void st.importDrama(files)), undefined, { testid: 'ctx-import-drama' })}
         </>
       )}
     </div>

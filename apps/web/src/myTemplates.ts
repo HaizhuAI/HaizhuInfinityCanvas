@@ -49,3 +49,21 @@ export function instantiate(g: ProjectGraph, at: { x: number; y: number }): Proj
     edges: g.edges.filter((e) => map.has(e.source) && map.has(e.target)).map((e) => ({ ...e, id: `e_${uid()}`, source: map.get(e.source)!, target: map.get(e.target)! })),
   }
 }
+
+/** open a file picker for a shuohao-skills project (outline / cast / art / script / storyboard JSON) and import it */
+export function pickDramaFiles(onFiles: (files: File[]) => void) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json,application/json'
+  input.multiple = true
+  input.hidden = true
+  input.dataset.testid = 'drama-files'
+  // some browsers only open the picker for an input that is in the page
+  document.body.appendChild(input)
+  const done = () => { input.remove(); window.removeEventListener('focus', later) }
+  const later = () => setTimeout(() => { if (!input.files?.length) done() }, 1000)
+  input.onchange = () => { const files = Array.from(input.files ?? []); done(); if (files.length) onFiles(files) }
+  input.oncancel = done
+  window.addEventListener('focus', later)
+  input.click()
+}

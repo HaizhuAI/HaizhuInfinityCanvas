@@ -10,7 +10,7 @@ import type { Engine } from './engine'
 import type { SkillStore } from './skills'
 import { extractFrame, ffmpegInfo, probe, run as runCmd, withTemp } from './media'
 import {
-  AGENT_PARAMS, CanvasEditError, TEXT_TYPES, addToGraph, groupInGraph, hubFor, removeFromGraph, updateInGraph,
+  AGENT_PARAMS, CanvasEditError, TEXT_TYPES, addToGraph, groupInGraph, hubFor, importDrama, removeFromGraph, updateInGraph,
   type EdgeSpec, type NodePatch, type NodeSpec,
 } from './agent'
 
@@ -304,6 +304,35 @@ const TOOLS: Tool[] = [
       const r = groupInGraph(p.graph, ids(a.node_ids) ?? [], s(a.name) ?? '分组')
       saveGraph(ctx, p.id, r.graph)
       return { group_id: r.id }
+    },
+  },
+  {
+    name: 'import_drama', title: '导入短剧工程',
+    description: 'Bring a short-drama project made with the shuohao-skills pipeline onto a canvas: outline / cast / art / script / storyboard JSON (any subset). Characters, scenes and props become subjects (@name), each storyboard segment a group with one keyframe image node per cut and one video node with its prompt (Seedance structure, or the file\'s H3 prompt for MiniMax H3), and an export node with the segments in order. Give the files as JSON objects, or as absolute local paths on this machine.',
+    inputSchema: {
+      type: 'object', required: ['project_id'],
+      properties: {
+        project_id: projectId,
+        files: { type: 'object', description: 'any of outline, cast, art, script, storyboard: the parsed JSON (or its text)', properties: { outline: {}, cast: {}, art: {}, script: {}, storyboard: {} } },
+        paths: { type: 'array', items: { type: 'string' }, description: 'absolute paths of the JSON files (each recognised by its shape; desktop / local server only)' },
+        protocol: { type: 'string', enum: ['seedance', 'h3'], description: 'default: follows the first video model' },
+      },
+    },
+    run: async (a, ctx) => {
+      const p = project(ctx, a)
+      let files: unknown = a.files
+      const paths = ids(a.paths)
+      if (paths?.length) {
+        if (!ctx.localFiles) throw new ToolError('这个服务不在你的电脑上：请把文件内容放在 files 里')
+        files = paths.slice(0, 10).map((f) => {
+          if (!isAbsolute(f) || !existsSync(f) || !statSync(f).isFile()) throw new ToolError(`找不到文件 ${f}（需要绝对路径）`)
+          if (statSync(f).size > 20 * 1024 * 1024) throw new ToolError(`${f} 超过 20 MB`)
+          return readFileSync(f, 'utf8')
+        })
+      }
+      const r = importDrama(ctx, p.graph, files, a.protocol)
+      saveGraph(ctx, p.id, r.graph)
+      return { imported: r.kinds, ...r.counts, protocol: r.protocol, ...(r.warnings.length ? { warnings: r.warnings } : {}), hint: 'Subjects can get reference pictures in the app (subject node → 生成参考图组); run the keyframes first, then the videos.' }
     },
   },
   {

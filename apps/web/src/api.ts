@@ -225,6 +225,8 @@ export const api = {
     req<{ prompt: string; family: string; familyLabel: string; skill?: string }>('POST', '/api/prompt/optimize', body),
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
+  importDrama: (projectId: string, files: string[], protocol?: 'seedance' | 'h3') =>
+    req<{ counts: { subjects: number; segments: number; cuts: number; groups: number; skippedSegments: number }; warnings: string[]; protocol: string; files: string[]; rev: string }>('POST', `/api/projects/${projectId}/import-drama`, { files, protocol }),
   activeRun: (projectId: string) => req<{ runId: string | null }>('GET', `/api/projects/${projectId}/run`),
   listAssets: (kind?: 'image' | 'video' | 'audio') => req<AssetMeta[]>('GET', `/api/assets${kind ? `?kind=${kind}` : ''}`),
   system: (refresh = false) => req<SystemInfo>('GET', `/api/system${refresh ? '?refresh=1' : ''}`),

@@ -100,7 +100,7 @@ function genInput(ctx: HandlerCtx): { prompt: string; subjectImages: string[] } 
 }
 
 /** what the result should not contain (the 负面词 port, e.g. from a reverse node) */
-const genNegative = (ctx: HandlerCtx) => valuesToText(ctx.inputs.negative).trim()
+const genNegative = (ctx: HandlerCtx) => valuesToText(ctx.inputs.negative).trim() || str(ctx.node.data.params?.negative).trim()
 
 function extraParams(ctx: HandlerCtx): Record<string, unknown> {
   const raw = ctx.node.data.params?.extra
@@ -217,13 +217,13 @@ export function reverseSkillContract() {
 }
 
 /** Appended to every director skill: the machine-readable contract the canvas relies on. */
-export function directorContract(o: { shots: number; lang: 'zh' | 'en'; aspect?: string; style?: string }) {
+export function directorContract(o: { shots: number; lang: 'zh' | 'en'; aspect?: string; style?: string; maxDuration?: number }) {
   return [
     '## 输出格式（必须严格遵守）',
     '只输出一个 JSON 对象，不要任何解释，不要 Markdown 代码块。结构如下：',
     '{"title": "片名", "shots": [{"title": "镜头小标题", "visual": "画面内容", "camera": "景别与运镜", "dialogue": "台词或旁白，没有则为空字符串", "duration": 5, "image_prompt": "文生图提示词", "video_prompt": "图生视频提示词"}]}',
     `- shots 恰好 ${o.shots} 个，按播放顺序排列。`,
-    '- duration 是 2 到 10 之间的整数（秒）。',
+    `- duration 是 2 到 ${o.maxDuration ?? 10} 之间的整数（秒）。`,
     `- image_prompt 和 video_prompt 用${o.lang === 'en' ? '英文' : '中文'}书写；title、visual、camera、dialogue 用中文。`,
     o.aspect ? `- 画面比例为 ${o.aspect}，按这个比例设计构图。` : '',
     o.style ? `- 整体视觉风格：${o.style}。把它写进每个 image_prompt。` : '',
@@ -338,7 +338,9 @@ export const HANDLERS: Record<string, Handler> = {
     const shots = Math.min(12, Math.max(1, Math.round(Number(p.shots ?? 6)) || 6))
     const lang = p.lang === 'en' ? 'en' : 'zh'
     const aspect = (ASPECT_RATIOS as readonly string[]).includes(p.aspect_ratio as string) ? (p.aspect_ratio as string) : undefined
-    const system = `${ctx.skills!.instructions(skillName) ?? skill.body}\n\n${directorContract({ shots, lang, aspect, style: str(p.style) || undefined })}`
+    // a skill can allow longer shots (a short-drama segment is one generation of up to 15 s)
+    const maxDuration = Math.min(60, Math.max(5, Number(skill.metadata?.['hzc-max-duration']) || 10))
+    const system = `${ctx.skills!.instructions(skillName) ?? skill.body}\n\n${directorContract({ shots, lang, aspect, style: str(p.style) || undefined, maxDuration })}`
     const ask = `请为下面的内容设计 ${shots} 个镜头的分镜：\n\n${idea}`
     let reply = await chat(ctx, ask, { system })
     try {

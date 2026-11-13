@@ -870,6 +870,10 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .subj-add { aspect-ratio: 1; display: grid; place-items: center; border: 1px dashed var(--line-3); border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .subj-add:hover { color: var(--text); border-color: var(--text-2); }
 .subj-add svg { width: 16px; height: 16px; }
+/* 生成参考图组 (rc.19) */
+.subj-refset { display: flex; align-items: center; gap: 6px; }
+.subj-refset select { height: 24px; padding: 0 22px 0 8px; font-size: 12px; flex: 0 0 auto; width: auto; background-position: right 6px center; }
+.subj-refset .btn { flex: 1; justify-content: center; }
 .hint.warn { color: var(--warn, var(--muted)); }
 .hint code { font: 500 11.5px var(--mono); color: var(--text); }
 .mention-wrap { position: relative; display: grid; }

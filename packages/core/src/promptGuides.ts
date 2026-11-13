@@ -55,11 +55,16 @@ const VIDEO_BASE = [
 ]
 
 const GUIDES: Record<PromptFamily, string[]> = {
+  // Seedance and MiniMax H3: the official guides as distilled by shuohao-skills (novel-storyboard's
+  // shot-writing / seedance-prompt / h3-prompt references, Apache-2.0; see THIRD_PARTY_NOTICES.md)
   seedance: [
-    ...VIDEO_BASE,
-    '用自然的完整句子，不要关键词列表；单镜头四五句话即可（约 100–180 个汉字或 60–100 个英文词）。',
-    '多镜头时按时间段写（如「0–5 秒：…」「5–10 秒：…」），并写明转场方式（硬切、匹配剪辑、甩镜）。',
-    '不需要对白或配乐时明确写出「无对白、无背景音乐」，否则模型可能自行添加。',
+    '整条用中文写；多镜头用【镜头1】【镜头2】按顺序写，不写秒数和时间码（官方：模型对精确时间支持不稳定，节奏交给模型）。',
+    '每个镜头只写一个运镜（推、拉、跟拍、固定镜头……），按「运镜 → 主体动作与表情 → 位置或空间变化」写。',
+    '人物用通用身份（「一名穿藏青学生装的年轻女子」），不写角色姓名；身份、语气、是否画外音写在台词外面。',
+    '台词逐字放进 {}，音效用 <>，配乐用（）；不需要对白或配乐时写明「无对白、无背景音乐」。',
+    '动作要在这几秒内做得完：肢体细化加程度（缓慢抬手、微微低头），优先低缓连续的小动作，写出前后动作的承接；情绪写成身体细节（低头、肩膀微颤），不写「很悲伤」。',
+    '构图写成可量化的：焦距与景深（50mm 标准，中浅景深）、机位、构图法、视线落点、焦点、稳定性；多人同框时写清谁在左谁在右、相距多远。',
+    '不写画风词（电影感、色调名）；末尾加约束「保持无字幕」，多人同框时加「禁止出现外形、着装、配饰完全一致的人物」。',
   ],
   kling: [
     '顺序：整体风格 → 人物 / 物体（外观要具体）→ 镜头与动作。',
@@ -79,9 +84,12 @@ const GUIDES: Record<PromptFamily, string[]> = {
     '控制在 2000 字以内。',
   ],
   'hailuo-h3': [
-    ...VIDEO_BASE,
-    '运镜可以在关键描述后加方括号命令，如 [pan] [zoom] [static]。',
-    '有参考素材时写清每个参考的用途，例如「动作参考视频 1，外貌参考图片 1」。',
+    '官方口径整条英文；人物用通用身份（an old ferryman），不写角色姓名；只有台词、歌词和画面里的文字保留原文。',
+    '结构三段：integrated_multimodal_description:（每个镜头独立一行，[Shot 1] 开头，后面的镜头以 At 00:03.000, the camera cuts to … 开头）、overall_soundscape:（环境声与动作声 1–4 句，不复述台词）、non_diegetic_music:（配器与速度，没有写 N/A）。',
+    '有多张参考图时，第一行写对齐：Picture k (from Shot k) aligns with the X.XX-second mark of the target video；每个镜头先用 <Picture k> 锚定构图和人物状态，再写动作。',
+    '台词逐字放进 <d>[Chinese] …</d>，说话人的身份、音色、语气写在 <d> 外面；画外音写 says in an off-screen voiceover … while their lips remain completely closed。',
+    '每个镜头一个运镜，用官方词（static shot / push in / pull out / tracking shot / pan left …），写在自己那一行；动作要在这几秒内做得完，情绪写成身体细节。',
+    '不写画风句——画风由调用方统一附加。',
   ],
   runway: [
     '用简洁的英文句子描述画面里发生的运动与镜头运动。',
@@ -127,7 +135,7 @@ const GUIDES: Record<PromptFamily, string[]> = {
 export const promptGuide = (family: PromptFamily): string[] => [...GUIDES[family]]
 
 /** families whose models follow English best when the user leaves the language on auto */
-const ENGLISH_FIRST = new Set<PromptFamily>(['runway', 'flux', 'sd'])
+const ENGLISH_FIRST = new Set<PromptFamily>(['runway', 'flux', 'sd', 'hailuo-h3'])
 
 export interface OptimizeInput {
   family: PromptFamily

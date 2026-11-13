@@ -15,7 +15,7 @@
 
 <p align="center"><img src="docs/images/pipeline.webp" alt="画布上的一条完整流程：参考图反推、出图、生成视频和配音，右侧是所选节点的属性" width="100%"></p>
 
-- 当前版本：**v1.0.0-rc.18**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
+- 当前版本：**v1.0.0-rc.19**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
 - 源码状态：**公开仓库（源码可见）**，但尚未授予开源许可，保留所有权利（见 [LICENSE](./LICENSE)）
 - 目标平台：网页版（浏览器 / Docker，可开启注册登录部署成多人网站）· Windows 桌面版 · macOS 桌面版（Apple 芯片 / Intel）· Linux 桌面版（x64 / arm64）
 
@@ -76,6 +76,7 @@
 9. **安全与冗余**：网页部署防跨站请求、DNS 重绑定、SSRF 与令牌暴力猜测；数据库自动备份、损坏时自动从备份恢复，保存失败的修改留在浏览器里自动重试（见[部署指南](./docs/03-guide/projects-and-desktop.md#安全部署清单)）。
 10. **可部署成网站（SaaS）**：开启账号模式后访客可注册登录，每人一个独立空间（自己的数据库与文件夹），自带模型 Key，管理员命令行管理账号（见[多人网站部署](./docs/03-guide/saas-deployment.md)）。
 11. **让 Agent 操作画布（MCP）**：一条命令把桌面版加到 Claude Code，像本地 MCP 一样使用：让 Claude 搭节点、写提示词、预估费用、运行并查看结果，画布实时显示它的改动（见[Agent 接入](./docs/03-guide/agent-mcp.md)）。
+12. **短剧工坊**：主体一键生成参考图组（锚点先出、其余视图只参考锚点，出完自动放进主体）；导入 [shuohao-skills](https://github.com/eternityspring/shuohao-skills) 的短剧工程，角色场景变成主体、每段一个分组、分镜图和 Seedance / H3 段视频接好线、导出时间线排好顺序；内置「短剧分镜」导演 Skill。Claude Code 用 shuohao-skills 改编完，一句话就能把整个工程导入画布（见[短剧工坊](./docs/03-guide/short-drama.md)）。
 
 
 ## 文档导航
@@ -93,13 +94,14 @@
 | [docs/01-architecture/ADR-0005-graphite-design-system.md](./docs/01-architecture/ADR-0005-graphite-design-system.md) | 「石墨」设计系统：去掉 AI 感（Galaxy 组件 + Taste Skill 准则；rc.11 起） |
 | [docs/01-architecture/ADR-0004-editing-handoff.md](./docs/01-architecture/ADR-0004-editing-handoff.md) | 剪辑工坊：1.0 交付 Shotcut / MLT 剪辑工程，OpenReel 嵌入延后 |
 | [docs/02-roadmap/roadmap.md](./docs/02-roadmap/roadmap.md) | 版本规划与里程碑 |
-| [docs/02-roadmap/optimization-plan-2026-11.md](./docs/02-roadmap/optimization-plan-2026-11.md) | 优化方案（2026-11）：流畅、灵活、兼容、提示词与 Skill 的目标与 rc.14–rc.21 安排 |
+| [docs/02-roadmap/optimization-plan-2026-11.md](./docs/02-roadmap/optimization-plan-2026-11.md) | 优化方案（2026-11）：流畅、灵活、兼容、提示词与 Skill 的目标与 rc.14–rc.22 安排 |
 | [docs/02-roadmap/build-matrix.md](./docs/02-roadmap/build-matrix.md) | Windows / macOS / Linux / 网页版的构建与启动测试 |
 | [docs/brand/](./docs/brand/) | 标志（SVG 与应用图标） |
 | [docs/03-guide/canvas-basics.md](./docs/03-guide/canvas-basics.md) | 使用指南：添加与编辑节点、画布助手、多模型对比、我的画布、提示词库、撤销 / 复制粘贴 / 右键菜单、快捷键、运行前检查与出错处理 |
 | [docs/03-guide/model-profiles.md](./docs/03-guide/model-profiles.md) | 使用指南：添加模型与测试连接、提示词反推与反推 Skill、图片/视频/语音生成、费用预估 |
 | [docs/03-guide/model-providers.md](./docs/03-guide/model-providers.md) | 使用指南：接入各家服务商（火山方舟、百炼万相、可灵、MiniMax、智谱、硅基流动、Runway、ElevenLabs、Gemini…）与参数怎么传 |
 | [docs/03-guide/director-skills.md](./docs/03-guide/director-skills.md) | 使用指南：导演 Skill、分镜展开、快速添加 |
+| [docs/03-guide/short-drama.md](./docs/03-guide/short-drama.md) | 使用指南：短剧工坊——主体参考图组、导入 shuohao-skills 短剧工程、短剧分镜 Skill、和 Claude Code 一起用 |
 | [docs/03-guide/agent-mcp.md](./docs/03-guide/agent-mcp.md) | 使用指南：让 Claude Code 等 Agent 操作画布（MCP）：桌面版一条命令导入、WebUI / 多人网站用 HTTP + 密钥、工具列表、费用确认与安全 |
 | [docs/03-guide/video-and-export.md](./docs/03-guide/video-and-export.md) | 使用指南：FFmpeg、视频提示词反推、导出成片、剪辑工程 |
 | [docs/03-guide/projects-and-desktop.md](./docs/03-guide/projects-and-desktop.md) | 使用指南：项目包、桌面版数据与 API Key 保护、WebUI / Docker 部署、安全部署清单、数据备份与恢复 |
@@ -138,6 +140,7 @@ WebUI 容器部署：复制 `.env.example` 为 `.env` 并设置 `HZC_TOKEN`，�
 - **Director skill and storyboard table**: an idea becomes shots, which expand into image, video and voice nodes.
 - **Subjects**: name a character or product, give it reference pictures and mention it as `@name` to keep shots consistent.
 - **Timeline and groups**: order and trim clips before export; frame nodes in groups and save them as templates.
+- **Short-drama workshop**: one click makes a subject's reference sheet (an anchor first, the other views from the anchor only, filled into the subject). Import a short-drama project made with [shuohao-skills](https://github.com/eternityspring/shuohao-skills): characters and scenes become subjects, each segment a group with keyframes and a Seedance / H3 video, the export timeline in order. Claude Code can do the adaptation with shuohao-skills and import the whole project in one step.
 - **Providers**: Volcano Ark (Seedance), Alibaba Bailian (Wan), Kling, MiniMax, Zhipu, SiliconFlow, Runway and ElevenLabs have native adapters. OpenAI-compatible APIs, Replicate, fal and local models (Ollama) also work.
 - **Claude Code (MCP)**: one command adds the desktop app to Claude Code as a local MCP server. Claude builds nodes, writes prompts and estimates the cost; it only runs after you agree. The open canvas shows every change live. The web version connects over HTTP with a key.
 - **Runs everywhere**: Windows, macOS (Apple silicon and Intel), Linux (x64 and arm64), web / Docker, and a multi-user site with sign-up and private workspaces.

@@ -2,7 +2,8 @@ import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  ASPECT_RATIOS, GROUP_TYPE, MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KINDS, checkConnection, isGroup, isSubjectName, tidyLayout, timelineOf,
+  ASPECT_RATIOS, DRAMA_FILE_KINDS, GROUP_TYPE, MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KINDS, checkConnection, detectDramaFile, dramaToGraph, isGroup, isSubjectName, subjectsOf, tidyLayout, timelineOf,
+  type DramaFileKind, type DramaFiles,
   type GraphEdge, type GraphNode, type ModelProfile, type ProjectGraph,
 } from '@hzc/core'
 import { writeAtomic } from './fsutil'
@@ -105,11 +106,13 @@ type Rule = (v: unknown, ctx: { skills: string[] }) => unknown
 export const AGENT_PARAMS: Record<string, Record<string, { rule: Rule; hint: string }>> = {
   'image-gen': {
     aspect_ratio: { rule: aspect, hint: ASPECT_RATIOS.join(' | ') },
+    negative: { rule: text(2000), hint: 'what to avoid (used when nothing is wired into the negative port)' },
     count: { rule: (v) => intIn(v, 1, 4), hint: '1–4 results per run (each is a paid call)' },
     extra: { rule: extra, hint: 'provider-specific JSON object, merged last' },
   },
   'video-gen': {
     aspect_ratio: { rule: aspect, hint: ASPECT_RATIOS.join(' | ') },
+    negative: { rule: text(2000), hint: 'what to avoid (used when nothing is wired into the negative port)' },
     duration: { rule: (v) => intIn(v, 1, 60), hint: 'seconds (most models: 5 or 10)' },
     count: { rule: (v) => intIn(v, 1, 4), hint: '1–4 results per run (each is a paid call)' },
     extra: { rule: extra, hint: 'provider-specific JSON object, merged last' },
@@ -337,4 +340,43 @@ export function groupInGraph(graph: ProjectGraph, nodeIds: string[], name: strin
   }
   // frames first: drawn under the nodes
   return { graph: { ...graph, nodes: [frame, ...graph.nodes] }, id }
+}
+
+/**
+ * Bring a short-drama project made with shuohao-skills (outline / cast / art / script / storyboard JSON)
+ * onto a canvas, to the right of what is there. `files` is either { kind: json } or a list of JSON
+ * values (each recognised by its shape); strings are parsed. The video prompts follow the first video
+ * model: MiniMax H3 gets the file's H3 prompt, everything else the composed Seedance prompt.
+ */
+export function importDrama(c: EditContext, graph: ProjectGraph, filesIn: unknown, protocolIn?: unknown) {
+  const files: DramaFiles = {}
+  const take = (raw: unknown, hint?: string) => {
+    let v = raw
+    if (typeof raw === 'string') { try { v = JSON.parse(raw) } catch { throw new CanvasEditError('有一个文件不是合法的 JSON') } }
+    const kind = (DRAMA_FILE_KINDS as readonly string[]).includes(hint ?? '') ? (hint as DramaFileKind) : detectDramaFile(v)
+    if (!kind) throw new CanvasEditError('认不出这个文件：需要 shuohao-skills 输出的 outline / cast / art / script / storyboard JSON')
+    files[kind] = v
+  }
+  if (Array.isArray(filesIn)) filesIn.slice(0, 10).forEach((f) => take(f))
+  else if (filesIn && typeof filesIn === 'object') for (const [k, v] of Object.entries(filesIn as Record<string, unknown>).slice(0, 10)) if (v !== undefined && v !== null) take(v, k)
+  const profiles = c.store.listProfiles()
+  const video = profiles.find((p) => p.kind === 'video'), image = profiles.find((p) => p.kind === 'image')
+  const protocol = protocolIn === 'h3' || protocolIn === 'seedance' ? protocolIn : /h3/i.test(video?.model ?? '') ? 'h3' : 'seedance'
+  const placed = graph.nodes.filter((n) => !isGroup(n))
+  const origin = placed.length ? { x: Math.max(...placed.map((n) => n.position.x)) + 600, y: Math.min(...placed.map((n) => n.position.y)) } : { x: 0, y: 0 }
+  const r = dramaToGraph(files, {
+    protocol, origin, newId: (p) => `${p}_${randomBytes(6).toString('hex')}`,
+    existingSubjects: subjectsOf(graph).map((s) => s.name),
+  })
+  if (graph.nodes.length + r.nodes.length > MAX_NODES) throw new CanvasEditError(`导入后画布会超过 ${MAX_NODES} 个节点：请分批导入（例如每次一集的分镜）`)
+  for (const n of r.nodes) {
+    if (n.type === 'image-gen' && image) n.data.profileId = image.id
+    if (n.type === 'video-gen' && video) n.data.profileId = video.id
+  }
+  const frames = r.nodes.filter(isGroup), rest = r.nodes.filter((n) => !isGroup(n))
+  return {
+    graph: { version: 1 as const, nodes: [...frames, ...graph.nodes, ...rest], edges: [...graph.edges, ...r.edges] },
+    counts: r.counts, warnings: [...r.warnings, ...(!video && r.counts.segments ? ['还没有视频模型：视频节点没有绑定模型，添加后在节点上选择'] : [])],
+    protocol, kinds: Object.keys(files) as DramaFileKind[],
+  }
 }

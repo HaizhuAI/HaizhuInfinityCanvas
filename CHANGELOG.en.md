@@ -4,6 +4,73 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.19] — 2026-11-13 (release candidate, code complete, not tagged)
+
+"Short-drama workshop": as you asked, the methods of [shuohao-skills](https://github.com/eternityspring/shuohao-skills) (by 烁皓, Apache-2.0), a set of skills that adapt novels into AI short dramas, are now part of the canvas, and the canvas reads what they produce. You can work on the canvas alone (reference sets, the short-drama storyboard skill), or let Claude Code do the adaptation with shuohao-skills and import the result in one step to make the pictures and videos. The planned "batch and review" moves to rc.20.
+
+### Added
+- **"Make a reference set" on subjects** (method from character-refs): pick "anime" or "realistic photo" at the bottom of a subject node and click the button.
+  - A character gets a full-body front view (the anchor), then a face close-up, a 90° side view and a back view. A product gets a front view, then a side view and a detail close-up. A scene gets one empty wide view (16:9).
+  - The canvas puts a group to the right of the subject with one image node per view (prompt, negative prompt and aspect ratio already written) and **runs only the anchor first**. When that run ends, a notice offers "make the other views". The other views **reference only the anchor**, never each other, so drift does not build up.
+  - Each picture goes into the subject when it is done, in view order (up to 4; pictures you added yourself stay after them). Generating a view again replaces its earlier picture.
+- **Import a short-drama project**: press `/` and search for 短剧, or right-click an empty part of the canvas and choose "导入短剧工程（shuohao-skills）…". Select several JSON files at once.
+  - outline / cast / art / script / storyboard are recognised by their content; any of them can be missing.
+  - Characters, scenes and props become subjects. Their descriptions come from the picture prompts in cast / art, or from the outline's personas when those are missing. A subject that already exists under the same name is not created again.
+  - Each segment becomes a group, and each cut becomes a keyframe node, with character names written as `@name`.
+  - Each segment also gets a video node:
+    - its length is the sum of its cuts;
+    - with several cuts, the keyframes are wired in order into "reference pictures"; with one cut, into "first frame";
+    - the prompt follows Seedance's official structure: blocking; then per cut the lens, camera position, composition, camera move, shot size, picture, dialogue `{}`, eyeline, focus, stability and sound; then ambience `<>`, music `（）`, and the no-subtitles and "no identical-looking people" constraints;
+    - dialogue is copied word for word from the script;
+    - when the first video model is MiniMax H3, the H3 prompt from the file is used instead.
+  - One export node, its timeline in storyboard order.
+  - The import goes to the right of what is on the canvas and is bound to your first image and video models. At most 60 segments are imported at once, and importing runs nothing. Afterwards the view moves to the start of the import (the subjects and the first segment).
+- **MCP tool `import_drama`**: an agent passes the JSON content or, on the desktop app or a local server, absolute file paths. There are now 19 tools.
+- **Built-in director skill "短剧分镜（shuohao）"**:
+  - every shot is one video generation of up to 15 seconds, cut every 2–5 seconds;
+  - first-frame prompts name `@characters`;
+  - video prompts follow the Seedance structure, and dialogue is kept word for word.
+
+  The three reference files from shuohao-skills (shot writing, Seedance, H3) are given to the model unchanged.
+- Skills can set `metadata.hzc-max-duration`: the longest a director skill's shot may be (5–60 seconds, default 10).
+- Image and video generation nodes have a **negative prompt** field in the inspector. It is used when nothing is wired into the negative port.
+- A new guide, [短剧工坊](./docs/03-guide/short-drama.md). The canvas basics, director skill and agent guides cover the new parts.
+
+### Changed
+- The prompt optimiser's rules for **Seedance** and **MiniMax H3** were rewritten from the official guidance as shuohao-skills collects it:
+  - Seedance: Chinese, 【镜头k】 cuts, one camera move per cut, generic identities instead of names, three sound layers `{}` `<>` `（）`, quantified composition, no style words, a constraints block.
+  - H3: English, three sections, picture alignment, dialogue in `<d>[Chinese]`, the official camera words.
+- A video node's length menu now shows lengths set by an import or an agent, such as 15 seconds, instead of "model default".
+- When many nodes are shown at once (an import, a long storyboard) and they do not fit on screen, the view goes to their top-left, where they begin, instead of their middle.
+- Roadmap: rc.20 "batch and review", rc.21 "consistency", rc.22 "assistant and apps".
+
+### What was not brought over
+- The original skills' Python / Node scripts (segment checks, validation, prompt assembly, HTML reports) and their staged working folders were not brought over: the canvas never runs downloaded scripts.
+- Prompts are assembled by the canvas's own code instead. The ported parts are under Apache-2.0 and recorded in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+- The results show directly on nodes, and the stages are nodes on the canvas that you can see and edit.
+
+### Verified
+- Locally: typecheck passes, and all 241 unit / integration tests pass. Eleven are new:
+  - importing the sample project 《渡口》 that ships with shuohao-skills gives 10 segments, 34 keyframes and 10 groups; the first segment is 15 seconds with 4 reference pictures; the Seedance structure, dialogue and constraints were checked item by item;
+  - the H3 protocol;
+  - importing only the cast;
+  - the segment limit;
+  - the views and anchor of a reference set;
+  - the import route binds models, does not create subjects twice, and gives a reason for a bad file;
+  - the MCP tool imports from local paths;
+  - the short-drama skill carries its reference files and allows 15 seconds;
+  - the negative prompt parameter.
+- A new E2E suite, `drama-flow`:
+  - it makes a reference set (realistic) on a subject and only the anchor runs;
+  - after "make the other views", all three views carry the anchor as their reference, and the subject gets 4 different pictures in order;
+  - it imports the five 《渡口》 files from the command palette: 10 videos, 34 keyframes, 11 groups and an export node appear with models bound, and the view moves to the start of the import;
+  - the video node keeps 15 seconds, and the negative prompt is saved on the node.
+- `pnpm audit` reports no known vulnerabilities.
+
+### Not verified yet
+- Making a reference set with a real image model, and running an imported segment on real Seedance 2 / MiniMax H3. Mock services were used here.
+- Going from a novel to an import with the real Claude Code and shuohao-skills. The MCP tool is covered by tests.
+
 ## [1.0.0-rc.18] — 2026-11-13 (release candidate, code complete, not tagged)
 
 "New logo and product page": the logo is redesigned as you asked. It drops the "pillar in the sea" and becomes a minimal, line-only mark about the canvas and design. Real screenshots of the app are now in the README on GitHub.

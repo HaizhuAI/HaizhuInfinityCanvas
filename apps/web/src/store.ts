@@ -3,7 +3,7 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { GROUP_TYPE, NODE_TYPE_MAP, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { GROUP_TYPE, NODE_TYPE_MAP, MAX_SUBJECT_IMAGES, subjectOf, subjectRefViews, type RefLook, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { ApiError, CLIENT_ID, api, auth, markBooted, type ChangeEvent, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
@@ -267,6 +267,15 @@ export interface State {
   saveGroupTemplate: (id: string, name?: string) => MyTemplate | null
   /** put a saved template on the canvas, to the right of what is there */
   insertMyTemplate: (t: MyTemplate) => string[]
+  /**
+   * 生成参考图组: image nodes for a subject's reference set (anchor from text, the rest from the anchor),
+   * framed in a group; the anchor runs first (after the cost check). Results fill the subject's pictures.
+   */
+  makeRefSet: (subjectId: string, look: RefLook) => void
+  /** a finished node that belongs to a subject's reference set: put its picture into that subject */
+  linkRefResult: (nodeId: string, outputs: NodeRunState['outputs']) => void
+  /** bring a shuohao-skills project (outline / cast / art / script / storyboard JSON files) onto this canvas */
+  importDrama: (files: File[]) => Promise<void>
   /** show a run's progress (one started here, or by an agent on this canvas) */
   followRun: (runId: string) => Promise<void>
   /** bring in what changed on the server (an agent's edit), merged with the edits on screen */
@@ -274,6 +283,9 @@ export interface State {
   /** listen for changes made elsewhere while this page is open */
   watchChanges: () => void
 }
+
+/** a reference set's anchor finished during the current run: offer its other views when the run ends */
+let refOffer: { text: string; rest: string[] } | null = null
 
 export const useStore = create<State>((set, get) => ({
   profiles: [], projects: [], projectId: null, projectName: '', nodes: [], edges: [],
@@ -404,6 +416,81 @@ export const useStore = create<State>((set, get) => ({
     if (moved) set({ nodes: next, saveState: 'dirty' })
     return moved
   },
+  makeRefSet: (subjectId, look) => {
+    const st = get()
+    const node = st.nodes.find((n) => n.id === subjectId)
+    const sub = node && subjectOf({ id: node.id, type: node.type ?? '', data: node.data })
+    if (!node || !sub) { st.showToast('先给主体起个名字'); return }
+    const views = subjectRefViews(sub, look)
+    const x0 = node.position.x + (node.measured?.width ?? 300) + 120, y0 = node.position.y
+    const ids = new Map(views.map((v) => [v.id, `n_${uid()}`]))
+    const created: CanvasNode[] = views.map((v, i) => withDefaultProfile({
+      id: ids.get(v.id)!, type: 'image-gen',
+      position: i === 0 ? { x: x0 + 32, y: y0 + 76 } : { x: x0 + 32 + 400, y: y0 + 76 + (i - 1) * 420 },
+      data: { label: `@${sub.name} · ${v.label}`, text: v.prompt, params: { aspect_ratio: v.aspect, count: 1, negative: v.negative, refSlot: { subject: subjectId, view: v.id, look } } },
+    }, st.profiles))
+    const edges: Edge[] = views.flatMap((v) => v.from.map((f) => ({ id: `e_${uid()}`, source: ids.get(f)!, sourceHandle: 'out', target: ids.get(v.id)!, targetHandle: 'ref' })))
+    const rows = Math.max(1, views.length - 1)
+    const frame = toCanvasNode({
+      id: `g_${uid()}`, type: GROUP_TYPE, position: { x: x0, y: y0 },
+      data: { label: `@${sub.name} · 参考图组（${look === 'anime' ? '动漫' : '写实'}）`, size: { w: views.length > 1 ? 840 : 420, h: 120 + rows * 420 } },
+    })
+    set((s2) => ({ nodes: [frame, ...s2.nodes, ...created], edges: [...s2.edges, ...edges], saveState: 'dirty' }))
+    const anchor = ids.get(views[0]!.id)!
+    if (!created[0]!.data.profileId) { st.showToast('还没有图片模型：先在「设置 → 模型档案」添加，再运行这一组'); return }
+    st.showToast(views.length > 1 ? '先出锚点（第一张）：满意再出其余视图，它们只参考锚点；每张出完会自动放进主体' : '出完会自动放进主体')
+    void get().runNodes([anchor])
+  },
+
+  linkRefResult: (nodeId, outputs) => {
+    const st = get()
+    const n = st.nodes.find((x) => x.id === nodeId)
+    const slot = n?.data.params?.refSlot as { subject?: string; view?: string; look?: RefLook } | undefined
+    const pic = outputs?.out?.find((v) => v.type === 'image') as { assetId: string; mime: string } | undefined
+    if (!slot?.subject || !slot.view || !pic) return
+    const subj = st.nodes.find((x) => x.id === slot.subject && x.type === 'subject')
+    const sub = subj && subjectOf({ id: subj.id, type: 'subject', data: subj.data })
+    if (!subj || !sub) return
+    // the reference set's views in order; a view's earlier picture is replaced, pictures the person added stay
+    const order = subjectRefViews(sub, slot.look ?? 'anime').map((v) => v.id)
+    const slots = { ...((subj.data.params?.refSlots as Record<string, string> | undefined) ?? {}) }
+    const old = slots[slot.view]
+    slots[slot.view] = pic.assetId
+    const others = (sub.images ?? []).filter((im) => im.assetId !== old && !Object.values(slots).includes(im.assetId))
+    const fromSet = order.filter((v) => slots[v]).map((v) => ({ assetId: slots[v]!, mime: v === slot.view ? pic.mime : sub.images.find((im) => im.assetId === slots[v])?.mime ?? 'image/png' }))
+    const images = [...fromSet, ...others].filter((im, i, all) => all.findIndex((x) => x.assetId === im.assetId) === i).slice(0, MAX_SUBJECT_IMAGES)
+    set((s2) => ({ nodes: s2.nodes.map((x) => (x.id === subj.id ? { ...x, data: { ...x.data, params: { ...x.data.params, images, refSlots: slots } } } : x)), saveState: 'dirty' }))
+    // the anchor is in: offer the other views (they only reference the anchor), unless they are already on their way
+    if (order[0] !== slot.view) return
+    const rest = get().nodes.filter((x) => {
+      const r = x.data.params?.refSlot as { subject?: string; view?: string } | undefined
+      return x.id !== nodeId && r?.subject === slot.subject && r?.view !== slot.view && !get().runStates[x.id]?.outputs
+    }).map((x) => x.id)
+    // shown when the run ends, in place of 「运行完成」
+    if (rest.length && !rest.some((id) => get().runNodeIds.includes(id)))
+      refOffer = { text: `锚点已放进 @${sub.name}。满意就出其余 ${rest.length} 个视图（只参考这张锚点）；不满意就在锚点节点上再出一版`, rest }
+  },
+
+  async importDrama(files) {
+    const st = get()
+    const projectId = st.projectId
+    if (!projectId || !files.length) return
+    try {
+      const texts = await Promise.all(files.slice(0, 10).map((f) => f.text()))
+      await get().save() // the server adds to the saved canvas
+      const r = await api.importDrama(projectId, texts)
+      const before = new Set(get().nodes.map((n) => n.id))
+      await get().pullCanvas()
+      const added = get().nodes.filter((n) => !before.has(n.id)).map((n) => n.id)
+      if (added.length) get().showNodes(added)
+      const c = r.counts
+      const what = [c.subjects ? `${c.subjects} 个主体` : '', c.segments ? `${c.segments} 段分镜（${c.cuts} 张分镜图）` : ''].filter(Boolean).join('、') || '没有新内容'
+      get().showToast(`已导入：${what}${r.warnings.length ? `。${r.warnings.join('；')}` : ''}`, { ms: 9000 })
+    } catch (e) {
+      get().showToast(`导入失败：${(e as Error).message}`, { tone: 'error' })
+    }
+  },
+
   groupSelection: () => {
     const { nodes } = get()
     const sel = nodes.filter((n) => n.selected && !isGroup(n))
@@ -774,6 +861,7 @@ export const useStore = create<State>((set, get) => ({
       await api.streamRun(runId, (e) => {
         if (get().runId !== runId) return
         if (e.kind === 'run-start') set({ runNodeIds: e.nodeIds })
+        if (e.kind === 'node' && e.state.status === 'done' && e.state.outputs) get().linkRefResult(e.nodeId, e.state.outputs)
         if (e.kind === 'node') set((s) => {
           // keep the known version count while queued/running; a new generation invalidates the loaded list
           const versions = e.state.versions ?? s.runStates[e.nodeId]?.versions
@@ -797,7 +885,10 @@ export const useStore = create<State>((set, get) => ({
               action: firstFailed ? { label: '查看原因', run: () => get().focusNode(firstFailed.id) } : undefined,
             })
           }
-          if (e.status === 'done') get().showToast('运行完成')
+          const offer = refOffer
+          refOffer = null
+          if (e.status === 'done' && offer) get().showToast(offer.text, { action: { label: '出其余视图', run: () => void get().runNodes(offer.rest) }, ms: 15000 })
+          else if (e.status === 'done') get().showToast('运行完成')
           if (e.status === 'cancelled') get().showToast('已停止')
         }
       })

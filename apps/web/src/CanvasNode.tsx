@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Film, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, StepForward, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
+import { Ban, Film, Images, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, StepForward, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
-import { MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, SUBJECT_KIND_LABEL, SUBJECT_KINDS, type ModelKind, type NodeStatus, type PortValue, type Shot, type SubjectKind } from '@hzc/core'
+import { MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, REF_LOOK_LABEL, REF_LOOKS, SUBJECT_KIND_LABEL, SUBJECT_KINDS, type RefLook, type ModelKind, type NodeStatus, type PortValue, type Shot, type SubjectKind } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { ASPECT_CSS, CATEGORY_COLOR, KIND_LABEL, NODE_ICON, PORT_COLOR, PORT_LABEL } from './icons'
 import { enterNode, successPulse } from './motion'
@@ -285,7 +285,24 @@ function SubjectBody({ id, data }: { id: string; data: CanvasNodeData }) {
       </div>
       <textarea className="nodrag nowheel" rows={3} value={data.text ?? ''} onChange={(e) => setNodeData(id, { text: e.target.value })}
         placeholder="外貌、服装、材质、性格……会写进提到它的提示词" data-testid="subject-desc" />
+      <RefSetBar id={id} kind={kind} named={!!name} />
       <div className="hint"><Info aria-hidden="true" /><span>在提示词里写 <code>@{name || '名字'}</code>：带上这段描述，支持参考图的模型还会收到这些图</span></div>
+    </div>
+  )
+}
+
+/** 生成参考图组 (method: shuohao-skills character-refs): an anchor from the description, the other views from the anchor */
+function RefSetBar({ id, kind, named }: { id: string; kind: SubjectKind; named: boolean }) {
+  const [look, setLook] = useState<RefLook>(() => { try { return localStorage.getItem('hzc.refLook') === 'realistic' ? 'realistic' : 'anime' } catch { return 'anime' } })
+  const running = useStore((s) => s.runId !== null)
+  const what = kind === 'character' ? '正面全身 → 大头照、侧面、背面' : kind === 'product' ? '正面 → 侧面、细节' : '空场景全景'
+  return (
+    <div className="subj-refset nodrag">
+      <select value={look} onChange={(e) => { const v = e.target.value as RefLook; setLook(v); try { localStorage.setItem('hzc.refLook', v) } catch { /* blocked */ } }} aria-label="参考图画风" data-testid="refset-look">
+        {REF_LOOKS.map((l) => <option key={l} value={l}>{REF_LOOK_LABEL[l]}</option>)}
+      </select>
+      <button type="button" className="btn xs" disabled={!named || running} title={named ? `生成一组参考图：${what}；出完自动放进这个主体` : '先给主体起个名字'}
+        onClick={() => useStore.getState().makeRefSet(id, look)} data-testid="make-refset"><Images />生成参考图组</button>
     </div>
   )
 }

@@ -75,6 +75,7 @@ claude mcp add --transport http --scope user haizhu-canvas http://你的地址:8
 - 「读一下我现在打开的画布，把所有视频提示词按目标模型的写法改一遍。」
 - 「用桌面上的 product.png 做三张不同风格的电商主图，挑一张最好的。」
 - 「导演节点的分镜出来以后，把每个镜头展开成图片和视频节点并运行，最后接到导出成片。」
+- 「用 shuohao-skills 把 novel.txt 做成分镜，然后把整个工程导入海柱画布的新画布。」（需要先在 Claude Code 里装好 shuohao-skills；导入用 `import_drama`）
 
 Agent 可用的工具：
 
@@ -86,6 +87,7 @@ Agent 可用的工具：
 | `add_nodes` | 一次添加多个节点和连线（也可以只连线）；自动排在画布右侧 |
 | `update_node` / `remove` | 改提示词、参数、模型、素材、位置（导出节点的时间线：`order` / `trims`）；删除节点或连线 |
 | `group_nodes` | 把几个节点框成一个有名字的分组（例如一场戏一组） |
+| `import_drama` | 导入 shuohao-skills 的短剧工程（outline / cast / art / script / storyboard JSON，传内容或本机绝对路径）：主体、每段一个分组、分镜图、视频与导出节点（rc.19，见[短剧工坊](./short-drama.md)） |
 | `upload_asset` | 导入本机文件（桌面版 / 本机服务）或 base64 数据，可直接成为输入节点或主体图片 |
 | `prompt_guide` | 目标模型的提示词写法（与「优化提示词」用的同一套规则） |
 | `estimate` / `run` / `wait_for_run` / `cancel_run` | 预估费用、运行（可只运行部分节点）、等待、停止 |

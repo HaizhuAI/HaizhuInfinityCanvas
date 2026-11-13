@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import { BookmarkCheck, Cable, CornerDownLeft, LayoutTemplate, Search } from 'lucide-react'
+import { BookmarkCheck, Cable, Clapperboard, CornerDownLeft, LayoutTemplate, Search } from 'lucide-react'
 import { CATEGORY_LABEL, NODE_TYPE_MAP, NODE_TYPES, canConnect, type NodeTypeDef, type PortType } from '@hzc/core'
 import { PORT_LABEL } from './icons'
 import { CATEGORY_COLOR, KIND_COLOR, KIND_ICON, KIND_LABEL, KIND_TO_NODE, NODE_ICON } from './icons'
 import { enterOverlay } from './motion'
 import { useStore } from './store'
 import { TEMPLATES } from './templates'
-import { listMyTemplates } from './myTemplates'
+import { listMyTemplates, pickDramaFiles } from './myTemplates'
 import { useAddNode } from './useAddNode'
 
 interface Item { key: string; group: string; label: string; desc: string; color: string; Icon: React.ComponentType; run: () => void; terms: string }
@@ -86,6 +86,9 @@ function PaletteBody() {
       out.push({ key: `n:${n.type}`, group: CATEGORY_LABEL[n.category], label: n.label, desc: n.description, color: CATEGORY_COLOR[n.category], Icon: NODE_ICON[n.type]!,
         run: () => add(n.type), terms: `${n.label} ${n.description} ${n.type}` })
     }
+    // a short-drama project made with shuohao-skills (rc.19)
+    if (!from) out.push({ key: 'import:drama', group: '导入', label: '导入短剧工程（shuohao-skills）…', desc: '选择 outline / cast / art / script / storyboard JSON：角色、场景、道具成为主体，分镜展开成分组、分镜图和视频节点', color: 'var(--accent)', Icon: Clapperboard,
+      run: () => pickDramaFiles((files) => void useStore.getState().importDrama(files)), terms: '导入 短剧 工程 shuohao 小说 分镜 剧本 角色 import drama novel storyboard json' })
     // 我的模板: groups saved for reuse (rc.17)
     if (!from) for (const t of listMyTemplates()) {
       out.push({ key: `m:${t.id}`, group: '我的模板', label: t.name, desc: `${t.graph.nodes.filter((n) => n.type !== 'group').length} 个节点 · 保存于 ${new Date(t.createdAt).toLocaleDateString('zh-CN')}`, color: 'var(--accent)', Icon: BookmarkCheck,

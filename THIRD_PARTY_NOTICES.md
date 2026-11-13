@@ -50,6 +50,10 @@
 | 2026-11-12 | `apps/web/src/styles.css`（`.cmp-pick input`、`input.box`，复选框） | 同上 `Checkboxes/IndexOC_moody-mouse-53.html`，作者 IndexOC | MIT | 方形框、选中时墨色填充 + 对勾；改用本项目令牌与焦点环 |
 | 2026-11-12 | `apps/web/src/App.tsx`（画布网格背景） | 同上 `Patterns/adamgiebl_curvy-earwig-79.html`，作者 adamgiebl | MIT | 细线网格；用 React Flow 的两层线条背景重新实现（每 5 格一条稍深的线），随画布平移缩放 |
 | 2026-11-12 | `apps/web/src/styles.css`（`:root` 深色令牌） | [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) `skills/taste-skill/library/palettes.json`「Graphite and orange」 | MIT | 底色 `#18191b`、文字 `#eff0f1`、次要文字 `#9c9ea3`、强调色 `#ff4a1f` 四个色值；其余层级与浅色主题按同一思路自行推导 |
+| 2026-11-13 | `apps/server/skills/short-drama-storyboard/references/`（shot-writing.md、seedance-prompt.md、h3-prompt.md）、同目录 `LICENSE`、`NOTICE` | [eternityspring/shuohao-skills](https://github.com/eternityspring/shuohao-skills) `skills/novel-storyboard/references/`，作者 烁皓（提交 8af10e0） | Apache-2.0 | 原文照录，每个文件开头加一行来源说明；随内置的「短剧分镜（shuohao）」导演 Skill 一起分发。`SKILL.md` 是本项目按画布的分镜格式自行撰写的改编说明 |
+| 2026-11-13 | `packages/core/src/drama.ts`（`subjectRefViews`、`seedanceSegmentPrompt`、景别 / 运镜 / 稳定性词表、动漫与写实画风文字、`SEEDANCE_NO_SUBTITLES` / `SEEDANCE_NO_TWINS`） | 同上 `skills/character-refs/scripts/core.mjs`、`looks.mjs`，`skills/novel-storyboard/scripts/novel-storyboard.mjs`（提交 8af10e0） | Apache-2.0 | 视图提示词：原 skill 按结构化角色字段拼（含性别代词），这里改为一段自由描述 + 中性代词，比例改用画布支持的 3:4；新增物品与场景的参考图组。Seedance 段提示词：保留结构与符号规范，参考图标签改为画布上的分镜图节点。导入器（`dramaToGraph`）为本项目自行编写，读取原 skill 的 JSON 格式 |
+| 2026-11-13 | `packages/core/src/promptGuides.ts`（seedance、hailuo-h3 两组写法规则） | 同上 `skills/novel-storyboard/references/` | Apache-2.0 | 把原文要点改写成简短的中文规则，供「优化提示词」使用 |
+| 2026-11-13 | `e2e/fixtures/shuohao-dukou/`（outline / cast / art / script / storyboard.json、LICENSE、NOTICE） | 同上 `skills/novel-storyboard/references/test-fixtures/upstream/`、`examples/渡口-storyboard.json` | Apache-2.0 | 原样拷贝的测试样例（原创故事《渡口》），只用于测试导入，不随产品分发 |
 
 ## C. 仅借鉴思路（未复制代码）
 

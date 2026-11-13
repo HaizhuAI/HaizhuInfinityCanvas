@@ -17,13 +17,13 @@ import { SecretError } from './secrets'
 import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 import { FailureThrottle, LOOPBACK, installSecurity, sameOrigin } from './security'
-import { AgentAccess, hubFor } from './agent'
+import { AgentAccess, CanvasEditError, hubFor, importDrama } from './agent'
 import { MCP_PROTOCOLS, handleMcpMessage } from './mcp'
 import type { Backups, RecoveryNote } from './backup'
 import { installAuth, type AuthConfig } from './auth'
 import type { Workspace } from './workspaces'
 
-export const APP_VERSION = '1.0.0-rc.18'
+export const APP_VERSION = '1.0.0-rc.19'
 
 export interface AppOptions {
   /** single-user mode (desktop app, one WebUI): the one workspace. Absent in accounts mode. */
@@ -482,6 +482,23 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     if (ended) return
     const ping = setInterval(() => res.write(': ping\n\n'), 15_000)
     res.on('close', () => { clearInterval(ping); unsubscribe() })
+  })
+
+  // a short-drama project made with shuohao-skills (outline / cast / art / script / storyboard JSON) → nodes
+  app.post<{ Params: { id: string }; Body: { files?: unknown; protocol?: unknown } }>('/api/projects/:id/import-drama', async (req, reply) => {
+    const w = ws(req)
+    const p = w.store.getProject(req.params.id)
+    if (!p) return reply.code(404).send({ error: 'not found' })
+    try {
+      const r = importDrama(w, p.graph, req.body?.files, req.body?.protocol)
+      const saved = w.store.saveProject(p.id, { graph: r.graph })!
+      const client = req.headers['x-hzc-client']
+      hubFor(w.store).emit({ kind: 'project', projectId: p.id, rev: saved.updatedAt, source: typeof client === 'string' ? client.slice(0, 64) : undefined })
+      return { counts: r.counts, warnings: r.warnings, protocol: r.protocol, files: r.kinds, rev: saved.updatedAt }
+    } catch (e) {
+      if (e instanceof CanvasEditError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
   })
 
   // what changes in this workspace while a page is open (agents editing or running a canvas)

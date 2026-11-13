@@ -97,9 +97,16 @@ function Params({ node }: { node: CanvasNode }) {
     </label>
   )
 
+  // 负面词 (rc.19): used when nothing is wired into the negative port
+  const negativeField = (
+    <label className="field" title="不想出现在画面里的东西；接了「负面词」端口时以端口为准"><span>负面词</span>
+      <input value={String(p.negative ?? '')} placeholder="如 文字、水印、多余的手指" onChange={(e) => set('negative', e.target.value || undefined)} data-testid="gen-negative" />
+    </label>
+  )
+
   switch (node.type) {
     case 'image-gen':
-      return <><div className="grid2">{aspectSelect('gen-aspect')}{countSelect}</div><GenPrompt node={node} kind="image" /><JsonField id={node.id} value={p.extra} /></>
+      return <><div className="grid2">{aspectSelect('gen-aspect')}{countSelect}</div><GenPrompt node={node} kind="image" />{negativeField}<JsonField id={node.id} value={p.extra} /></>
     case 'video-gen':
       return (
         <>
@@ -108,12 +115,14 @@ function Params({ node }: { node: CanvasNode }) {
             <label className="field"><span>时长</span>
               <select value={String(p.duration ?? '')} onChange={(e) => set('duration', e.target.value ? Number(e.target.value) : undefined)}>
                 <option value="">模型默认</option>
-                {VIDEO_DURATIONS.map((d) => <option key={d} value={d}>{d} 秒</option>)}
+                {/* an imported or agent-set length (e.g. a 15-second Seedance segment) stays visible */}
+                {[...new Set<number>([...VIDEO_DURATIONS, ...(typeof p.duration === 'number' ? [p.duration] : [])])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} 秒</option>)}
               </select>
             </label>
             {countSelect}
           </div>
           <GenPrompt node={node} kind="video" />
+          {negativeField}
           <JsonField id={node.id} value={p.extra} />
         </>
       )
