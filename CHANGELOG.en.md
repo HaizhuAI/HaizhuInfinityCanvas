@@ -66,6 +66,10 @@ From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlie
   - it imports the five 《渡口》 files from the command palette: 10 videos, 34 keyframes, 11 groups and an export node appear with models bound, and the view moves to the start of the import;
   - the video node keeps 15 seconds, and the negative prompt is saved on the node.
 - `pnpm audit` reports no known vulnerabilities.
+- All nineteen E2E suites (including drama-flow) and the screenshot script (24 images) pass locally.
+- GitHub Actions (commit 60eba1a) passed first time:
+  - CI run 43373881953: typecheck, unit tests, the nineteen E2E suites and the screenshot script.
+  - Installer run 43373882202: Windows installer and portable, macOS (Apple silicon / Intel) and Linux (x64 / arm64) were packaged and passed their launch tests, including the agent bridge and crash recovery. The Docker smoke tests (token mode, HTTP MCP, arm64 image, accounts mode) passed.
 
 ### Not verified yet
 - Making a reference set with a real image model, and running an imported segment on real Seedance 2 / MiniMax H3. Mock services were used here.
