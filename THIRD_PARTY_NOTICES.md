@@ -54,6 +54,8 @@
 | 2026-11-13 | `packages/core/src/drama.ts`（`subjectRefViews`、`seedanceSegmentPrompt`、景别 / 运镜 / 稳定性词表、动漫与写实画风文字、`SEEDANCE_NO_SUBTITLES` / `SEEDANCE_NO_TWINS`） | 同上 `skills/character-refs/scripts/core.mjs`、`looks.mjs`，`skills/novel-storyboard/scripts/novel-storyboard.mjs`（提交 8af10e0） | Apache-2.0 | 视图提示词：原 skill 按结构化角色字段拼（含性别代词），这里改为一段自由描述 + 中性代词，比例改用画布支持的 3:4；新增物品与场景的参考图组。Seedance 段提示词：保留结构与符号规范，参考图标签改为画布上的分镜图节点。导入器（`dramaToGraph`）为本项目自行编写，读取原 skill 的 JSON 格式 |
 | 2026-11-13 | `packages/core/src/promptGuides.ts`（seedance、hailuo-h3 两组写法规则） | 同上 `skills/novel-storyboard/references/` | Apache-2.0 | 把原文要点改写成简短的中文规则，供「优化提示词」使用 |
 | 2026-11-13 | `e2e/fixtures/shuohao-dukou/`（outline / cast / art / script / storyboard.json、LICENSE、NOTICE） | 同上 `skills/novel-storyboard/references/test-fixtures/upstream/`、`examples/渡口-storyboard.json` | Apache-2.0 | 原样拷贝的测试样例（原创故事《渡口》），只用于测试导入，不随产品分发 |
+| 2026-11-13 | `packages/core/src/imageTools.ts`（`ANGLE_PRESETS`、`buildAnglePrompt`、`RELIGHT_PRESETS`、`buildRelightPrompt` 与光位描述） | [HBAI-Ltd/Toonflow-app](https://github.com/HBAI-Ltd/Toonflow-app) `packages/nodes/imageNode/src/imageMultiAngle.ts`、`imageLighting.ts`（提交 6086cdf），Copyright (c) 2026 HBAI-Ltd | MIT | 坐标系、预设与提示词措辞沿用原文；`{{ref 1}}` 改为 "the reference image"（画布把连入的图作为唯一参考图发送），去掉了只供原界面使用的字段（智能模式开关、元数据标记），预设颜色字段改名。许可文本见下方「MIT（Toonflow）」 |
+| 2026-11-13 | `packages/core/src/videoCaps.ts`（Seedance 2.0 / 2.5、MiniMax H3 的可选时长、分辨率、参考图上限） | 同上 `packages/providers/src/media/apiMart.ts`、`compshare.ts`、`metaso.ts` 的模型表 | MIT | 只取两家以上供应商定义一致的数值（事实数据），代码为本项目自行编写 |
 
 ## C. 仅借鉴思路（未复制代码）
 
@@ -64,5 +66,34 @@
 | saihhold-zhao/polox_ai | MIT | 视频模型选择卡、资产库抽屉 |
 | nextlevelbuilder/ui-ux-pro-max-skill（UI-UX-Pro-Max） | MIT | beta.5 工作室界面：按其「照片编辑 / 短视频编辑 / 生成艺术 / 绘画画布」产品档案选定中性深灰 + 内容优先风格、粉色强调色、Inter 字体（#60 Modern Dark Cinema）；按其 UX 规则与交付前清单检查对比度、焦点、图标一致性与减少动态效果；未复制其代码或数据 |
 | Leonxlnx/taste-skill（Taste Skill） | MIT | rc.11「去 AI 感」重做：一套系统、界面 90–95% 中性、只有一个强调色、无发光 / 渐变按钮 / 毛玻璃 / 字距大写标签 / 编号步骤、首页一屏一节与平实文案（用其 copy-lint 检查首页文字）。beta.4 界面重做的设计准则：一套系统（一对按钮、一种卡片、一套圆角）、不用紫色、克制的悬停/按下反馈、不倾斜、尊重减少动态效果、多宽度真实浏览器检查；未复制其代码或素材 |
+| HBAI-Ltd/Toonflow-app | MIT（当前版本） | rc.20：「逐帧拉片」把关键帧、片段与原音轨落到画布（本项目用自己的 FFmpeg 镜头检测重新实现，见 `apps/server/src/shots.ts`）、宫格切分、按模型变化的视频时长 / 分辨率 / 生成音频、为外部 Agent 导出 Skill；调研见 [docs/00-research/06-toonflow.md](./docs/00-research/06-toonflow.md) |
 | TG8848/Tapnow-Studio | **GPL-3.0** | 仅功能灵感（视频拆解、分镜表）；**未复制任何代码** |
 | LibTV / TapNow / 即梦 / 可灵 / Krea / Flora / Weavy（商业产品） | — | 仅公开的产品交互思路 |
+
+## MIT（Toonflow）
+
+`packages/core/src/imageTools.ts` 中改编自 Toonflow 的部分遵循以下许可：
+
+```
+MIT License
+
+Copyright (c) 2026 HBAI-Ltd
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

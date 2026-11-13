@@ -15,7 +15,7 @@
 
 <p align="center"><img src="docs/images/pipeline.webp" alt="画布上的一条完整流程：参考图反推、出图、生成视频和配音，右侧是所选节点的属性" width="100%"></p>
 
-- 当前版本：**v1.0.0-rc.19**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
+- 当前版本：**v1.0.0-rc.20**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
 - 源码状态：**公开仓库（源码可见）**，但尚未授予开源许可，保留所有权利（见 [LICENSE](./LICENSE)）
 - 目标平台：网页版（浏览器 / Docker，可开启注册登录部署成多人网站）· Windows 桌面版 · macOS 桌面版（Apple 芯片 / Intel）· Linux 桌面版（x64 / arm64）
 
@@ -77,6 +77,7 @@
 10. **可部署成网站（SaaS）**：开启账号模式后访客可注册登录，每人一个独立空间（自己的数据库与文件夹），自带模型 Key，管理员命令行管理账号（见[多人网站部署](./docs/03-guide/saas-deployment.md)）。
 11. **让 Agent 操作画布（MCP）**：一条命令把桌面版加到 Claude Code，像本地 MCP 一样使用：让 Claude 搭节点、写提示词、预估费用、运行并查看结果，画布实时显示它的改动（见[Agent 接入](./docs/03-guide/agent-mcp.md)）。
 12. **短剧工坊**：主体一键生成参考图组（锚点先出、其余视图只参考锚点，出完自动放进主体）；导入 [shuohao-skills](https://github.com/eternityspring/shuohao-skills) 的短剧工程，角色场景变成主体、每段一个分组、分镜图和 Seedance / H3 段视频接好线、导出时间线排好顺序；内置「短剧分镜」导演 Skill。Claude Code 用 shuohao-skills 改编完，一句话就能把整个工程导入画布（见[短剧工坊](./docs/03-guide/short-drama.md)）。
+13. **拆镜头与图片工具**：任意视频一键拆成每个镜头的关键帧、片段和原音轨（本机完成，不花钱），用来研究或复刻参考片；任意图片可以换角度、重新打光、宫格切分；视频节点的时长、分辨率、「生成声音」跟着模型变（Seedance 2.0 到 15 秒、2.5 与 MiniMax H3 到 30 秒）；还能为 Claude Code 导出一份 SKILL.md（见[调研：Toonflow](./docs/00-research/06-toonflow.md)）。
 
 
 ## 文档导航
@@ -88,13 +89,14 @@
 | [docs/00-research/03-feasibility.md](./docs/00-research/03-feasibility.md) | 可行性结论与风险清单 |
 | [docs/00-research/04-kaworkai-reference.md](./docs/00-research/04-kaworkai-reference.md) | 参考调研：咔作画布的交互思路，借鉴了什么、没有引入什么 |
 | [docs/00-research/05-creative-platforms.md](./docs/00-research/05-creative-platforms.md) | 参考调研：Google Flow、即梦、LibTV、可灵、Runway、Krea、Flora、ComfyUI 等 30 余个图片 / 视频创作平台的交互规律与各模型提示词写法 |
+| [docs/00-research/06-toonflow.md](./docs/00-research/06-toonflow.md) | 参考调研：下载并运行 Toonflow（开源 AI 短剧平台），逐项对比，rc.20 采用了什么、没采用什么 |
 | [docs/01-architecture/ADR-0001-tech-stack.md](./docs/01-architecture/ADR-0001-tech-stack.md) | 技术选型决策记录 |
 | [docs/01-architecture/ADR-0002-ui-design-system.md](./docs/01-architecture/ADR-0002-ui-design-system.md) | 动效决策（GSAP / Galaxy / Taste Skill；配色与布局已由 ADR-0003 取代） |
 | [docs/01-architecture/ADR-0003-studio-design-system.md](./docs/01-architecture/ADR-0003-studio-design-system.md) | 「工作室」设计系统：面向图片 / 视频创作者的内容优先界面（UI-UX-Pro-Max；配色字体已由 ADR-0005 取代） |
 | [docs/01-architecture/ADR-0005-graphite-design-system.md](./docs/01-architecture/ADR-0005-graphite-design-system.md) | 「石墨」设计系统：去掉 AI 感（Galaxy 组件 + Taste Skill 准则；rc.11 起） |
 | [docs/01-architecture/ADR-0004-editing-handoff.md](./docs/01-architecture/ADR-0004-editing-handoff.md) | 剪辑工坊：1.0 交付 Shotcut / MLT 剪辑工程，OpenReel 嵌入延后 |
 | [docs/02-roadmap/roadmap.md](./docs/02-roadmap/roadmap.md) | 版本规划与里程碑 |
-| [docs/02-roadmap/optimization-plan-2026-11.md](./docs/02-roadmap/optimization-plan-2026-11.md) | 优化方案（2026-11）：流畅、灵活、兼容、提示词与 Skill 的目标与 rc.14–rc.22 安排 |
+| [docs/02-roadmap/optimization-plan-2026-11.md](./docs/02-roadmap/optimization-plan-2026-11.md) | 优化方案（2026-11）：流畅、灵活、兼容、提示词与 Skill 的目标与 rc.14–rc.23 安排 |
 | [docs/02-roadmap/build-matrix.md](./docs/02-roadmap/build-matrix.md) | Windows / macOS / Linux / 网页版的构建与启动测试 |
 | [docs/brand/](./docs/brand/) | 标志（SVG 与应用图标） |
 | [docs/03-guide/canvas-basics.md](./docs/03-guide/canvas-basics.md) | 使用指南：添加与编辑节点、画布助手、多模型对比、我的画布、提示词库、撤销 / 复制粘贴 / 右键菜单、快捷键、运行前检查与出错处理 |
@@ -141,6 +143,7 @@ WebUI 容器部署：复制 `.env.example` 为 `.env` 并设置 `HZC_TOKEN`，�
 - **Subjects**: name a character or product, give it reference pictures and mention it as `@name` to keep shots consistent.
 - **Timeline and groups**: order and trim clips before export; frame nodes in groups and save them as templates.
 - **Short-drama workshop**: one click makes a subject's reference sheet (an anchor first, the other views from the anchor only, filled into the subject). Import a short-drama project made with [shuohao-skills](https://github.com/eternityspring/shuohao-skills): characters and scenes become subjects, each segment a group with keyframes and a Seedance / H3 video, the export timeline in order. Claude Code can do the adaptation with shuohao-skills and import the whole project in one step.
+- **Shots and image tools**: split any video into each shot's keyframe, clip and the original soundtrack, locally and for free; change a picture's camera angle, relight it, or cut a contact sheet into its cells. Video nodes offer the lengths, resolutions and native sound their model supports (Seedance 2.0 up to 15 s, 2.5 and MiniMax H3 up to 30 s). A SKILL.md teaches Claude Code to use the canvas.
 - **Providers**: Volcano Ark (Seedance), Alibaba Bailian (Wan), Kling, MiniMax, Zhipu, SiliconFlow, Runway and ElevenLabs have native adapters. OpenAI-compatible APIs, Replicate, fal and local models (Ollama) also work.
 - **Claude Code (MCP)**: one command adds the desktop app to Claude Code as a local MCP server. Claude builds nodes, writes prompts and estimates the cost; it only runs after you agree. The open canvas shows every change live. The web version connects over HTTP with a key.
 - **Runs everywhere**: Windows, macOS (Apple silicon and Intel), Linux (x64 and arm64), web / Docker, and a multi-user site with sign-up and private workspaces.

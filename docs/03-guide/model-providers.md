@@ -33,7 +33,7 @@
 | dashscope（万相视频） | wan2.7 起用 `media` 列表；更早的模型只支持首帧（`img_url`）；首尾帧模型（`kf2v`）走专用接口 | wan2.7 文生视频用 `ratio`；图生视频跟随图片 | `duration`（kf2v 固定 5 秒） | `negative_prompt` |
 | dashscope（万相图片） | — | 换算成 `size`（wan2.6 起在 1280² ~ 1440² 像素之间） | — | `negative_prompt` |
 | kling | `contents` 里的 `first_frame` / `last_frame`（纯 base64） | 文生视频 `aspect_ratio`；图片 `aspect_ratio` | `duration` | 视频写进提示词；图片用 `negative_prompt`（有参考图时可灵不支持） |
-| minimax | Hailuo-02 / 2.3：`first_frame_image` / `last_frame_image`；MiniMax-H3：`content` 列表 | 只有 H3 支持 `ratio` | Hailuo 只有 6 / 10 秒（按最接近的取）；H3 为 4–15 秒 | 写进提示词 |
+| minimax | Hailuo-02 / 2.3：`first_frame_image` / `last_frame_image`；MiniMax-H3：`content` 列表 | 只有 H3 支持 `ratio` | Hailuo 只有 6 / 10 秒（按最接近的取）；H3 为 4–30 秒（rc.20 起） | 写进提示词 |
 | runway | `promptImage`（首尾帧用 `position`） | 换算成像素比例，如 `1280:720` | `duration`（默认 5） | 写进提示词 |
 | zhipu（CogVideoX） | `image_url`（首尾帧为两张图的列表） | 文生视频换算成 `size` | 仅 cogvideox-3：5 / 10 秒 | 写进提示词 |
 | siliconflow | `images` 列表，`role` 为 `first_frame` / `last_frame` | `ratio` | `duration` | 写进提示词 |
@@ -44,10 +44,32 @@
 
 | 适配器 | 参考图怎么传 |
 | --- | --- |
-| ark（Seedance） | `content` 里 `role` 为 `reference_image` 的图片（最多 4 张） |
+| ark（Seedance） | `content` 里 `role` 为 `reference_image` 的图片（Seedance 2.x 最多 9 张，更早的模型 4 张） |
 | minimax（MiniMax-H3） | `content` 里 `role` 为 `reference_image` 的图片（最多 9 张）；Hailuo-02 / 2.3 不支持 |
 | replicate / fal | 各模型字段名不同：在档案默认参数里写 `{"_fields": {"ref": "字段名"}}` 后发送；没设置时连了参考图会提示 |
 | 万相、可灵、Runway、CogVideoX、硅基流动 | 不支持：连了参考图会提示；主体的图片会被跳过，只用文字描述 |
+
+### 按模型的时长、分辨率与声音（rc.20 起）
+
+视频节点的「时长」「分辨率」「生成声音」跟着所选模型变化（按模型 ID 识别）：
+
+| 模型 | 时长 | 分辨率（`resolution`） | 生成声音（`generate_audio`） |
+| --- | --- | --- | --- |
+| Seedance 2.0（`doubao-seedance-2-0-…`） | 4–15 秒 | 480p / 720p / 1080p（Fast 版到 720p） | 可以 |
+| Seedance 2.5 | 4–30 秒 | 480p / 720p | 可以 |
+| MiniMax H3 | 4–30 秒 | 768P / 2K（默认 768P） | — |
+| 其他模型 | 5 / 10 秒 | 服务商默认 | — |
+
+导入或 Agent 设置的其他时长也会保留在菜单里。数值来自 Toonflow 的供应商模型表中多家一致的部分，以服务商文档为准；对不上时在「高级参数」里覆盖即可。
+
+### OpenAI 兼容图片模型的参考图（rc.20 起）
+
+连到「参考图」的图片会发给 OpenAI 兼容接口：
+
+- Seedream、Qwen-Image、Flux Kontext、Gemini 图片一类：`/images/generations` 的 `image` 字段（一张为字符串，多张为列表，data URI）。
+- gpt-image 一类（其余模型默认）：上传到 `/images/edits`（`multipart`，多张时为 `image[]`）。
+- 不确定时在档案默认参数里写 `{"_imageRefs": "json"}` 或 `{"_imageRefs": "edits"}` 指定。
+- 主体（`@名字`）的图片只发给已知支持参考图的模型（上面两类，或设置了 `_imageRefs` 的档案）；其他模型只用文字描述。
 
 「高级参数（JSON）」最后合并，并且**按层合并**：例如在万相节点里写 `{"parameters": {"seed": 42, "watermark": false}}`，只会加上这两项，不会把画面比例和时长冲掉。档案的「默认参数」在最底层。
 

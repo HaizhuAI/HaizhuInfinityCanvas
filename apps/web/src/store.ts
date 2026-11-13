@@ -3,7 +3,7 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { GROUP_TYPE, NODE_TYPE_MAP, MAX_SUBJECT_IMAGES, gridCells, subjectOf, subjectRefViews, type RefLook, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { GROUP_TYPE, NODE_TYPE_MAP, MAX_SUBJECT_IMAGES, findFreeSpot, gridCells, subjectOf, subjectRefViews, type RefLook, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
 import { ApiError, CLIENT_ID, api, assetUrl, auth, markBooted, type ChangeEvent, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
@@ -488,12 +488,11 @@ export const useStore = create<State>((set, get) => ({
     const st = get()
     const src = st.nodes.find((n) => n.id === nodeId)
     if (!src) return undefined
-    // stack the variants of one picture below each other, beside it
-    const k = st.nodes.filter((n) => n.data.params?.toolOf === nodeId).length
+    // beside the picture, below any earlier variant or anything else already there
     const id = `n_${uid()}`
     const node = withDefaultProfile({
       id, type: 'image-gen',
-      position: { x: src.position.x + (src.measured?.width ?? 320) + 100, y: src.position.y + k * 440 },
+      position: findFreeSpot(st.nodes, { x: src.position.x + (src.measured?.width ?? 320) + 100, y: src.position.y }, { w: 340, h: 460 }),
       data: { label, text: prompt, params: { count: 1, toolOf: nodeId, ...(aspect ? { aspect_ratio: aspect } : {}) } },
     }, st.profiles)
     const edge: Edge = { id: `e_${uid()}`, source: nodeId, sourceHandle: 'out', target: id, targetHandle: 'ref' }
@@ -524,11 +523,13 @@ export const useStore = create<State>((set, get) => ({
       files.push({ id: a.id, mime: a.mime })
     }
     // the cells as a grid of image nodes in a frame, beside the picture
-    const COL = 340, PAD = 32, HEAD = 48
-    const rowH = Math.round(Math.min(420, Math.max(200, (COL - 40) * (H / rows) / (W / cols) + 90)))
+    // an image node is ~320 wide with its picture capped at 300 tall, plus ~150 of title, button and ports
+    const COL = 360, PAD = 32, HEAD = 48
+    const rowH = Math.min(300, Math.round(300 * (H / rows) / (W / cols))) + 150 + 40
     const r = Math.max(...cells.map((c) => c.row)) + 1, cc = Math.max(...cells.map((c) => c.col)) + 1
-    const x0 = (src?.position.x ?? 0) + (src?.measured?.width ?? 320) + 100, y0 = src?.position.y ?? 0
-    const frame = toCanvasNode({ id: `g_${uid()}`, type: GROUP_TYPE, position: { x: x0, y: y0 }, data: { label: `宫格切分 ${r}×${cc} · ${(name ?? '图片').slice(0, 20)}`, size: { w: PAD * 2 + cc * COL - 40, h: HEAD + PAD * 2 + r * rowH - 20 } } })
+    const size = { w: PAD * 2 + cc * COL - 40, h: HEAD + PAD * 2 + r * rowH - 40 }
+    const { x: x0, y: y0 } = findFreeSpot(get().nodes, { x: (src?.position.x ?? 0) + (src?.measured?.width ?? 320) + 100, y: src?.position.y ?? 0 }, size)
+    const frame = toCanvasNode({ id: `g_${uid()}`, type: GROUP_TYPE, position: { x: x0, y: y0 }, data: { label: `宫格切分 ${r}×${cc} · ${(name ?? '图片').slice(0, 20)}`, size } })
     const made = cells.map((c, i) => toCanvasNode({ id: `n_${uid()}`, type: 'image', position: { x: x0 + PAD + c.col * COL, y: y0 + HEAD + PAD + c.row * rowH }, data: { label: `格 ${c.row + 1}-${c.col + 1}`, assetId: files[i]!.id, mime: files[i]!.mime } }))
     set((s2) => ({ nodes: [frame, ...s2.nodes, ...made], saveState: 'dirty', imageTools: null }))
     get().showNodes([frame.id, ...made.map((m) => m.id)])

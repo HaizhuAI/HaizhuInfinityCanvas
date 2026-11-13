@@ -18,6 +18,7 @@ WORKDIR /app
 RUN useradd -m -u 10001 hzc && mkdir -p /data && chown hzc /data
 COPY --from=build /app/apps/server/dist ./server
 COPY --from=build /app/apps/web/dist ./web
+COPY --from=build /app/THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.md
 ENV HZC_DATA_DIR=/data HZC_WEB_DIR=/app/web HZC_HOST=0.0.0.0 PORT=8787 NODE_ENV=production
 # FFmpeg powers video prompt reverse and export (Debian build; see licence audit)
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*

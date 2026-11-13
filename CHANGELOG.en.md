@@ -4,6 +4,90 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.20] — 2026-11-13 (release candidate, code complete, not tagged)
+
+"Shots and image tools": as you asked, I downloaded the source of [Toonflow](https://github.com/HBAI-Ltd/Toonflow-app), an open-source AI short-drama platform (MIT). I built it, ran it, used it step by step and compared it with this project (see the [research report](./docs/00-research/06-toonflow.md)). The comparison found four gaps, all closed in this version:
+- video length and resolution did not follow the model;
+- a reference video could not be split into material;
+- there were no image tools;
+- OpenAI-compatible image models did not take reference pictures.
+
+This version also exports a skill for Claude Code. The planned "batch and review" moves to rc.21.
+
+### Added
+- **Video options follow the model**: a video node shows the lengths, resolutions and "generate sound" option of the chosen model.
+  - Seedance 2.0: 4–15 seconds, 480p / 720p / 1080p (Fast: up to 720p), can make its own sound, up to 9 reference pictures.
+  - Seedance 2.5: 4–30 seconds, 480p / 720p, can make its own sound.
+  - MiniMax H3: 4–30 seconds, 768P / 2K.
+  - Other models keep 5 / 10 seconds. A length set by an import or an agent still shows in the menu.
+  - The Volcano Ark adapter sends `resolution` and `generate_audio`, and the number of reference pictures follows the model (9 for 2.x). MiniMax H3 sends `resolution` and goes up to 30 seconds.
+  - The MCP tool `list_models` lists each video model's length range, resolutions, sound and reference limit; agents can set `resolution` / `audio`.
+- **Split shots**: hover any video (uploaded or generated) and click the scissors.
+  - Local FFmpeg finds the cuts. Each shot gets a keyframe (S01, S02…, with its start and end) and its own clip (M01, M02…, sound kept); the whole soundtrack is extracted as m4a.
+  - Each kind goes into its own group in free space beside the video. Up to 60 shots; no model is called and nothing is paid for.
+  - New MCP tool `split_shots` (20 tools now).
+- **Image tools**: hover any picture and click the wand.
+  - **Change angle**: 10 camera positions (front, back, front-left, front-right, left, right, back-left, back-right, high, low) × close / medium / wide × standard 50 mm / wide 24 mm.
+  - **Relight**: 8 lighting looks, 6 key-light directions, brightness and a note of your own.
+  - Both make an image-generation node beside the picture, with the picture wired into "reference pictures", its aspect ratio kept and the prompt written (you can read it). The cost check runs as usual. The prompt builders are adapted from Toonflow (MIT; recorded, and its licence text ships with the installers).
+  - **Grid split**: 2×2, 3×3, 4×4, 5×5, 1×2, 1×3, 2×3 or 3×2, one image node per cell in a group beside the picture. Done in the browser; no model is called.
+- **OpenAI-compatible image models take reference pictures**: Seedream, Qwen-Image, Flux Kontext and Gemini image models get them in the `image` field; gpt-image models upload them to `/images/edits`. A profile can choose with `_imageRefs`. Pictures of @mentioned subjects go only to models known to take them; other models use the description alone, as before.
+- **A skill for Claude Code**: Settings → Agent access has "copy SKILL.md" and "download"; save it under `~/.claude/skills/haizhu-canvas/`. It tells Claude Code:
+  - when to use the canvas and in what order to call the tools;
+  - how to use subjects, the short-drama import and shot splitting;
+  - to report the cost and get your agreement before running.
+
+  It is also served at `GET /api/agent/skill`.
+- New research report, [docs/00-research/06-toonflow.md](./docs/00-research/06-toonflow.md): how Toonflow was downloaded and run, what using it showed, a side-by-side comparison, and what was adopted or left out and why.
+- Guides now cover:
+  - image tools (canvas basics);
+  - shot splitting (video and export);
+  - per-model lengths and resolutions, and OpenAI-compatible references (providers);
+  - the skill export and `split_shots` (agent access).
+
+### Changed
+- New nodes from shot splitting, grid splitting and angle / relight now go into **free space** beside their source and no longer land on existing nodes or groups.
+- The canvas assistant accepts video lengths of 2–30 seconds; the node menu then offers what the model takes.
+- The installers (resources folder) and the Docker image include `THIRD_PARTY_NOTICES.md`.
+- Roadmap: rc.21 "batch and review", rc.22 "consistency" (grid splitting is done; only grid storyboard templates remain), rc.23 "assistant and apps".
+
+### What was not adopted
+- These were left out:
+  - the 3D director stage;
+  - inpainting and panoramas;
+  - the plugin market and editable provider code;
+  - built-in agent teams;
+  - cloud accounts, community and top-ups;
+  - reference videos and audio (Seedance needs public URLs for them);
+  - 21 interface languages.
+
+  Section 5 of the research report gives the reasons.
+
+### Verified
+- Toonflow, run locally (commit 6086cdf):
+  - dependency install, build and start succeeded;
+  - first launch, model setup, home page, a new project, the canvas, video node settings and each settings page were screenshotted;
+  - its frame-by-frame shot analysis, run on a 3-shot test video, produced 3 keyframes, 3 clips and the soundtrack.
+- This project: typecheck passes and all 253 unit / integration tests pass. The 12 new tests cover:
+  - the capability table;
+  - the angle / relight prompts and grid cells;
+  - free-spot placement;
+  - Ark and MiniMax resolution / sound / length / reference limits;
+  - both ways of sending OpenAI-compatible references;
+  - splitting a real three-shot video with FFmpeg, over the API and MCP;
+  - that the skill names the real tool list, and its download route.
+- New E2E suite `toolkit-flow`:
+  - splitting a video gives three groups: 3 keyframes, 3 clips and the soundtrack;
+  - a 2×2 grid split gives four 320×180 image nodes;
+  - change angle (back) and relight (neon) create wired image-generation nodes; prompt and picture reach the model, and 16:9 is kept;
+  - a Seedance 2.0 node offers 4–15 s, 480p / 720p / 1080p and sound, and saves them;
+  - Settings downloads SKILL.md.
+- `pnpm audit` reports no known vulnerabilities.
+
+### Not verified yet
+- Real Seedance 2.0 / 2.5 and MiniMax H3 videos longer than 15 seconds, at a chosen resolution, with sound; real gpt-image / Seedream angle and relight with a reference picture. Mock services were used here.
+- How the exported skill behaves once installed in a real Claude Code.
+
 ## [1.0.0-rc.19] — 2026-11-13 (release candidate, code complete, not tagged)
 
 "Short-drama workshop": as you asked, the methods of [shuohao-skills](https://github.com/eternityspring/shuohao-skills) (by 烁皓, Apache-2.0), a set of skills that adapt novels into AI short dramas, are now part of the canvas, and the canvas reads what they produce. You can work on the canvas alone (reference sets, the short-drama storyboard skill), or let Claude Code do the adaptation with shuohao-skills and import the result in one step to make the pictures and videos. The planned "batch and review" moves to rc.20.

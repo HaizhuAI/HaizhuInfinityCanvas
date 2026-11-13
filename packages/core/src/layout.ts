@@ -48,3 +48,30 @@ export function tidyLayout<N extends LayoutNode>(nodes: N[], edges: { source: st
   }
   return out
 }
+
+/** the box a node takes up on the canvas: its measured size, a frame's own size, or a typical node's */
+export function nodeBox(n: { type?: string; position: { x: number; y: number }; measured?: { width?: number; height?: number }; data?: Record<string, unknown> }) {
+  const size = (n.data as { size?: { w?: number; h?: number } } | undefined)?.size
+  const w = n.measured?.width ?? size?.w ?? 340
+  const h = n.measured?.height ?? size?.h ?? (n.type === 'text' || n.type === 'audio' ? 260 : 440)
+  return { x: n.position.x, y: n.position.y, w, h }
+}
+
+/**
+ * Where a block of w × h can go near (x, y) without covering what is on the canvas (rc.20): moves it
+ * down past whatever it would overlap, a few times, keeping its left edge. Nodes listed in `ignore`
+ * (e.g. members the block will hold) do not count.
+ */
+export function findFreeSpot(
+  nodes: { id: string; type?: string; position: { x: number; y: number }; measured?: { width?: number; height?: number }; data?: Record<string, unknown> }[],
+  at: { x: number; y: number }, size: { w: number; h: number }, ignore: Set<string> = new Set(), gap = 40,
+): { x: number; y: number } {
+  const boxes = nodes.filter((n) => !ignore.has(n.id)).map(nodeBox)
+  let y = at.y
+  for (let i = 0; i < 200; i++) {
+    const hit = boxes.filter((b) => at.x < b.x + b.w + gap && b.x < at.x + size.w + gap && y < b.y + b.h + gap && b.y < y + size.h + gap)
+    if (!hit.length) return { x: at.x, y }
+    y = Math.max(...hit.map((b) => b.y + b.h)) + gap
+  }
+  return { x: at.x, y }
+}

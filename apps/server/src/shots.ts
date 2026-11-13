@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { GROUP_TYPE, isGroup, type GraphNode, type ProjectGraph } from '@hzc/core'
+import { GROUP_TYPE, findFreeSpot, isGroup, type GraphNode, type ProjectGraph } from '@hzc/core'
 import type { AssetStore } from './assets'
 import { CanvasEditError, MAX_NODES } from './agent'
 import { detectScenes, extractFrame, ffmpegInfo, MediaError, probe, requireFfmpeg, run, segmentsFromCuts, withTemp } from './media'
@@ -16,6 +16,9 @@ export interface SplitOptions { threshold?: number; maxShots?: number; clips?: b
 interface Ref { assetId: string; mime: string }
 export interface ShotSplit {
   duration: number
+  /** the video's frame size, for laying out its nodes */
+  width?: number
+  height?: number
   shots: { start: number; end: number; keyframe: Ref; clip?: Ref }[]
   audio?: Ref
   warnings: string[]
@@ -69,7 +72,7 @@ export async function splitShots(assets: AssetStore, file: string, opts: SplitOp
       if (r.code === 0) { const a = assets.put(readFileSync(out), 'audio/mp4', '原音轨.m4a'); track = { assetId: a.id, mime: a.mime } }
       else warnings.push(`原音轨没有提取出来：${r.stderr.slice(-160)}`)
     }
-    return { duration: info.duration, shots, audio: track, warnings }
+    return { duration: info.duration, width: info.width, height: info.height, shots, audio: track, warnings }
   })
 }
 
@@ -82,13 +85,18 @@ const stamp = (t: number) => { const m = Math.floor(t / 60), s = t - m * 60; ret
 export function shotsToGraph(graph: ProjectGraph, sourceId: string, split: ShotSplit, label: string): { graph: ProjectGraph; added: string[] } {
   const src = graph.nodes.find((n) => n.id === sourceId)
   const placed = graph.nodes.filter((n) => !isGroup(n))
-  const x0 = src ? src.position.x + 460 : placed.length ? Math.max(...placed.map((n) => n.position.x)) + 460 : 0
-  const y0 = src ? src.position.y : 0
   const id = (p: string) => `${p}_${randomBytes(6).toString('hex')}`
-  const COL = 360, PAD = 32, HEAD = 48, ROW = 330
+  // a media node is ~320 wide with its picture capped at 300 tall, plus ~140 of title, button and ports
+  const mediaH = Math.min(300, Math.round(300 * ((split.height ?? 9) / (split.width ?? 16))))
+  const COL = 360, PAD = 32, HEAD = 48, ROW = HEAD + PAD * 2 + 150 + mediaH
   const frames: GraphNode[] = [], members: GraphNode[] = []
   const n = split.shots.length
   const w = PAD * 2 + n * COL - 40
+  const rows = 1 + (split.shots.some((s) => s.clip) ? 1 : 0)
+  const h = rows * (ROW + 40) + (split.audio ? HEAD + PAD * 2 + 230 + 40 : 0) - 40
+  // beside the video, moved down past anything already there (an earlier split, a grid, …)
+  const want = { x: src ? src.position.x + 460 : placed.length ? Math.max(...placed.map((x) => x.position.x)) + 460 : 0, y: src ? src.position.y : 0 }
+  const { x: x0, y: y0 } = findFreeSpot(graph.nodes, want, { w, h })
   const name = label.slice(0, 24) || '视频'
   const row = (title: string, y: number, kind: 'image' | 'video', pick: (s: ShotSplit['shots'][number]) => Ref | undefined) => {
     frames.push({ id: id('g'), type: GROUP_TYPE, position: { x: x0, y }, data: { label: `${title} · ${name}`, size: { w, h: ROW } } })
@@ -101,7 +109,7 @@ export function shotsToGraph(graph: ProjectGraph, sourceId: string, split: ShotS
   if (split.shots.some((s) => s.clip)) row('镜头片段', y0 + ROW + 40, 'video', (s) => s.clip)
   if (split.audio) {
     const y = y0 + (split.shots.some((s) => s.clip) ? 2 : 1) * (ROW + 40)
-    frames.push({ id: id('g'), type: GROUP_TYPE, position: { x: x0, y }, data: { label: `原音轨 · ${name}`, size: { w: PAD * 2 + COL - 40, h: 220 } } })
+    frames.push({ id: id('g'), type: GROUP_TYPE, position: { x: x0, y }, data: { label: `原音轨 · ${name}`, size: { w: PAD * 2 + COL - 40, h: HEAD + PAD * 2 + 230 } } })
     members.push({ id: id('n'), type: 'audio', position: { x: x0 + PAD, y: y + HEAD + PAD }, data: { label: `原音轨 · ${stamp(0)}–${stamp(split.duration)}`, assetId: split.audio.assetId, mime: split.audio.mime } })
   }
   if (graph.nodes.length + frames.length + members.length > MAX_NODES) throw new CanvasEditError(`拆出的镜头会让画布超过 ${MAX_NODES} 个节点：调高检测阈值或减少镜头数`)

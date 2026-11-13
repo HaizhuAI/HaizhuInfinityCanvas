@@ -87,11 +87,18 @@ Agent 可用的工具：
 | `add_nodes` | 一次添加多个节点和连线（也可以只连线）；自动排在画布右侧 |
 | `update_node` / `remove` | 改提示词、参数、模型、素材、位置（导出节点的时间线：`order` / `trims`）；删除节点或连线 |
 | `group_nodes` | 把几个节点框成一个有名字的分组（例如一场戏一组） |
+| `split_shots` | 把画布上的视频拆成每个镜头的关键帧、片段和原音轨，作为节点放在旁边（本机 FFmpeg，不花钱；rc.20） |
 | `import_drama` | 导入 shuohao-skills 的短剧工程（outline / cast / art / script / storyboard JSON，传内容或本机绝对路径）：主体、每段一个分组、分镜图、视频与导出节点（rc.19，见[短剧工坊](./short-drama.md)） |
 | `upload_asset` | 导入本机文件（桌面版 / 本机服务）或 base64 数据，可直接成为输入节点或主体图片 |
 | `prompt_guide` | 目标模型的提示词写法（与「优化提示词」用的同一套规则） |
 | `estimate` / `run` / `wait_for_run` / `cancel_run` | 预估费用、运行（可只运行部分节点）、等待、停止 |
 | `get_results` / `view_asset` / `pick_result` | 读取完整结果（文本、分镜、素材及本机文件路径）；查看图片和视频关键帧；多个变体里选用一个 |
+
+### 教 Claude Code 用这块画布：导出 Skill（rc.20 起）
+
+**设置 → Agent 接入**里有「复制 SKILL.md」和「下载」。把它存成 `~/.claude/skills/haizhu-canvas/SKILL.md`（只给某个项目用就放进项目的 `.claude/skills/haizhu-canvas/`），Claude Code 会在你提到海柱画布、出图出片、短剧、拆镜头等任务时自动读取：什么时候用画布、按什么顺序调用工具、主体 / 短剧导入 / 拆镜头怎么用，以及**先报费用、你同意后才运行**。没有网页时也可以从 `GET /api/agent/skill` 取到同样的内容。（这个做法参考了开源项目 Toonflow 的「导出 Skill」。）
+
+`list_models` 会列出每个视频模型可选的时长、分辨率、能否生成声音和参考图上限（rc.20 起），Agent 据此设置 `duration` / `resolution` / `audio`。
 
 ## 五、费用与安全
 

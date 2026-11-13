@@ -31,7 +31,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, bundleUrl } from './api'
 import type { ProjectGraph } from '@hzc/core'
 
-export const APP_VERSION = 'v1.0.0-rc.19'
+export const APP_VERSION = 'v1.0.0-rc.20'
 
 const nodeTypes = {
   ...Object.fromEntries(

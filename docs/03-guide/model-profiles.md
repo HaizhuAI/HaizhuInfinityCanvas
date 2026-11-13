@@ -46,7 +46,7 @@ API Key 只保存在本机服务端（AES-256-GCM 加密），浏览器拿不到
 
 | 服务商 | 适配器 | 接口地址 | 模型 ID 写法 |
 | --- | --- | --- | --- |
-| OpenAI 图片 | openai-compat | `https://api.openai.com/v1` | 如 `gpt-image-1`（只支持文生图，不支持参考图） |
+| OpenAI 图片 | openai-compat | `https://api.openai.com/v1` | 如 `gpt-image-1`（rc.20 起连了参考图会走 `/images/edits`） |
 | Replicate | replicate | `https://api.replicate.com/v1` | `owner/name`（官方/最新版），或 `owner/name:版本号` |
 | fal.ai | fal | `https://queue.fal.run` | 模型的 endpoint id，如 `fal-ai/xxx` |
 
