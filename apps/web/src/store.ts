@@ -3,8 +3,8 @@ import {
   applyEdgeChanges, applyNodeChanges, addEdge,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { GROUP_TYPE, NODE_TYPE_MAP, MAX_SUBJECT_IMAGES, subjectOf, subjectRefViews, type RefLook, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
-import { ApiError, CLIENT_ID, api, auth, markBooted, type ChangeEvent, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
+import { GROUP_TYPE, NODE_TYPE_MAP, MAX_SUBJECT_IMAGES, gridCells, subjectOf, subjectRefViews, type RefLook, addCompareVariants, checkConnection, dissolveCompare, groupMembers, isGroup, mergeGraphs, pickCompareWinner, same, type Shot, type Estimate, type GraphEdge, type GraphNode, type ModelKind, type ModelProfilePublic, type NodeRunState, type NodeVersion, type ProjectGraph } from '@hzc/core'
+import { ApiError, CLIENT_ID, api, assetUrl, auth, markBooted, type ChangeEvent, type Me, type AssetMeta, type Plan, type ProjectSummary, type SavedPrompt, type SkillMeta } from './api'
 import { preflight } from './preflight'
 import { tidyLayout } from './layout'
 import { instantiate, saveMyTemplate, type MyTemplate } from './myTemplates'
@@ -276,6 +276,16 @@ export interface State {
   linkRefResult: (nodeId: string, outputs: NodeRunState['outputs']) => void
   /** bring a shuohao-skills project (outline / cast / art / script / storyboard JSON files) onto this canvas */
   importDrama: (files: File[]) => Promise<void>
+  /** 图片工具 (rc.20): change angle / relight / grid split for the picture on a node */
+  imageTools: { nodeId: string; assetId: string; mime: string; name?: string } | null
+  openImageTools: (t: State['imageTools']) => void
+  /** an image-generation node beside `nodeId`, its picture wired in as the reference, then run (after the cost check) */
+  imageVariant: (nodeId: string, prompt: string, label: string, aspect?: string) => string | undefined
+  /** cut a picture into rows × cols pictures, as image nodes in a group beside it */
+  gridSplit: (nodeId: string, assetId: string, rows: number, cols: number, name?: string) => Promise<number>
+  /** 拆镜头 (rc.20): the video on a node → keyframes, clips and its soundtrack beside it */
+  splitShots: (nodeId: string) => Promise<void>
+  splitting: string | null
   /** show a run's progress (one started here, or by an agent on this canvas) */
   followRun: (runId: string) => Promise<void>
   /** bring in what changed on the server (an agent's edit), merged with the edits on screen */
@@ -469,6 +479,79 @@ export const useStore = create<State>((set, get) => ({
     // shown when the run ends, in place of 「运行完成」
     if (rest.length && !rest.some((id) => get().runNodeIds.includes(id)))
       refOffer = { text: `锚点已放进 @${sub.name}。满意就出其余 ${rest.length} 个视图（只参考这张锚点）；不满意就在锚点节点上再出一版`, rest }
+  },
+
+  imageTools: null,
+  openImageTools: (t) => set({ imageTools: t }),
+
+  imageVariant: (nodeId, prompt, label, aspect) => {
+    const st = get()
+    const src = st.nodes.find((n) => n.id === nodeId)
+    if (!src) return undefined
+    // stack the variants of one picture below each other, beside it
+    const k = st.nodes.filter((n) => n.data.params?.toolOf === nodeId).length
+    const id = `n_${uid()}`
+    const node = withDefaultProfile({
+      id, type: 'image-gen',
+      position: { x: src.position.x + (src.measured?.width ?? 320) + 100, y: src.position.y + k * 440 },
+      data: { label, text: prompt, params: { count: 1, toolOf: nodeId, ...(aspect ? { aspect_ratio: aspect } : {}) } },
+    }, st.profiles)
+    const edge: Edge = { id: `e_${uid()}`, source: nodeId, sourceHandle: 'out', target: id, targetHandle: 'ref' }
+    set((s2) => ({ nodes: [...s2.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), { ...node, selected: true }], edges: [...s2.edges, edge], saveState: 'dirty', imageTools: null }))
+    get().showNodes([nodeId, id])
+    if (!node.data.profileId) { get().showToast('还没有图片模型：先在「设置 → 模型档案」添加支持参考图的图片模型'); return id }
+    void get().runNodes([id])
+    return id
+  },
+
+  async gridSplit(nodeId, assetId, rows, cols, name) {
+    const src = get().nodes.find((n) => n.id === nodeId)
+    const cells = gridCells(rows, cols)
+    const img = new Image()
+    img.src = assetUrl(assetId)
+    await img.decode()
+    const W = img.naturalWidth, H = img.naturalHeight
+    const files: { id: string; mime: string }[] = []
+    for (const c of cells) {
+      const sx = Math.round(c.x * W), sy = Math.round(c.y * H)
+      const sw = Math.round((c.x + c.w) * W) - sx, sh = Math.round((c.y + c.h) * H) - sy
+      const canvas = document.createElement('canvas')
+      canvas.width = sw; canvas.height = sh
+      canvas.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
+      if (!blob) throw new Error('浏览器无法生成切分后的图片')
+      const a = await api.uploadAsset(new File([blob], `${name ?? '宫格'}-${c.row + 1}-${c.col + 1}.png`, { type: 'image/png' }))
+      files.push({ id: a.id, mime: a.mime })
+    }
+    // the cells as a grid of image nodes in a frame, beside the picture
+    const COL = 340, PAD = 32, HEAD = 48
+    const rowH = Math.round(Math.min(420, Math.max(200, (COL - 40) * (H / rows) / (W / cols) + 90)))
+    const r = Math.max(...cells.map((c) => c.row)) + 1, cc = Math.max(...cells.map((c) => c.col)) + 1
+    const x0 = (src?.position.x ?? 0) + (src?.measured?.width ?? 320) + 100, y0 = src?.position.y ?? 0
+    const frame = toCanvasNode({ id: `g_${uid()}`, type: GROUP_TYPE, position: { x: x0, y: y0 }, data: { label: `宫格切分 ${r}×${cc} · ${(name ?? '图片').slice(0, 20)}`, size: { w: PAD * 2 + cc * COL - 40, h: HEAD + PAD * 2 + r * rowH - 20 } } })
+    const made = cells.map((c, i) => toCanvasNode({ id: `n_${uid()}`, type: 'image', position: { x: x0 + PAD + c.col * COL, y: y0 + HEAD + PAD + c.row * rowH }, data: { label: `格 ${c.row + 1}-${c.col + 1}`, assetId: files[i]!.id, mime: files[i]!.mime } }))
+    set((s2) => ({ nodes: [frame, ...s2.nodes, ...made], saveState: 'dirty', imageTools: null }))
+    get().showNodes([frame.id, ...made.map((m) => m.id)])
+    void get().loadAssets()
+    return made.length
+  },
+
+  splitting: null,
+  async splitShots(nodeId) {
+    const { projectId } = get()
+    if (!projectId || get().splitting) return
+    set({ splitting: nodeId })
+    get().showToast('正在拆镜头：检测切换、提取关键帧、切出片段和原音轨…', { ms: 60000 })
+    try {
+      await get().save() // the server adds to the saved canvas
+      const r = await api.splitShots(projectId, nodeId)
+      await get().pullCanvas()
+      if (r.added.length) get().showNodes(r.added)
+      const parts = [`${r.shots} 个镜头的关键帧`, r.clips ? `${r.clips} 段片段` : '', r.audio ? '原音轨' : ''].filter(Boolean).join('、')
+      get().showToast(`已拆出 ${parts}${r.warnings.length ? `。${r.warnings.join('；')}` : ''}`, { ms: 8000 })
+    } catch (e) {
+      get().showToast(`拆镜头失败：${(e as Error).message}`, { tone: 'error' })
+    } finally { set({ splitting: null }) }
   },
 
   async importDrama(files) {

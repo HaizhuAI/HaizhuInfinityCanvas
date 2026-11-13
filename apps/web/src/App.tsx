@@ -9,6 +9,7 @@ import { StoryboardTable } from './StoryboardTable'
 import { Timeline } from './Timeline'
 import { GroupNode } from './Group'
 import { FloatingToolbar, Lightbox, Rail } from './Chrome'
+import { ImageTools } from './ImageTools'
 import { CanvasHelpers, ContextMenu, PreflightDialog, ShortcutsSheet, ToastView, useEscape, type CtxMenu } from './Overlays'
 import { copySelection, duplicateSelection, leaveCopies, paste } from './clipboard'
 import { initHistory, redo, undo } from './history'
@@ -636,6 +637,7 @@ export function App() {
         <ShortcutsSheet />
         <Projects />
         <Lightbox />
+        <ImageTools />
         <CompareSetup />
         <CompareView />
         <StoryboardTable />

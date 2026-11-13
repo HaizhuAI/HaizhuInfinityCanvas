@@ -18,6 +18,8 @@ import { BundleError, importBundle, isGraph, planBundle } from './bundle'
 import { ZIP_MAX, ZipError, zipChunks } from './zip'
 import { FailureThrottle, LOOPBACK, installSecurity, sameOrigin } from './security'
 import { AgentAccess, CanvasEditError, hubFor, importDrama } from './agent'
+import { shotsToGraph, splitShots, videoOfNode } from './shots'
+import { AGENT_SKILL } from './agentSkill'
 import { MCP_PROTOCOLS, handleMcpMessage } from './mcp'
 import type { Backups, RecoveryNote } from './backup'
 import { installAuth, type AuthConfig } from './auth'
@@ -501,6 +503,29 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     }
   })
 
+  // 拆镜头 (rc.20): a video's shots → keyframes, clips and its soundtrack as nodes beside it (local FFmpeg, nothing paid)
+  app.post<{ Params: { id: string }; Body: { nodeId?: unknown; threshold?: unknown; maxShots?: unknown; clips?: unknown; audio?: unknown } }>('/api/projects/:id/split-shots', async (req, reply) => {
+    const w = ws(req)
+    const p = w.store.getProject(req.params.id)
+    if (!p) return reply.code(404).send({ error: 'not found' })
+    const node = p.graph.nodes.find((n) => n.id === String(req.body?.nodeId ?? ''))
+    const video = videoOfNode(node, w.store.listNodeOutputs(p.id))
+    const asset = video && w.assets.get(video.assetId)
+    if (!node || !asset) return reply.code(400).send({ error: '这个节点上没有视频：先上传或生成一段视频' })
+    try {
+      const split = await splitShots(w.assets, asset.file, { threshold: req.body?.threshold as number, maxShots: req.body?.maxShots as number, clips: req.body?.clips !== false, audio: req.body?.audio !== false })
+      const latest = w.store.getProject(p.id)!
+      const r = shotsToGraph(latest.graph, node.id, split, String(node.data.label ?? '视频'))
+      const saved = w.store.saveProject(p.id, { graph: r.graph })!
+      const client = req.headers['x-hzc-client']
+      hubFor(w.store).emit({ kind: 'project', projectId: p.id, rev: saved.updatedAt, source: typeof client === 'string' ? client.slice(0, 64) : undefined })
+      return { shots: split.shots.length, clips: split.shots.filter((s) => s.clip).length, audio: !!split.audio, duration: split.duration, warnings: split.warnings, added: r.added, rev: saved.updatedAt }
+    } catch (e) {
+      if (e instanceof MediaError || e instanceof CanvasEditError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
+  })
+
   // what changes in this workspace while a page is open (agents editing or running a canvas)
   app.get('/api/events', (req, reply) => {
     const { store } = ws(req)
@@ -620,6 +645,13 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     const a = opts.agentAccess
     return { mode: 'local', enabled: !!a?.enabled, token: a?.token(), localFiles: !!opts.localFiles, ...(opts.desktop ? { desktop: opts.desktop } : {}) }
   }
+  // the SKILL.md that teaches an agent to use these tools (rc.20)
+  app.get<{ Querystring: { download?: string } }>('/api/agent/skill', async (req, reply) => {
+    reply.header('content-type', 'text/markdown; charset=utf-8').header('cache-control', 'no-store')
+    if (req.query.download) reply.header('content-disposition', 'attachment; filename="SKILL.md"')
+    return AGENT_SKILL
+  })
+
   app.get('/api/agent-access', async (req, reply) => {
     ws(req)
     if (!opts.accounts && !opts.agentAccess) return reply.code(404).send({ error: '这个部署没有开启 Agent 接入' })

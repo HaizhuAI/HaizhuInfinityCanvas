@@ -148,6 +148,13 @@ async function importBundle(file: File): Promise<BundleImport> {
   return res.json()
 }
 
+/** the SKILL.md that teaches an agent to use the canvas tools (rc.20) */
+async function agentSkill(): Promise<string> {
+  const res = await fetch('/api/agent/skill', { headers: authHeaders() })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.text()
+}
+
 async function uploadAsset(file: File): Promise<{ id: string; mime: string; size: number }> {
   const res = await fetch('/api/assets', {
     method: 'POST',
@@ -216,6 +223,7 @@ export const api = {
   deleteProject: (id: string) => req<void>('DELETE', `/api/projects/${id}`),
   duplicateProject: (id: string, name?: string) => req<Project>('POST', `/api/projects/${id}/duplicate`, { name }),
   uploadAsset,
+  agentSkill,
   assetFrame: (id: string, at: number | 'last') => req<{ id: string; mime: string; size: number }>('POST', `/api/assets/${encodeURIComponent(id)}/frame`, { at }),
   saveStoryboard: (projectId: string, nodeId: string, sb: { title?: string; shots: unknown[] }) =>
     req<{ outputs: NodeOutputs; finishedAt: string; versions: number }>('PUT', `/api/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/storyboard`, sb),
@@ -225,6 +233,8 @@ export const api = {
     req<{ prompt: string; family: string; familyLabel: string; skill?: string }>('POST', '/api/prompt/optimize', body),
   importBundle,
   run: (projectId: string, body: { nodeIds?: string[]; force?: boolean }) => req<{ runId: string }>('POST', `/api/projects/${projectId}/run`, body),
+  splitShots: (projectId: string, nodeId: string, opts: { threshold?: number; maxShots?: number; clips?: boolean; audio?: boolean } = {}) =>
+    req<{ shots: number; clips: number; audio: boolean; duration: number; warnings: string[]; added: string[]; rev: string }>('POST', `/api/projects/${projectId}/split-shots`, { nodeId, ...opts }),
   importDrama: (projectId: string, files: string[], protocol?: 'seedance' | 'h3') =>
     req<{ counts: { subjects: number; segments: number; cuts: number; groups: number; skippedSegments: number }; warnings: string[]; protocol: string; files: string[]; rev: string }>('POST', `/api/projects/${projectId}/import-drama`, { files, protocol }),
   activeRun: (projectId: string) => req<{ runId: string | null }>('GET', `/api/projects/${projectId}/run`),

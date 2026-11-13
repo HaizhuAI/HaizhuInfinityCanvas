@@ -958,3 +958,23 @@ textarea.mono { font: 12px/1.55 var(--mono); }
 .grp-spacer { flex: 1; }
 .grp-handle { width: 9px !important; height: 9px !important; border-radius: 2px; background: var(--accent) !important; border: none !important; }
 .grp-line { border-color: transparent !important; }
+
+/* 图片工具 (rc.20) */
+.imgtools { width: min(600px, 100%); }
+.imgtools .modal-head small { font-weight: 450; color: var(--muted); }
+.it-top { display: grid; gap: 12px; margin-bottom: 14px; }
+.it-pic { position: relative; justify-self: center; max-width: 100%; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line-2); background: var(--surface-2); line-height: 0; }
+.it-pic img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; }
+.it-grid { position: absolute; inset: 0; display: grid; pointer-events: none; }
+.it-grid span { border: 1px dashed rgba(255, 255, 255, .75); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .35); }
+.it-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.it-tabs svg { width: 14px; height: 14px; }
+.it-body { display: grid; gap: 10px; }
+.it-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.it-label small { font-weight: 450; color: var(--muted); }
+.it-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.it-chips .btn.on { border-color: var(--accent); color: var(--text); }
+.it-prompt { margin: 8px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; font: 11.5px/1.55 var(--mono); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; }
+.imgtools .linkish { margin-top: 12px; border: none; background: none; padding: 0; color: var(--muted); font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.imgtools .linkish:hover { color: var(--text); }
+.imgtools .hint { margin-top: 6px; }

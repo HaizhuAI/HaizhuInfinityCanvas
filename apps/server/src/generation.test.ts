@@ -38,6 +38,9 @@ beforeAll(async () => {
   mock.get('/files/page.html', async (_r, reply) => reply.header('content-type', 'text/html').send('<html></html>'))
   // OpenAI-compatible images
   mock.post('/v1/images/generations', async () => ({ data: [{ b64_json: PNG.toString('base64') }] }))
+  // gpt-image style edits: multipart, kept raw so the test can read the parts
+  mock.addContentTypeParser(/^multipart\/form-data/, { parseAs: 'buffer' }, (_r, body, done) => done(null, body))
+  mock.post('/v1/images/edits', async () => ({ data: [{ b64_json: PNG.toString('base64') }] }))
   // OpenAI-compatible speech
   mock.post('/v1/audio/speech', async (req, reply) => {
     const b = req.body as { input?: string }
@@ -131,14 +134,22 @@ describe('image generation', () => {
     expect(hits.find((h) => h.url === '/v1/images/generations')!.body.prompt).toBe('一只在海边弹吉他的橘猫\n\nAvoid: watermark, blurry')
   })
 
-  it('openai-compat rejects reference images with a clear message', async () => {
+  it('openai-compat takes reference pictures (rc.20): gpt-image uploads them to /images/edits, Seedream sends them as `image`', async () => {
     const { id: assetId } = assets.put(PNG, 'image/png')
-    const p = store.createProject('t', graph('image-gen', prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'x' }).id, {
+    const withRef = (model: string) => store.createProject('t', graph('image-gen', prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model }).id, {
       nodes: [{ id: 'i', type: 'image', position: { x: 0, y: 300 }, data: { assetId, mime: 'image/png' } }],
       edges: [{ id: 'e2', source: 'i', sourceHandle: 'out', target: 'g', targetHandle: 'ref' }],
     }))
-    const { last } = await run(p.id)
-    expect(last.get('g').error).toMatch(/暂不支持参考图/)
+    expect((await run(withRef('gpt-image-1').id)).end.status).toBe('done')
+    const edit = hits.find((h) => h.url === '/v1/images/edits')!
+    const form = (edit.body as Buffer).toString('latin1')
+    expect(form).toContain('name="model"\r\n\r\ngpt-image-1')
+    expect(form).toMatch(/name="image"; filename="ref-1\.png"/)
+    expect(form).toContain('content-type: image/png'.replace('content-type', 'Content-Type'))
+    hits.length = 0
+    expect((await run(withRef('doubao-seedream-5-0-260128').id)).end.status).toBe('done')
+    const gen = hits.find((h) => h.url === '/v1/images/generations')!
+    expect(String(gen.body.image)).toMatch(/^data:image\/png;base64,/)
   })
 
   it('replicate: submits to the official-model endpoint, polls, downloads; ref image sent as data URI', async () => {

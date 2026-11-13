@@ -378,3 +378,24 @@ describe('connection test for provider-native adapters', () => {
     expect((await testConnection('elevenlabs', `${M}/el`, 'nope')).status).toBe('error')
   })
 })
+
+describe('per-model video capabilities (rc.20)', () => {
+  it('Seedance 2.0: resolution and its own soundtrack go in the body; up to 9 reference pictures', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => `data:image/png;base64,R${i}`)
+    const body = ark.input!(profile('ark', 'doubao-seedance-2-0-260128'), req({ duration: 15, resolution: '1080p', audio: true, images: refs })).body as Record<string, any>
+    expect(body).toMatchObject({ duration: 15, resolution: '1080p', generate_audio: true })
+    expect(body.content.filter((c: any) => c.role === 'reference_image')).toHaveLength(9)
+    // an older model keeps 4; nothing set means nothing sent
+    const old = ark.input!(profile('ark', 'doubao-seedance-1-0-lite-i2v'), req({ images: refs })).body as Record<string, any>
+    expect(old.content.filter((c: any) => c.role === 'reference_image')).toHaveLength(4)
+    expect(old).not.toHaveProperty('resolution')
+    expect(old).not.toHaveProperty('generate_audio')
+  })
+
+  it('MiniMax H3: up to 30 seconds and a chosen resolution', () => {
+    const body = minimax.input!(profile('minimax', 'MiniMax-H3'), req({ duration: 28, resolution: '2K' })).body as Record<string, any>
+    expect(body).toMatchObject({ duration: 28, resolution: '2K' })
+    expect((minimax.input!(profile('minimax', 'MiniMax-H3'), req({ duration: 45 })).body as Record<string, any>).duration).toBe(30)
+    expect((minimax.input!(profile('minimax', 'MiniMax-H3'), req({})).body as Record<string, any>).resolution).toBe('768P')
+  })
+})

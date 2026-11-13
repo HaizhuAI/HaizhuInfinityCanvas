@@ -79,7 +79,7 @@ describe('subjects (@name)', () => {
   })
 
   it('a model without reference images still gets the description (no error)', async () => {
-    const pr = prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'gpt-image-1' })
+    const pr = prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'dall-e-3' })
     const p = store.createProject('t', { version: 1, nodes: [subjectNode(), gen('image-gen', pr.id, '@小橘 在睡觉')], edges: [] })
     const { end } = await run(p.id)
     expect(end.status).toBe('done')
@@ -87,7 +87,7 @@ describe('subjects (@name)', () => {
   })
 
   it('editing the subject re-runs what mentions it; other edits elsewhere do not', async () => {
-    const pr = prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'gpt-image-1' })
+    const pr = prof({ kind: 'image', adapter: 'openai-compat', endpoint: `${M}/v1`, model: 'dall-e-3' })
     const graph: ProjectGraph = { version: 1, nodes: [subjectNode(), gen('image-gen', pr.id, '@小橘 在睡觉')], edges: [] }
     const p = store.createProject('t', graph)
     await run(p.id)

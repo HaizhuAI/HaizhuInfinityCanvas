@@ -113,8 +113,33 @@ export async function downloadToAsset(url: string, assets: AssetStore, want: 'im
 
 const OPENAI_SIZE: Record<string, string> = { '1:1': '1024x1024', '16:9': '1536x1024', '4:3': '1536x1024', '21:9': '1536x1024', '9:16': '1024x1536', '3:4': '1024x1536' }
 
-export async function openaiImages(profile: ModelProfile, apiKey: string | undefined, req: { prompt: string; aspect?: string; signal: AbortSignal }): Promise<string[]> {
+/**
+ * How an OpenAI-compatible image service takes reference pictures (rc.20): Seedream and its kin read an
+ * `image` field (one data URI or a list) on /images/generations; OpenAI's gpt-image family uploads
+ * them to /images/edits as files. A profile can say which with defaults._imageRefs = "json" | "edits".
+ */
+export function imageRefMode(profile: Pick<ModelProfile, 'model' | 'defaults'>): 'json' | 'edits' {
+  const set = profile.defaults?._imageRefs
+  if (set === 'json' || set === 'edits') return set
+  return /seedream|seededit|doubao|qwen-image|flux-kontext|nano-banana|gemini/i.test(profile.model) ? 'json' : 'edits'
+}
+
+/** whether an OpenAI-compatible image model is known to take reference pictures (or its profile says how) */
+export function imageRefsKnown(profile: Pick<ModelProfile, 'model' | 'defaults'>): boolean {
+  const set = profile.defaults?._imageRefs
+  return set === 'json' || set === 'edits' || /gpt-image|seedream|seededit|doubao|qwen-image|flux-kontext|nano-banana|gemini/i.test(profile.model)
+}
+
+function dataUriToBlob(uri: string): Blob {
+  const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(uri)
+  if (!m) throw new ProviderError('参考图格式不对')
+  const bytes = m[2] ? Buffer.from(m[3]!, 'base64') : Buffer.from(decodeURIComponent(m[3]!))
+  return new Blob([bytes], { type: m[1] })
+}
+
+export async function openaiImages(profile: ModelProfile, apiKey: string | undefined, req: { prompt: string; aspect?: string; signal: AbortSignal; images?: string[] }): Promise<string[]> {
   if (!profile.endpoint) throw new ProviderError('模型档案未填写接口地址')
+  const refs = (req.images ?? []).slice(0, 10)
   const body: Record<string, unknown> = { n: 1, ...providerDefaults(profile.defaults), model: profile.model, prompt: req.prompt }
   // most services call it "size"; some (e.g. SiliconFlow: image_size) use another name, which also means it is required
   const sizeField = typeof profile.defaults?._sizeField === 'string' && /^\w{1,32}$/.test(profile.defaults._sizeField) ? profile.defaults._sizeField : 'size'
@@ -122,12 +147,23 @@ export async function openaiImages(profile: ModelProfile, apiKey: string | undef
     if (req.aspect && OPENAI_SIZE[req.aspect]) body[sizeField] = OPENAI_SIZE[req.aspect]
     else if (sizeField !== 'size') body[sizeField] = OPENAI_SIZE['1:1']
   }
-  const url = base(profile, '') + (profile.endpoint.replace(/\/+$/, '').endsWith('/images/generations') ? '' : '/images/generations')
-  const r = await call(url, {
-    method: 'POST', apiKey,
-    headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
-    body: JSON.stringify(body),
-  }, req.signal, 'paid')
+  const root = profile.endpoint.replace(/\/+$/, '').replace(/\/images\/(generations|edits)$/, '')
+  const auth: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {}
+  let r: Awaited<ReturnType<typeof call>>
+  if (refs.length && imageRefMode(profile) === 'edits') {
+    // multipart upload: every field as text, the pictures as files (several: image[])
+    const form = new FormData()
+    for (const [k, v] of Object.entries(body)) if (v !== undefined && v !== null) form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
+    refs.forEach((u, i) => form.append(refs.length > 1 ? 'image[]' : 'image', dataUriToBlob(u), `ref-${i + 1}.${(/^data:image\/(\w+)/.exec(u)?.[1] ?? 'png').replace('jpeg', 'jpg')}`))
+    r = await call(`${root}/images/edits`, { method: 'POST', apiKey, headers: auth, body: form }, req.signal, 'paid')
+  } else {
+    if (refs.length) body.image = refs.length === 1 ? refs[0] : refs
+    r = await call(`${root}/images/generations`, {
+      method: 'POST', apiKey,
+      headers: { 'content-type': 'application/json', ...auth },
+      body: JSON.stringify(body),
+    }, req.signal, 'paid')
+  }
   if (r.status < 200 || r.status >= 300) fail(r.status, r.text)
   // OpenAI and most compatible services answer data[]; SiliconFlow answers images[]
   const data = ([...(r.json?.data ?? []), ...(r.json?.images ?? [])]) as { b64_json?: string; url?: string }[]
@@ -222,6 +258,10 @@ export interface GenRequest {
   last?: string
   aspect?: string
   duration?: number
+  /** resolution label as the model lists it (e.g. 720p, 768P), when the node sets one */
+  resolution?: string
+  /** let the model generate its own soundtrack (Seedance 2.x); undefined = the model's default */
+  audio?: boolean
   voice?: string
   speed?: number
   /** the node's advanced params (JSON), applied last */

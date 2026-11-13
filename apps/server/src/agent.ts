@@ -89,7 +89,7 @@ export interface NodeSpec {
 export interface EdgeSpec { from?: unknown; from_port?: unknown; to?: unknown; to_port?: unknown }
 
 const MAX_NODES_PER_CALL = 40
-const MAX_NODES = 600
+export const MAX_NODES = 600
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined)
 const intIn = (v: unknown, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : undefined }
 const oneOf = <T extends string | number>(list: readonly T[]) => (v: unknown) => (list as readonly unknown[]).includes(v) ? (v as T) : undefined
@@ -113,7 +113,9 @@ export const AGENT_PARAMS: Record<string, Record<string, { rule: Rule; hint: str
   'video-gen': {
     aspect_ratio: { rule: aspect, hint: ASPECT_RATIOS.join(' | ') },
     negative: { rule: text(2000), hint: 'what to avoid (used when nothing is wired into the negative port)' },
-    duration: { rule: (v) => intIn(v, 1, 60), hint: 'seconds (most models: 5 or 10)' },
+    duration: { rule: (v) => intIn(v, 1, 60), hint: 'seconds (most models: 5 or 10; Seedance 2.0: 4–15; Seedance 2.5 / MiniMax H3: 4–30; list_models shows each model\'s range)' },
+    resolution: { rule: text(20), hint: 'as the model lists it, e.g. 480p / 720p / 1080p (Seedance 2.0), 768P / 2K (MiniMax H3); see list_models' },
+    audio: { rule: (v) => (typeof v === 'boolean' ? v : undefined), hint: 'true: the model makes its own soundtrack (Seedance 2.x)' },
     count: { rule: (v) => intIn(v, 1, 4), hint: '1–4 results per run (each is a paid call)' },
     extra: { rule: extra, hint: 'provider-specific JSON object, merged last' },
   },

@@ -1,14 +1,15 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, isAbsolute, join } from 'node:path'
 import {
-  NODE_TYPES, NODE_TYPE_MAP, PROMPT_FAMILY_LABEL, groupMembers, isGroup, promptFamily, promptGuide,
+  videoCaps, NODE_TYPES, NODE_TYPE_MAP, PROMPT_FAMILY_LABEL, groupMembers, isGroup, promptFamily, promptGuide,
   type NodeOutputs, type NodeRunState, type PortValue, type ProjectGraph, type RunEvent,
 } from '@hzc/core'
 import type { Store } from './db'
 import { QuotaError, type AssetStore } from './assets'
 import type { Engine } from './engine'
 import type { SkillStore } from './skills'
-import { extractFrame, ffmpegInfo, probe, run as runCmd, withTemp } from './media'
+import { extractFrame, ffmpegInfo, MediaError, probe, run as runCmd, withTemp } from './media'
+import { shotsToGraph, splitShots, SPLIT_MAX_SHOTS, videoOfNode } from './shots'
 import {
   AGENT_PARAMS, CanvasEditError, TEXT_TYPES, addToGraph, groupInGraph, hubFor, importDrama, removeFromGraph, updateInGraph,
   type EdgeSpec, type NodePatch, type NodeSpec,
@@ -237,7 +238,12 @@ const TOOLS: Tool[] = [
     description: 'The person\'s model profiles (which model a node uses; API keys are never shown) with their per-call price if set, and the imported skills.',
     inputSchema: { type: 'object', properties: {} },
     run: async (_a, ctx) => ({
-      models: ctx.store.listProfiles().map((p) => ({ id: p.id, name: p.name, kind: p.kind, adapter: p.adapter, model: p.model, ...(p.cost ? { price_per_call: p.cost } : {}) })),
+      models: ctx.store.listProfiles().map((p) => {
+        // what a video model takes: lengths, resolutions, its own soundtrack (rc.20)
+        const caps = p.kind === 'video' ? videoCaps(p) : undefined
+        const video = caps ? { video: { durations: `${Math.min(...caps.durations)}–${Math.max(...caps.durations)}`, ...(caps.resolutions ? { resolutions: caps.resolutions } : {}), ...(caps.audio ? { audio: true } : {}), ...(caps.maxRefs ? { max_reference_pictures: caps.maxRefs } : {}) } } : {}
+        return { id: p.id, name: p.name, kind: p.kind, adapter: p.adapter, model: p.model, ...(p.cost ? { price_per_call: p.cost } : {}), ...video }
+      }),
       skills: ctx.skills.list().map((x) => ({ name: x.name, label: x.label, kind: x.kind })),
       kinds: 'llm → text / director nodes; vlm → vision, image-reverse, video-reverse; image → image-gen; video → video-gen; tts → tts',
     }),
@@ -333,6 +339,37 @@ const TOOLS: Tool[] = [
       const r = importDrama(ctx, p.graph, files, a.protocol)
       saveGraph(ctx, p.id, r.graph)
       return { imported: r.kinds, ...r.counts, protocol: r.protocol, ...(r.warnings.length ? { warnings: r.warnings } : {}), hint: 'Subjects can get reference pictures in the app (subject node → 生成参考图组); run the keyframes first, then the videos.' }
+    },
+  },
+  {
+    name: 'split_shots', title: '拆镜头',
+    description: 'Split a video on the canvas into its shots, locally with FFmpeg (no model, nothing paid): a keyframe picture per shot, each shot as its own clip, and the original soundtrack, as nodes in groups beside the video. Use it to study or remake a reference video: the keyframes work as references / first frames, the clips as timeline material. The node is an uploaded video node or any node with a video result.',
+    inputSchema: {
+      type: 'object', required: ['project_id', 'node_id'],
+      properties: {
+        project_id: projectId, node_id: { type: 'string' },
+        threshold: { type: 'number', description: 'cut sensitivity 0.05–0.9, default 0.3 (lower finds more cuts)' },
+        max_shots: { type: 'integer', description: `1–${SPLIT_MAX_SHOTS}, default 30` },
+        clips: { type: 'boolean', description: 'cut each shot out as a clip (default true)' },
+        audio: { type: 'boolean', description: 'extract the soundtrack (default true)' },
+      },
+    },
+    run: async (a, ctx) => {
+      const p = project(ctx, a)
+      const node = p.graph.nodes.find((n) => n.id === String(a.node_id ?? ''))
+      if (!node) throw new ToolError(`画布上没有节点 ${String(a.node_id)}`)
+      const video = videoOfNode(node, ctx.store.listNodeOutputs(p.id))
+      const asset = video && ctx.assets.get(video.assetId)
+      if (!asset) throw new ToolError('这个节点上没有视频：先上传或生成一段视频')
+      try {
+        const split = await splitShots(ctx.assets, asset.file, { threshold: a.threshold as number, maxShots: a.max_shots as number, clips: a.clips !== false, audio: a.audio !== false })
+        const r = shotsToGraph(ctx.store.getProject(p.id)!.graph, node.id, split, String(node.data.label ?? '视频'))
+        saveGraph(ctx, p.id, r.graph)
+        return { shots: split.shots.map((s, i) => ({ shot: i + 1, start: Math.round(s.start * 100) / 100, end: Math.round(s.end * 100) / 100 })), clips: split.shots.filter((s) => s.clip).length, audio: !!split.audio, added_nodes: r.added, ...(split.warnings.length ? { warnings: split.warnings } : {}) }
+      } catch (e) {
+        if (e instanceof MediaError) throw new ToolError(e.message)
+        throw e
+      }
     },
   },
   {

@@ -27,7 +27,8 @@ const PARAMS: Record<string, Record<string, (v: unknown, skills: string[]) => un
   'image-gen': { aspect_ratio: (v) => ((ASPECT_RATIOS as readonly string[]).includes(String(v)) ? String(v) : undefined) },
   'video-gen': {
     aspect_ratio: (v) => ((ASPECT_RATIOS as readonly string[]).includes(String(v)) ? String(v) : undefined),
-    duration: (v) => ((VIDEO_DURATIONS as readonly number[]).includes(Number(v)) ? Number(v) : undefined),
+    // 2–30 s: the node's menu then shows what its model takes (rc.20)
+    duration: (v) => { const n = Math.round(Number(v)); return n >= 2 && n <= 30 ? n : undefined },
   },
   director: {
     skill: (v, skills) => (skills.includes(String(v)) ? String(v) : undefined),

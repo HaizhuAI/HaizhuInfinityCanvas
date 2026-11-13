@@ -1,4 +1,4 @@
-import type { ModelProfile } from '@hzc/core'
+import { maxVideoDuration, videoCaps, type ModelProfile } from '@hzc/core'
 import { ProviderError } from './providers'
 import { call, fail, fetchAudio, providerDefaults, type AsyncProvider, type GenRequest, type PollResult, type Submitted } from './generation'
 
@@ -79,8 +79,9 @@ export const ark: AsyncProvider = {
     const content: Body[] = [{ type: 'text', text: withAvoid(r) }]
     if (r.first) content.push({ type: 'image_url', image_url: { url: r.first }, role: 'first_frame' })
     if (r.last) content.push({ type: 'image_url', image_url: { url: r.last }, role: 'last_frame' })
-    for (const url of allRefs(r, 4)) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' })
-    const built = clean({ model: profile.model, content, ratio: r.aspect, duration: r.duration })
+    // Seedance 2.x takes up to 9 reference pictures, earlier models 4
+    for (const url of allRefs(r, videoCaps(profile).maxRefs ?? 4)) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' })
+    const built = clean({ model: profile.model, content, ratio: r.aspect, duration: r.duration, resolution: r.resolution, generate_audio: r.audio })
     return { path: '/contents/generations/tasks', body: deepMerge(providerDefaults(profile.defaults), built, r.extra) }
   },
   async submit(profile, apiKey, input, signal) {
@@ -299,9 +300,9 @@ export const minimax: AsyncProvider = {
       if (r.first) content.push({ type: 'image_url', image_url: { url: r.first }, role: 'first_frame' })
       if (r.last) content.push({ type: 'image_url', image_url: { url: r.last }, role: 'last_frame' })
       for (const url of allRefs(r, 9)) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' })
-      const duration = Math.min(15, Math.max(4, Math.round(r.duration ?? 6)))
+      const duration = Math.min(maxVideoDuration(profile) > 15 ? maxVideoDuration(profile) : 15, Math.max(4, Math.round(r.duration ?? 6)))
       const ratio = r.aspect && MINIMAX_V2_RATIOS.has(r.aspect) ? r.aspect : r.first ? 'adaptive' : '16:9'
-      return { path: '/v2/video_generation', body: deepMerge({ resolution: '768P' }, d, { model: profile.model, content, duration, ratio }, r.extra) }
+      return { path: '/v2/video_generation', body: deepMerge({ resolution: '768P' }, d, clean({ model: profile.model, content, duration, ratio, resolution: r.resolution }), r.extra) }
     }
     noVideoRefs(r, `${profile.model}（MiniMax-H3 可以）`)
     // v1 takes 6 or 10 seconds

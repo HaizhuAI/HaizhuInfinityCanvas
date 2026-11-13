@@ -321,6 +321,30 @@ function CopyBlock({ text, shown, testid }: { text: string; shown?: string; test
 }
 
 const MCP_NAME = 'haizhu-canvas'
+
+/** 教 Agent 用画布 (rc.20): a SKILL.md for Claude Code's skills folder, next to the MCP connection */
+function AgentSkillBlock() {
+  const [text, setText] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => { void api.agentSkill().then(setText).catch(() => setText(null)) }, [])
+  const download = () => {
+    if (!text) return
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }))
+    a.download = 'SKILL.md'
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+  return (
+    <div className="field" data-testid="agent-skill"><span>教 Claude Code 用这块画布（可选）</span>
+      <div className="muted">一份 Skill 说明：什么时候用画布、按什么顺序调用工具、先报费用再运行、主体 / 短剧导入 / 拆镜头怎么用。存成 <code>~/.claude/skills/{MCP_NAME}/SKILL.md</code>（只给当前项目用就放进项目的 <code>.claude/skills/{MCP_NAME}/</code>），Claude Code 会在需要时自动读取。</div>
+      <div className="row-actions">
+        <button className="btn sm" disabled={!text} onClick={() => { if (text) void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }).catch(() => undefined) }} data-testid="agent-skill-copy">{copied ? <Check /> : <Copy />}{copied ? '已复制' : '复制 SKILL.md'}</button>
+        <button className="btn sm ghost" disabled={!text} onClick={download} data-testid="agent-skill-download"><Download />下载</button>
+      </div>
+    </div>
+  )
+}
 const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`
 
 /** 设置 → Agent 接入: let Claude Code (or any MCP client) build and run workflows on this canvas */
@@ -397,6 +421,7 @@ function AgentPane() {
           <div className="hint"><Bot aria-hidden="true" /><span>添加后在 Claude Code 里直接说，例如「在海柱画布里新建一个画布，用 Seedance 做一条 5 秒的橘猫短片」。Claude 会先预估费用，得到你同意后才会调用付费模型。{st.localFiles ? '它也能直接使用你电脑上的图片和视频文件。' : ''}</span></div>
         </>
       )}
+      {st.enabled && <AgentSkillBlock />}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowUp, ImagePlus, X } from 'lucide-react'
-import { ASPECT_RATIOS, VARIATION_COUNTS, VIDEO_DURATIONS } from '@hzc/core'
+import { ASPECT_RATIOS, VARIATION_COUNTS, durationOptions } from '@hzc/core'
 import { api, assetUrl } from './api'
 import { useStore, uid, type CanvasNode } from './store'
 import { useAddNode } from './useAddNode'
@@ -65,7 +65,6 @@ function ComposerBar({ onClose, low }: { onClose?: () => void; low?: boolean }) 
   const refs = [...picked, ...uploads]
   const usedRefs = kind === 'video' ? refs.slice(0, 2) : refs
   const refRole = (i: number) => (kind === 'video' ? (i === 0 ? '首帧' : '尾帧') : '参考')
-  const refsUnsupported = kind === 'image' && refs.length > 0 && profile?.adapter === 'openai-compat'
   const cost = profile?.cost ? `约 ${money(profile.cost.amount * count)} ${profile.cost.currency}` : `${count} 次调用`
 
   async function upload(files: FileList | null) {
@@ -125,7 +124,6 @@ function ComposerBar({ onClose, low }: { onClose?: () => void; low?: boolean }) 
               <button type="button" aria-label="不用这张" onClick={() => (r.nodeId ? setSkipped((s) => [...s, r.nodeId!]) : setUploads((u) => u.filter((x) => x !== r)))}><X /></button>
             </span>
           ))}
-          {refsUnsupported && <span className="cmp-note">这个模型（OpenAI 兼容接口）不接受参考图</span>}
         </div>
       )}
       <div className="cmp-main">
@@ -160,7 +158,7 @@ function ComposerBar({ onClose, low }: { onClose?: () => void; low?: boolean }) 
         {kind === 'video' && (
           <select className="cmp-sel short" title="时长" value={String(duration)} onChange={(e) => set({ duration: e.target.value ? Number(e.target.value) : '' })} aria-label="时长" data-testid="composer-duration">
               <option value="">默认时长</option>
-              {VIDEO_DURATIONS.map((d) => <option key={d} value={d}>{d} 秒</option>)}
+              {durationOptions(profile, duration || undefined).map((d) => <option key={d} value={d}>{d} 秒</option>)}
             </select>
         )}
         <select className="cmp-sel tiny" title="一次生成几个" value={count} onChange={(e) => set({ count: Number(e.target.value) })} aria-label="数量" data-testid="composer-count">

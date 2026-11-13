@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
-import { Ban, Film, Images, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, StepForward, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
+import { Ban, Film, Images, ScrollText, Star, Check, CircleCheck, CircleExclamationPoint, Clock, Copy, Download, Expand, FileArchive, GripVertical, Image as ImageIcon, Info, LayoutGrid, Play, Plus, Scissors, StepForward, WandSparkles, Table2, TriangleExclamationPoint, Upload, Video, X } from 'lucide-react'
 import { DND_MIME, readDrag, startDrag } from './dnd'
 import { MAX_SUBJECT_IMAGES, NODE_TYPE_MAP, REF_LOOK_LABEL, REF_LOOKS, SUBJECT_KIND_LABEL, SUBJECT_KINDS, type RefLook, type ModelKind, type NodeStatus, type PortValue, type Shot, type SubjectKind } from '@hzc/core'
 import { api, assetUrl } from './api'
@@ -73,6 +73,7 @@ export function FileCard({ v, hint }: { v: FileValue; hint?: string }) {
 function MediaView({ v, name, nodeId, onPick, canContinue }: { v: MediaValue; name?: string; nodeId?: string; onPick?: () => void; canContinue?: boolean }) {
   const openLightbox = useStore((s) => s.openLightbox)
   const continueFrom = useStore((s) => s.continueFromLastFrame)
+  const splitting = useStore((s) => s.splitting)
   const busy = useStore((s) => s.runId !== null)
   const url = assetUrl(v.assetId)
   if (v.type === 'audio') return <div className="nmedia audio"><audio className="nodrag" src={url} controls preload="metadata" data-testid="out-audio" /></div>
@@ -87,6 +88,14 @@ function MediaView({ v, name, nodeId, onPick, canContinue }: { v: MediaValue; na
         <button className="btn xs icon nodrag" onClick={open} aria-label="全屏预览" title="全屏预览（双击也可）"><Expand /></button>
         {canContinue && v.type === 'video' && nodeId && (
           <button className="btn xs icon nodrag" onClick={() => void continueFrom(nodeId, v.assetId)} aria-label="从最后一帧接着生成" title="从最后一帧接着生成下一段" data-testid="continue-video"><StepForward /></button>
+        )}
+        {v.type === 'image' && nodeId && (
+          <button className="btn xs icon nodrag" onClick={() => useStore.getState().openImageTools({ nodeId, assetId: v.assetId, mime: v.mime, name })} aria-label="图片工具"
+            title="图片工具：换角度、重新打光、宫格切分" data-testid="image-tools-open"><WandSparkles /></button>
+        )}
+        {v.type === 'video' && nodeId && (
+          <button className="btn xs icon nodrag" disabled={!!splitting} onClick={() => void useStore.getState().splitShots(nodeId)} aria-label="拆镜头"
+            title="拆镜头：按画面切换拆成每个镜头的关键帧、片段和原音轨，放在旁边（本机 FFmpeg 完成，不调用模型）" data-testid="split-shots">{splitting === nodeId ? <span className="orbit" aria-hidden="true" /> : <Scissors />}</button>
         )}
         {onPick && <button className="btn xs nodrag" onClick={onPick} disabled={busy} title="只让这一个流向下游，其余留在版本里" data-testid="pick-result">选用</button>}
       </div>
@@ -192,7 +201,7 @@ function MediaInput({ id, kind, assetId, mime, name, error }: { id: string; kind
       <input ref={ref} type="file" accept={MEDIA_ACCEPT[kind]} hidden data-testid={`upload-${kind}`} onChange={(e) => void onFile(e.target.files?.[0])} />
       {assetId && mime ? (
         <>
-          <MediaView v={{ type: kind, assetId, mime }} name={name} />
+          <MediaView v={{ type: kind, assetId, mime }} name={name} nodeId={id} />
           <button className="btn xs nodrag" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => ref.current?.click()}><Upload />{busy ? '上传中…' : `更换${MEDIA_LABEL[kind]}`}</button>
         </>
       ) : (

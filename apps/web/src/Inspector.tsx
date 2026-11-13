@@ -2,7 +2,7 @@ import { useReactFlow } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
 import { Download, GitCompareArrows, Info, LayoutGrid, MousePointerClick, PanelRightClose, Play, RefreshCw, Subtitles, TriangleExclamationPoint } from 'lucide-react'
 import {
-  ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VARIATION_COUNTS, VIDEO_DURATIONS, type PortValue,
+  ASPECT_RATIOS, NODE_TYPE_MAP, REVERSE_LANGS, REVERSE_STYLES, REVERSE_STYLE_LABEL, VARIATION_COUNTS, durationOptions, videoCaps, type PortValue,
   GROUP_TYPE,
 } from '@hzc/core'
 import { assetUrl } from './api'
@@ -76,7 +76,8 @@ function GenPrompt({ node, kind }: { node: CanvasNode; kind: 'image' | 'video' }
 function Params({ node }: { node: CanvasNode }) {
   const setNodeParam = useStore((s) => s.setNodeParam)
   const skills = useStore((s) => s.skills)
-  const adapter = useStore((s) => s.profiles.find((x) => x.id === node.data.profileId)?.adapter)
+  const profile = useStore((s) => s.profiles.find((x) => x.id === node.data.profileId))
+  const adapter = profile?.adapter
   const voiceHint = (adapter && VOICE_HINT[adapter]) || '如 alloy'
   const p = node.data.params ?? {}
   const set = (k: string, v: unknown) => setNodeParam(node.id, k, v)
@@ -97,6 +98,7 @@ function Params({ node }: { node: CanvasNode }) {
     </label>
   )
 
+  const caps = videoCaps(profile)
   // 负面词 (rc.19): used when nothing is wired into the negative port
   const negativeField = (
     <label className="field" title="不想出现在画面里的东西；接了「负面词」端口时以端口为准"><span>负面词</span>
@@ -115,12 +117,27 @@ function Params({ node }: { node: CanvasNode }) {
             <label className="field"><span>时长</span>
               <select value={String(p.duration ?? '')} onChange={(e) => set('duration', e.target.value ? Number(e.target.value) : undefined)}>
                 <option value="">模型默认</option>
-                {/* an imported or agent-set length (e.g. a 15-second Seedance segment) stays visible */}
-                {[...new Set<number>([...VIDEO_DURATIONS, ...(typeof p.duration === 'number' ? [p.duration] : [])])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} 秒</option>)}
+                {/* the model's own lengths (Seedance 2.0: 4–15 s, 2.5 / MiniMax H3: up to 30 s); a value set elsewhere stays visible */}
+                {durationOptions(profile, p.duration).map((d) => <option key={d} value={d}>{d} 秒</option>)}
               </select>
             </label>
             {countSelect}
+            {caps.resolutions && (
+              <label className="field" title={`${caps.label ?? '这个模型'}支持的分辨率；留空用服务商默认`}><span>分辨率</span>
+                <select value={String(p.resolution ?? '')} onChange={(e) => set('resolution', e.target.value || undefined)} data-testid="gen-resolution">
+                  <option value="">模型默认</option>
+                  {caps.resolutions.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </label>
+            )}
           </div>
+          {caps.audio && (
+            <label className="switch" title="模型自己生成对白、音效和配乐（按服务商计费）">
+              <input type="checkbox" checked={p.audio === true} onChange={(e) => set('audio', e.target.checked || undefined)} data-testid="gen-audio" />
+              <span className="track"><span className="knob" /></span>
+              <span>生成声音（{caps.label}：对白、音效、配乐）</span>
+            </label>
+          )}
           <GenPrompt node={node} kind="video" />
           {negativeField}
           <JsonField id={node.id} value={p.extra} />

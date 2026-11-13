@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { detectScenes, extractFrame, MediaError, probe, segmentsFromCuts, withTemp } from './media'
 import { editorPackage, exportFilm } from './exporter'
 import { endpointIsPrivate, privateNetworkBlocked } from './netguard'
-import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, openaiImages, openaiSpeech, providerDefaults, runJob, type GenRequest, type JobCtx } from './generation'
+import { ASYNC_PROVIDERS, downloadToAsset, extractMediaUrls, imageRefsKnown, openaiImages, openaiSpeech, providerDefaults, runJob, type GenRequest, type JobCtx } from './generation'
 import { NATIVE_PROVIDERS, SYNC_SPEECH } from './vendors'
 
 export class NodeError extends Error {}
@@ -124,6 +124,7 @@ function asyncInput(ctx: HandlerCtx, profile: ModelProfile, media: { image?: str
   if (want === 'audio' && typeof p.speed === 'number') input.speed = p.speed
   if (typeof p.aspect_ratio === 'string' && p.aspect_ratio) input.aspect_ratio = p.aspect_ratio
   if (typeof p.duration === 'number') input.duration = p.duration
+  if (typeof p.resolution === 'string' && p.resolution) input.resolution = p.resolution
   if (want === 'video') {
     // video models name their reference-image field differently: it has to be configured
     const refs = [...(media.image ?? []), ...(userFields.ref ? media.soft ?? [] : [])]
@@ -164,6 +165,8 @@ async function generate(ctx: HandlerCtx, want: Want, media: { image?: string[]; 
       want, prompt, negative, images: media.image ?? [], softImages: media.soft ?? [], first: media.first, last: media.last,
       aspect: typeof p.aspect_ratio === 'string' && p.aspect_ratio ? p.aspect_ratio : undefined,
       duration: typeof p.duration === 'number' ? p.duration : undefined,
+      resolution: typeof p.resolution === 'string' && p.resolution ? p.resolution : undefined,
+      audio: typeof p.audio === 'boolean' ? p.audio : undefined,
       voice: typeof p.voice === 'string' && p.voice ? p.voice : undefined,
       speed: typeof p.speed === 'number' ? p.speed : undefined,
       extra: extraParams(ctx),
@@ -280,13 +283,16 @@ export const HANDLERS: Record<string, Handler> = {
     const profile = requireProfile(ctx)
     const { prompt, subjectImages } = genInput(ctx)
     if (profile.adapter === 'openai-compat') {
-      if (refs.length) throw new NodeError('openai-compat 图片生成暂不支持参考图，请改用 replicate / fal 的图生图模型，或断开参考图')
-      if (subjectImages.length) ctx.job.report('这个模型不接受参考图：主体只用了文字描述')
+      // wired pictures first, then the @mentioned subjects' (rc.20: Seedream-style `image`, or /images/edits).
+      // Wired ones are sent as asked; a subject's only to a model known to take them, else its words suffice.
+      const soft = imageRefsKnown(profile) ? subjectImages : []
+      if (subjectImages.length && !soft.length) ctx.job.report('这个模型不一定接受参考图：主体只用了文字描述')
+      const images = [...refs.map((r) => dataUri(ctx, r.assetId)), ...soft]
       // the images API has no negative prompt: say it in words
       const neg = genNegative(ctx)
       const full = neg ? `${prompt}\n\nAvoid: ${neg}` : prompt
       return { out: await variants(ctx, async (c) => {
-        const urls = await openaiImages(profile, c.apiKey, { prompt: full, aspect: c.node.data.params?.aspect_ratio as string | undefined, signal: c.signal })
+        const urls = await openaiImages(profile, c.apiKey, { prompt: full, aspect: c.node.data.params?.aspect_ratio as string | undefined, signal: c.signal, images })
         c.job.report('保存结果…')
         const out: PortValue[] = []
         const allowPrivate = await resultsMayBePrivate(profile)

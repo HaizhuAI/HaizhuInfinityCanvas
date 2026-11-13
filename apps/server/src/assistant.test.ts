@@ -45,7 +45,7 @@ describe('canvas assistant', () => {
         nodes: [
           { key: 'a', type: 'text', label: '画面', text: '雨夜霓虹街头的机械猫' },
           { key: 'b', type: 'image-gen', label: '首帧', params: { aspect_ratio: '16:9', seed: 7, bogus: 'x' } },
-          { key: 'c', type: 'video-gen', text: '镜头缓慢推近', params: { duration: 7, aspect_ratio: '16:9' } },
+          { key: 'c', type: 'video-gen', text: '镜头缓慢推近', params: { duration: 45, aspect_ratio: '16:9' } },
           { key: 'z', type: 'teleporter' },
         ],
         edges: [
@@ -63,7 +63,7 @@ describe('canvas assistant', () => {
     expect(body.reply).toBe('先出首帧，再生成视频。')
     expect(body.plan.nodes.map((n: any) => n.type)).toEqual(['text', 'image-gen', 'video-gen'])
     expect(body.plan.nodes[1].params).toEqual({ aspect_ratio: '16:9' })      // unknown params dropped
-    expect(body.plan.nodes[2].params).toEqual({ aspect_ratio: '16:9' })      // 7 s is not a supported duration
+    expect(body.plan.nodes[2].params).toEqual({ aspect_ratio: '16:9' })      // 45 s is longer than any model takes
     expect(body.plan.edges).toEqual([{ from: 'a', fromPort: 'out', to: 'b', toPort: 'prompt' }, { from: 'b', fromPort: 'out', to: 'c', toPort: 'first' }])
     expect(body.warnings.join('\n')).toMatch(/teleporter/)
     expect(body.warnings.filter((w: string) => /忽略了一条/.test(w))).toHaveLength(3)
