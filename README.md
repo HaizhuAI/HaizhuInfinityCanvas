@@ -1,10 +1,67 @@
-# Haizhu Infinity Canvas（海柱无限画布）
+<p align="center">
+  <img src="docs/images/app-icon.png" width="88" height="88" alt="Haizhu Infinity Canvas 标志">
+</p>
 
-> 面向「创作类智能体」的无限画布创作工坊。把你预先配置好的**视频模型、图片模型、视觉分析模型、文本模型、TTS 语音模型、导演 Skill** 做成图标，拖进画布、连线成"智能体团队"，一键跑出分镜、图片、视频、配音，并导出成片。
+<h1 align="center">Haizhu Infinity Canvas · 海柱无限画布</h1>
 
-- 当前版本：**v1.0.0-rc.17**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
+<p align="center"><b>给图片和视频创作者的无限节点画布。</b><br>
+把你自己的文本、视觉、图片、视频和语音模型放到同一块画布上连线运行，从一句话做到带配音和字幕的成片；也可以让 Claude Code 帮你在画布上编排工作流。</p>
+
+<p align="center">Windows · macOS · Linux · 网页版 / Docker · 多人网站 · Claude Code（MCP）</p>
+
+<p align="center">
+  <a href="#截图">截图</a> · <a href="#下载与安装">下载与安装</a> · <a href="./docs/03-guide/canvas-basics.md">使用指南</a> · <a href="./CHANGELOG.md">更新记录</a> · <a href="#english">English</a>
+</p>
+
+<p align="center"><img src="docs/images/pipeline.webp" alt="画布上的一条完整流程：参考图反推、出图、生成视频和配音，右侧是所选节点的属性" width="100%"></p>
+
+- 当前版本：**v1.0.0-rc.18**（候选版，尚未打 tag；安装包见 GitHub Actions 的「Build installers」产物）
 - 源码状态：**公开仓库（源码可见）**，但尚未授予开源许可，保留所有权利（见 [LICENSE](./LICENSE)）
-- 目标平台：WebUI（浏览器/Docker，可开启注册登录部署成多人网站）· Windows 桌面版 · macOS 桌面版（Apple 芯片 / Intel）· Linux 桌面版（x64 / arm64）
+- 目标平台：网页版（浏览器 / Docker，可开启注册登录部署成多人网站）· Windows 桌面版 · macOS 桌面版（Apple 芯片 / Intel）· Linux 桌面版（x64 / arm64）
+
+## 截图
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/composer.webp" alt="生成栏"><br><b>生成栏</b>：一句话加模型、比例、时长、数量就能生成；选中的图片自动作为首帧，结果是画布上的普通节点。</td>
+    <td width="50%"><img src="docs/images/compare.webp" alt="多模型对比"><br><b>多模型对比</b>：同一段提示词交给几个模型，结果、用时和单价并排，选中的接管下游。</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/storyboard.webp" alt="导演分镜展开成片"><br><b>导演分镜</b>：一句创意拆成分镜，展开成每个镜头的画面、视频、配音，最后合成成片。</td>
+    <td><img src="docs/images/storyboard-table.webp" alt="分镜表"><br><b>分镜表</b>：像表格一样改分镜，增删排序，保存为新版本，勾选几行只展开这几个镜头。</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/subject-mention.webp" alt="主体与 @ 引用"><br><b>主体与 @ 引用</b>：给角色或商品起名并放参考图，提示词里 <code>@名字</code> 引用，多个镜头保持一致。</td>
+    <td><img src="docs/images/timeline.webp" alt="时间线"><br><b>时间线</b>：导出节点上排好镜头顺序、剪掉头尾，整段预览后再合成成片和剪辑工程。</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/group.webp" alt="分组"><br><b>分组</b>：<code>Ctrl G</code> 把节点框成一组，整组移动、整组运行，存成「我的模板」随时插入。</td>
+    <td><img src="docs/images/assistant.webp" alt="画布助手"><br><b>画布助手</b>：一句话描述要做的东西，助手给出节点方案，确认后才加到画布。</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/agent-settings.webp" alt="设置 → Agent 接入"><br><b>接入 Claude Code</b>：桌面版一条命令加到 Claude Code（MCP），应用没开时自动打开。</td>
+    <td><img src="docs/images/agent-run.webp" alt="Agent 在画布上搭节点并运行"><br><b>Agent 编排</b>：Claude 搭节点、写提示词，先报预估费用、同意后才运行；每一步实时出现在画布上。</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/add-model.webp" alt="接入服务商"><br><b>自带模型</b>：服务商按国内 / 海外 / 本机分组，选中后列出常用模型，测试连接不产生费用。</td>
+    <td><img src="docs/images/cost-confirm.webp" alt="运行前确认费用"><br><b>先看费用再运行</b>：这次会调用哪些模型、复用哪些结果、按你填的单价预估多少钱。</td>
+  </tr>
+</table>
+
+<p align="center"><img src="docs/images/light-theme.webp" alt="浅色主题" width="80%"><br>深色 / 浅色主题都有，界面用不带色偏的石墨灰，画布上唯一的颜色来自你的图片和视频。</p>
+
+## 下载与安装
+
+安装包由 GitHub Actions 的「[Build installers](https://github.com/HaizhuAI/HaizhuInfinityCanvas/actions/workflows/release.yml)」流水线构建：打开最新一次成功的运行，在页面底部的 Artifacts 里下载（尚未发布正式 Release）。
+
+| 系统 | 文件 | 说明 |
+| --- | --- | --- |
+| Windows 10 / 11 | `…-win-x64-setup.exe`（安装版）· `…-win-x64-portable.exe`（便携版） | Windows on ARM 可直接运行 x64 版 |
+| macOS 12+ | `…-mac-arm64.dmg`（Apple 芯片）· `…-mac-x64.dmg`（Intel） | 未公证：第一次打开时右键 → 打开 |
+| Linux | `.AppImage` · `.deb`（x64 / arm64） | AppImage 需要 `chmod +x` |
+| 网页版 / Docker | `docker compose up -d --build` | 设置 `HZC_TOKEN`；或开启账号模式部署成多人网站 |
+
+视频反推与导出成片需要系统安装 FFmpeg（应用不内置），见[视频指南](./docs/03-guide/video-and-export.md)。让 Claude Code 操作画布见 [Agent 接入（MCP）](./docs/03-guide/agent-mcp.md)。
 
 ## 核心理念
 
@@ -20,7 +77,6 @@
 10. **可部署成网站（SaaS）**：开启账号模式后访客可注册登录，每人一个独立空间（自己的数据库与文件夹），自带模型 Key，管理员命令行管理账号（见[多人网站部署](./docs/03-guide/saas-deployment.md)）。
 11. **让 Agent 操作画布（MCP）**：一条命令把桌面版加到 Claude Code，像本地 MCP 一样使用：让 Claude 搭节点、写提示词、预估费用、运行并查看结果，画布实时显示它的改动（见[Agent 接入](./docs/03-guide/agent-mcp.md)）。
 
-> 视频反推与导出成片需要系统安装 FFmpeg（应用不内置），见[视频指南](./docs/03-guide/video-and-export.md)。
 
 ## 文档导航
 
@@ -37,8 +93,9 @@
 | [docs/01-architecture/ADR-0005-graphite-design-system.md](./docs/01-architecture/ADR-0005-graphite-design-system.md) | 「石墨」设计系统：去掉 AI 感（Galaxy 组件 + Taste Skill 准则；rc.11 起） |
 | [docs/01-architecture/ADR-0004-editing-handoff.md](./docs/01-architecture/ADR-0004-editing-handoff.md) | 剪辑工坊：1.0 交付 Shotcut / MLT 剪辑工程，OpenReel 嵌入延后 |
 | [docs/02-roadmap/roadmap.md](./docs/02-roadmap/roadmap.md) | 版本规划与里程碑 |
-| [docs/02-roadmap/optimization-plan-2026-11.md](./docs/02-roadmap/optimization-plan-2026-11.md) | 优化方案（2026-11）：流畅、灵活、兼容、提示词与 Skill 的目标与 rc.14–rc.20 安排 |
-| [docs/02-roadmap/build-matrix.md](./docs/02-roadmap/build-matrix.md) | Win / Linux / WebUI 构建计划 |
+| [docs/02-roadmap/optimization-plan-2026-11.md](./docs/02-roadmap/optimization-plan-2026-11.md) | 优化方案（2026-11）：流畅、灵活、兼容、提示词与 Skill 的目标与 rc.14–rc.21 安排 |
+| [docs/02-roadmap/build-matrix.md](./docs/02-roadmap/build-matrix.md) | Windows / macOS / Linux / 网页版的构建与启动测试 |
+| [docs/brand/](./docs/brand/) | 标志（SVG 与应用图标） |
 | [docs/03-guide/canvas-basics.md](./docs/03-guide/canvas-basics.md) | 使用指南：添加与编辑节点、画布助手、多模型对比、我的画布、提示词库、撤销 / 复制粘贴 / 右键菜单、快捷键、运行前检查与出错处理 |
 | [docs/03-guide/model-profiles.md](./docs/03-guide/model-profiles.md) | 使用指南：添加模型与测试连接、提示词反推与反推 Skill、图片/视频/语音生成、费用预估 |
 | [docs/03-guide/model-providers.md](./docs/03-guide/model-providers.md) | 使用指南：接入各家服务商（火山方舟、百炼万相、可灵、MiniMax、智谱、硅基流动、Runway、ElevenLabs、Gemini…）与参数怎么传 |
@@ -71,3 +128,19 @@ WebUI 容器部署：复制 `.env.example` 为 `.env` 并设置 `HZC_TOKEN`，�
 
 - 每完成一个独立步骤就提交一次，并同步到远端开发分支 `claude/haizhu-infinity-canvas-research-m939uc`。
 - 版本号遵循 SemVer，预发布标签：`v1.0.0-beta.N` → `v1.0.0-rc.N` → `v1.0.0`。
+
+## English
+
+**Haizhu Infinity Canvas** is an infinite node canvas for image and video creators. Bring your own models: text, vision, image, video and speech models become nodes you wire together, so one sentence can grow into a storyboard, pictures, video clips, voice-over and a finished film with subtitles.
+
+- **Nodes and wires**: typed ports (text, image, video, audio, storyboard); generation results keep their versions.
+- **Generate bar**: write one sentence, generate 1–4 variations, optimise the prompt for the target model, continue from a video's last frame.
+- **Director skill and storyboard table**: an idea becomes shots, which expand into image, video and voice nodes.
+- **Subjects**: name a character or product, give it reference pictures and mention it as `@name` to keep shots consistent.
+- **Timeline and groups**: order and trim clips before export; frame nodes in groups and save them as templates.
+- **Providers**: Volcano Ark (Seedance), Alibaba Bailian (Wan), Kling, MiniMax, Zhipu, SiliconFlow, Runway and ElevenLabs have native adapters. OpenAI-compatible APIs, Replicate, fal and local models (Ollama) also work.
+- **Claude Code (MCP)**: one command adds the desktop app to Claude Code as a local MCP server. Claude builds nodes, writes prompts and estimates the cost; it only runs after you agree. The open canvas shows every change live. The web version connects over HTTP with a key.
+- **Runs everywhere**: Windows, macOS (Apple silicon and Intel), Linux (x64 and arm64), web / Docker, and a multi-user site with sign-up and private workspaces.
+- **Your data stays yours**: projects live locally, API keys are encrypted (desktop: OS keychain), and backups and recovery are built in.
+
+Release notes in English: [CHANGELOG.en.md](./CHANGELOG.en.md). The guides in `docs/` are in Chinese.

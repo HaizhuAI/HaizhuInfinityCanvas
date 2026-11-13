@@ -162,10 +162,10 @@ a.btn { text-decoration: none; }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .tb-right { justify-content: flex-end; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-/* the mark: a pillar (柱) standing in the sea (海); ink lines, the pillar in the accent */
+/* the mark: a canvas frame open at one corner, a node and a wire running out to an accent point */
 .logo { width: 22px; height: 22px; display: grid; place-items: center; color: var(--text); flex: none; }
 .logo svg { width: 22px; height: 22px; }
-.logo .pillar { fill: var(--accent); }
+.logo .dot { fill: var(--accent); }
 .brand-name { font-weight: 600; letter-spacing: -.01em; white-space: nowrap; font-size: 14px; }
 .brand-name span { color: var(--muted); font-weight: 500; }
 .ver { font: 500 10.5px/1 var(--mono); color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: 3px 7px; white-space: nowrap; }

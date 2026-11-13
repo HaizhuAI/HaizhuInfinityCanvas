@@ -4,6 +4,47 @@ Release notes in English. The Chinese notes are in [CHANGELOG.md](./CHANGELOG.md
 
 From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlier versions are summarised under [Earlier versions](#earlier-versions-summary).
 
+## [1.0.0-rc.18] — 2026-11-13 (release candidate, code complete, not tagged)
+
+"New logo and product page": the logo is redesigned as you asked. It drops the "pillar in the sea" and becomes a minimal, line-only mark about the canvas and design. Real screenshots of the app are now in the README on GitHub.
+
+### Added
+- **New logo**:
+  - a canvas frame, open at its top-right corner (an endless canvas);
+  - one node on it (a small ring);
+  - a bezier wire from the node out through the opening, like a pen-tool stroke;
+  - the end of the wire is the only signal-orange point.
+
+  The lines follow the text colour, so the mark is clear in dark and light themes, and still legible at 16 px.
+- **Brand files** in [docs/brand](./docs/brand/README.md): SVG marks for light and dark backgrounds, the app icon as SVG and PNG, and usage rules.
+- **README redesign**:
+  - The top shows the logo, a one-line introduction, the platforms and a screenshot of a complete workflow.
+  - New "截图" section with 14 real screenshots: generate bar, model comparison, director storyboard, storyboard table, subjects and @ mentions, timeline, groups, canvas assistant, connecting Claude Code, agent orchestration, adding providers, cost confirmation, light theme.
+  - New "下载与安装" section covering installers for the three systems and Docker, plus an English introduction.
+  - The screenshots are in `docs/images/` (WebP, about 0.8 MB in total).
+- **Front page** (/welcome):
+  - three new feature cards: timeline, "let Claude Code orchestrate the canvas", and groups with my templates;
+  - the ways to run it now include macOS and connecting Claude Code;
+  - all its screenshots were retaken with the new logo.
+
+### Changed
+- The new logo replaces the old one everywhere: top bar, sign-in page, front page, admin console, the web favicon, and the desktop icons for Windows, macOS and Linux (rendered at 16–1024 px from one SVG).
+- The E2E suites that take screenshots (story-flow, timeline-flow, mcp-flow) now use the dark theme at 16:10, matching the front page and README.
+- Roadmap: rc.19 "batch and review", rc.20 "consistency", rc.21 "assistant and apps".
+
+### Verified
+- Locally:
+  - The mark was rendered and checked at 16 / 22 / 32 / 64 px, on dark and light backgrounds and on the app-icon tile.
+  - Four directions were sketched and compared: an open canvas plus a wire, a viewfinder plus a wire, two linked cards, and a canvas plus a straight stroke. The first was chosen; the others read as a camera-focus icon, a flowchart and an "edit" icon.
+  - Typecheck passes, and all 230 unit / integration tests pass (this version does not change how anything runs).
+  - The eighteen E2E suites and the screenshot script pass; the screenshots show the new logo in the top bar and on the front page.
+  - `pnpm audit` reports no known vulnerabilities.
+- GitHub Actions: added after the push.
+
+### Not verified yet
+- The short description and topics in the "About" box on the GitHub repository page must be set in the repository settings, which this session cannot change. Suggested text is in [docs/brand](./docs/brand/README.md#github-仓库简介about).
+- How the new icon looks in each system's taskbar or Dock; CI only checks packaging and launch.
+
 ## [1.0.0-rc.17] — 2026-11-12 (release candidate, code complete, not tagged)
 
 "Timeline and groups": cutting several shots into one film no longer means ordering them by moving nodes around, and a big canvas can be organised into groups by scene, run a group at a time, and saved as your own templates. The batch node changes how nodes run (one run per node), so it moves to rc.18 together with review mode.

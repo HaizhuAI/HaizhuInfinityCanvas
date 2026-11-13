@@ -659,7 +659,7 @@ function AboutPane() {
     <div className="form">
       <div>
         <h3>Haizhu Infinity Canvas</h3>
-        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.17。</div>
+        <div className="muted">面向图像与视频创作者的无限画布。当前版本 v1.0.0-rc.18。</div>
       </div>
       <div className="field"><span>FFmpeg（视频镜头反推、导出成片需要）</span>
         <div className="status-line" data-testid="ffmpeg-status" style={{ '--c': f?.ok ? 'var(--ok)' : 'var(--warn)' } as React.CSSProperties}>

@@ -36,13 +36,18 @@ export const PORT_LABEL: Record<PortType, string> = {
   text: '文本', image: '图片', video: '视频', audio: '音频', storyboard: '分镜', file: '文件', any: '任意',
 }
 
-/** The Haizhu mark: a pillar (柱) standing in the sea (海). Ink waves, the pillar in the accent. */
+/**
+ * The Haizhu mark (rc.18): a canvas frame left open at one corner, a node on it, and a bezier wire
+ * that runs out through the opening to a signal-orange point: an infinite canvas you draw on. Lines
+ * take the text colour; only the point is in the accent.
+ */
 export function Mark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect className="pillar" x="9.5" y="2.5" width="5" height="13.5" rx="1" fill="#ff4a1f" />
-      <path d="M3 18.5c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M6 21.5h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12.5 3.5H6.5a3 3 0 0 0-3 3v11a3 3 0 0 0 3 3h11a3 3 0 0 0 3-3v-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="8.6" cy="15.4" r="1.9" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M10.4 14.6C15.8 12.4 12.6 6.4 17.4 5.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle className="dot" cx="19.3" cy="4.9" r="2.2" fill="#ff4a1f" />
     </svg>
   )
 }

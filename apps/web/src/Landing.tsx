@@ -24,11 +24,15 @@ const FEATURES: { title: string; text: string; img: string; wide?: boolean }[] =
   { title: '导演分镜一键展开', text: '一句创意交给导演 Skill 拆成分镜，再展开成每个镜头的画面、视频、配音，最后合成成片和字幕。', img: 'storyboard', wide: true },
   { title: '参考图反推提示词', text: '图片或视频反推成可复用的提示词，正向提示词和负面词分别接到生成节点。', img: 'reverse' },
   { title: '画布助手', text: '用一句话描述要做的东西，助手给出节点方案，你确认后才加到画布。', img: 'assistant' },
+  { title: '时间线', text: '导出节点上排好镜头顺序、剪掉每段的头尾，整段预览后再合成成片和剪辑工程。', img: 'timeline' },
+  { title: '让 Claude Code 编排画布', text: '桌面版一条命令加到 Claude Code（MCP）。Claude 搭节点、按目标模型写提示词，先报预估费用、你同意后才运行；它的每一步都实时出现在画布上。', img: 'agent', wide: true },
+  { title: '分组与我的模板', text: '框选节点按 Ctrl G 分组，整组移动、整组运行，存成模板随时插入。', img: 'group' },
 ]
 const RUN_WAYS: [string, string][] = [
-  ['Windows 与 Linux 桌面版', '安装后打开即用。项目、素材和生成结果都在本机，API Key 交给系统钥匙串加密保存。'],
+  ['Windows、macOS 与 Linux 桌面版', '安装后打开即用（Apple 芯片与 Intel、x64 与 arm64）。项目、素材和生成结果都在本机，API Key 交给系统钥匙串加密保存。'],
   ['网页版，一个人或一个小团队', 'Docker 部署到自己的服务器，用访问令牌进入；数据库每 6 小时自动备份，损坏时自动从备份恢复。'],
   ['多人网站', '开启账号模式后访客注册登录，每个账号一个独立的数据库和文件夹，彼此看不到对方的画布和 Key。'],
+  ['接入 Claude Code 等 Agent', '画布内置 MCP 服务：桌面版像本地 MCP 一样一条命令接入，网页版用地址加密钥；会花钱的运行必须先确认费用。'],
 ]
 
 /** what the visitor can do: open the canvas (one-person install, or signed in), or sign up / sign in */
@@ -87,7 +91,7 @@ export function Landing({ onEnter }: { onEnter: () => void }) {
             <div className="lp-hero-row">
               <div>
                 <p className="lp-lead">把你自己的文本、视觉、图片、视频和语音模型放到同一块画布上连线运行，从一句文字做到带配音和字幕的成片。</p>
-                <p className="lp-fact">接火山方舟、阿里云百炼、可灵、MiniMax、Runway 等服务商，OpenAI 兼容接口和本机 Ollama；Windows、Linux 桌面版和网页版。</p>
+                <p className="lp-fact">接火山方舟、阿里云百炼、可灵、MiniMax、Runway 等服务商，OpenAI 兼容接口和本机 Ollama；Windows、macOS、Linux 桌面版和网页版，也能接入 Claude Code。</p>
               </div>
               <div className="lp-actions">
                 <a className="lp-btn primary" href={primary.href} onClick={(e) => go(e, primary.href)} data-testid="landing-enter">{primary.label}<ArrowRight className="lp-arrow" aria-hidden="true" /></a>

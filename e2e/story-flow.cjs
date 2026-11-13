@@ -54,7 +54,7 @@ const api = async (m, u, b) => (await fetch(BASE + u, { method: m, headers: { 'c
   await api('POST', '/api/profiles', { name: 'Seedance', kind: 'video', adapter: 'ark', endpoint: `${M}/ark`, model: 'doubao-seedance-2-5', apiKey: 'ark-key' })
 
   const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, colorScheme: 'dark' })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })

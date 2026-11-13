@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Haizhu Infinity Canvas app icon: the mark (a canvas frame open at one corner, a node, a bezier wire
+       running out to a signal-orange point) in light lines on a flat graphite tile. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#18191b"/>
+  <g transform="translate(512 512) scale(27) translate(-12 -12)" fill="none">
+    <path d="M12.5 3.5H6.5a3 3 0 0 0-3 3v11a3 3 0 0 0 3 3h11a3 3 0 0 0 3-3v-6" stroke="#eff0f1" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="8.6" cy="15.4" r="1.9" stroke="#eff0f1" stroke-width="1.7"/>
+    <path d="M10.4 14.6C15.8 12.4 12.6 6.4 17.4 5.4" stroke="#eff0f1" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="19.3" cy="4.9" r="2.2" fill="#ff4a1f"/>
+  </g>
+</svg>

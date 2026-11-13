@@ -50,7 +50,7 @@ async function tool(name, args = {}) {
   const M = `http://127.0.0.1:${mock.address().port}/v1`
   await api('POST', '/api/profiles', { name: '海报图', kind: 'image', adapter: 'openai-compat', endpoint: M, model: 'img', cost: { amount: 0.2, currency: 'CNY' } })
   const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 1600, height: 960 }, colorScheme: 'dark' })
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, colorScheme: 'dark' })
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()) })
