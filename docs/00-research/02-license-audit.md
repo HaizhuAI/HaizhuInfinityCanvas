@@ -72,7 +72,7 @@
 | 项目 | 许可证 | 我们怎么用 | 结论 |
 | --- | --- | --- | --- |
 | FFmpeg（桌面版） | LGPL / GPL（视构建） | **不随安装包分发**；调用用户自己安装的可执行文件（独立进程、参数数组） | 🟢 安装包不含 FFmpeg，无分发义务 |
-| FFmpeg（Docker 镜像） | Debian 软件包为 GPL 构建（含 x264） | 镜像内 `apt install ffmpeg`；镜像目前只在 CI 构建，**未公开发布** | 🟡 公开发布镜像 = 分发 GPL 二进制。可接受的做法：随镜像保留 Debian 的版权文件（`/usr/share/doc/*/copyright`），并在发布说明里指明对应源码可从 Debian 源码仓库获取（未修改的发行版软件包）。或者发布不含 FFmpeg 的镜像，由用户挂载。**需你决定** |
+| FFmpeg（Docker 镜像） | Debian 软件包为 GPL 构建（含 x264） | 镜像内 `apt install ffmpeg`；rc.20 起按你的决定**公开发布**到 ghcr.io | 🟢 按下面的做法分发：镜像保留 Debian 的版权文件（`/usr/share/doc/ffmpeg/copyright`，CI 每次检查它在不在）与 `THIRD_PARTY_NOTICES.md`；每个 Release 的说明写明 FFmpeg 是未修改的 Debian 软件包、对应源码在 https://sources.debian.org/src/ffmpeg/ 。不修改 FFmpeg，不静态链接 |
 | MLT 框架 / `melt` | 框架 LGPL-2.1+；`melt` 命令行 GPL-2.0+ | 只在 CI 测试中安装，用来渲染我们生成的工程文件；不分发、不链接 | 🟢 |
 | Shotcut | GPL-3.0 | 用户自行安装；我们只生成它能打开的 MLT XML 数据文件（自己的代码，不含其代码） | 🟢 |
 | Electron safeStorage | MIT（Electron 的一部分） | 桌面版把 API Key 加密密钥交给系统钥匙串 | 🟢 |
@@ -90,7 +90,7 @@
 ## 对我们自己许可证的约束
 
 1. 因为没有引入任何 GPL/AGPL 代码（用户自行导入到本机的 GPL Skill 不属于我们的代码，也不由我们分发），我们日后**可以自由选择**闭源商业、源码可见或 MIT/Apache 开源。
-2. 我们**不分发**模型权重；桌面安装包不含 FFmpeg。Docker 镜像含发行版 FFmpeg，公开发布前按上表处理。
+2. 我们**不分发**模型权重；桌面安装包不含 FFmpeg。Docker 镜像含发行版 FFmpeg，按上表的做法公开发布（rc.20 起）。
 3. 任何外部代码摘取必须在 `THIRD_PARTY_NOTICES.md` 登记：来源 URL、提交哈希、许可证、改动说明。
 4. 与 GPL 服务（ComfyUI）的集成严格限于网络 API，且作为可选 provider，默认不启用。
 

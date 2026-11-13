@@ -45,8 +45,11 @@
 
 ```bash
 cp .env.example .env     # 设置 HZC_TOKEN（必填，至少 16 个随机字符；没有令牌或令牌太弱时拒绝启动）
-docker compose up -d --build
+docker compose pull      # 取发布好的镜像 ghcr.io/haizhuai/haizhu-infinity-canvas（x64 / arm64，rc.20 起）
+docker compose up -d     # 或 docker compose up -d --build：用当前源码自己构建
 ```
+
+不想用 Docker：从 [Releases](https://github.com/HaizhuAI/HaizhuInfinityCanvas/releases) 下载 `haizhu-infinity-canvas-<版本>-server.tar.gz`，在装有 Node.js 22.13+ 的服务器上解压，`HZC_HOST=0.0.0.0 HZC_TOKEN=… ./start.sh`（下表的环境变量同样适用；数据默认在解压目录的 `data/`）。包内 README 有 systemd 示例。
 
 | 环境变量 | 说明 |
 | --- | --- |

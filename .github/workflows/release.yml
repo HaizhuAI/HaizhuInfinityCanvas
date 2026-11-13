@@ -1,7 +1,8 @@
 name: Build installers
 
-# Runs on version tags, on dev-branch pushes that touch shipped code, or manually. Artifacts are attached to the run
-# (no GitHub Release is created by this workflow).
+# Runs on version tags, on dev-branch pushes that touch shipped code, or manually. Every run attaches the installers
+# and the server package to the run. A version tag (v1.2.3, v1.0.0-rc.20) also publishes them: a GitHub Release
+# (a pre-release when the version has a "-" suffix) with every file attached, and the Docker image on ghcr.io.
 on:
   push:
     tags: ["v*"]
@@ -157,9 +158,60 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # the WebUI without Docker: server bundle + web UI + start script, for Node.js 22.13+ on any server
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @hzc/core --filter @hzc/server --filter @hzc/web
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: pnpm --filter @hzc/core build && pnpm --filter @hzc/web build && pnpm --filter @hzc/server build
+      - name: Package
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          D="haizhu-infinity-canvas-$VER-server"
+          mkdir -p "pkg/$D"
+          cp -r apps/server/dist "pkg/$D/server"
+          cp -r apps/web/dist "pkg/$D/web"
+          cp deploy/server/start.sh deploy/server/README.md LICENSE THIRD_PARTY_NOTICES.md "pkg/$D/"
+          chmod +x "pkg/$D/start.sh"
+          tar -C pkg -czf "$D.tar.gz" "$D"
+          ls -la "$D.tar.gz"
+      - name: Smoke test the package (unpacked elsewhere, nothing else installed)
+        run: |
+          T=$(mktemp -d) && tar -C "$T" -xzf haizhu-infinity-canvas-*-server.tar.gz
+          cd "$T"/haizhu-infinity-canvas-*-server
+          PORT=8795 ./start.sh > "$T/log.txt" 2>&1 &
+          PID=$!
+          for i in $(seq 1 30); do curl -sf localhost:8795/api/health >/dev/null && break; sleep 1; done
+          curl -sf localhost:8795/api/health
+          curl -sf localhost:8795/ | grep -qi '<div id="root"'
+          test -d data
+          kill $PID
+          # beyond localhost it refuses to start without an access token (exits by itself, not by the timeout)
+          set +e; HZC_HOST=0.0.0.0 PORT=8796 timeout 20 ./start.sh; rc=$?; set -e
+          echo "exit code without a token: $rc"
+          test "$rc" != 0 && test "$rc" != 124
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-node
+          path: haizhu-infinity-canvas-*-server.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # version tags push the image to ghcr.io
     steps:
       - uses: actions/checkout@v4
       - name: Build WebUI image
@@ -215,8 +267,9 @@ jobs:
           docker rm -f arm
       - name: Smoke test image in accounts mode (multi-user website)
         run: |
-          # without HZC_ALLOWED_HOSTS a public accounts deployment must refuse to start
-          ! docker run --rm -e HZC_ACCOUNTS=1 haizhu-infinity-canvas:ci
+          # without HZC_ALLOWED_HOSTS a public accounts deployment must refuse to start (`! cmd` never fails a step)
+          set +e; timeout 60 docker run --rm -e HZC_ACCOUNTS=1 haizhu-infinity-canvas:ci; rc=$?; set -e
+          test "$rc" != 0 && test "$rc" != 124
           docker run -d --name saas --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
             -v hzc-saas-data:/data -e HZC_ACCOUNTS=1 -e HZC_ALLOWED_HOSTS=localhost -p 8788:8787 haizhu-infinity-canvas:ci
           for i in $(seq 1 30); do curl -sf localhost:8788/api/health >/dev/null && break; sleep 1; done
@@ -228,7 +281,7 @@ jobs:
           grep -q 'hzc_session' ann.txt
           curl -sf -b ann.txt -H "$J" -H "$O" -d '{"name":"ann-canvas"}' localhost:8788/api/projects
           curl -sf -c bob.txt -H "$J" -H "$O" -d '{"email":"bob@example.com","password":"bob-lantern-77"}' localhost:8788/api/auth/signup
-          ! curl -sf -b bob.txt localhost:8788/api/projects | grep -q 'ann-canvas'
+          if curl -sf -b bob.txt localhost:8788/api/projects | grep -q 'ann-canvas'; then echo "bob sees ann's canvas"; exit 1; fi
           curl -sf -b ann.txt localhost:8788/api/projects | grep -q 'ann-canvas'
           # the admin console answers admins only
           test "$(curl -s -o /dev/null -w '%{http_code}' -b ann.txt localhost:8788/api/admin/overview)" = 403
@@ -239,6 +292,53 @@ jobs:
           docker stop -t 20 saas
           test "$(docker inspect -f '{{.State.ExitCode}}' saas)" = 0
           # without a token, or with a weak / example one, the container must refuse to start
-          ! docker run --rm haizhu-infinity-canvas:ci
-          ! docker run --rm -e HZC_TOKEN=short haizhu-infinity-canvas:ci
-          ! docker run --rm -e HZC_TOKEN=change-me-to-a-long-random-string haizhu-infinity-canvas:ci
+          for args in "" "-e HZC_TOKEN=short" "-e HZC_TOKEN=change-me-to-a-long-random-string"; do
+            set +e; timeout 60 docker run --rm $args haizhu-infinity-canvas:ci; rc=$?; set -e
+            echo "docker run $args -> exit $rc"
+            test "$rc" != 0 && test "$rc" != 124
+          done
+      - name: FFmpeg's licence files travel with the image
+        run: |
+          docker run --rm --entrypoint sh haizhu-infinity-canvas:ci -c 'test -s /usr/share/doc/ffmpeg/copyright && test -s /app/THIRD_PARTY_NOTICES.md && ffmpeg -hide_banner -version | head -1'
+      - name: Publish the image (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/$OWNER/haizhu-infinity-canvas"
+          VER="${GITHUB_REF_NAME#v}"
+          # a pre-release moves the "rc" tag; a final release moves "latest"
+          case "$VER" in *-*) CHANNEL=rc ;; *) CHANNEL=latest ;; esac
+          docker buildx use multi
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.version=$VER" \
+            -t "$IMAGE:$VER" -t "$IMAGE:$CHANNEL" --push .
+          echo "published $IMAGE:$VER and $IMAGE:$CHANNEL"
+
+  # a version tag: a GitHub Release with every installer and the server package attached
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, server, docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist && ls -la && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes (zh + en, from the changelogs)
+        run: node .github/release-notes.mjs "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) PRE=--prerelease ;; *) PRE=--latest ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag $PRE \
+            --title "Haizhu Infinity Canvas ${GITHUB_REF_NAME}" --notes-file notes.md

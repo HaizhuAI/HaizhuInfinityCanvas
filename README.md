@@ -52,14 +52,17 @@
 
 ## 下载与安装
 
-安装包由 GitHub Actions 的「[Build installers](https://github.com/HaizhuAI/HaizhuInfinityCanvas/actions/workflows/release.yml)」流水线构建：打开最新一次成功的运行，在页面底部的 Artifacts 里下载（尚未发布正式 Release）。
+从 **[Releases](https://github.com/HaizhuAI/HaizhuInfinityCanvas/releases)** 下载（rc.20 起每个版本自动发布，候选版标为 Pre-release）。每次提交的测试构建也在 GitHub Actions 的「[Build installers](https://github.com/HaizhuAI/HaizhuInfinityCanvas/actions/workflows/release.yml)」运行页底部（Artifacts，保留 30 天）。
 
 | 系统 | 文件 | 说明 |
 | --- | --- | --- |
-| Windows 10 / 11 | `…-win-x64-setup.exe`（安装版）· `…-win-x64-portable.exe`（便携版） | Windows on ARM 可直接运行 x64 版 |
+| Windows 10 / 11 | `…-win-x64-setup.exe`（安装版）· `…-win-x64-portable.exe`（便携版） | Windows on ARM 可直接运行 x64 版；没有代码签名，SmartScreen 提示时点「更多信息 → 仍要运行」 |
 | macOS 12+ | `…-mac-arm64.dmg`（Apple 芯片）· `…-mac-x64.dmg`（Intel） | 未公证：第一次打开时右键 → 打开 |
-| Linux | `.AppImage` · `.deb`（x64 / arm64） | AppImage 需要 `chmod +x` |
-| 网页版 / Docker | `docker compose up -d --build` | 设置 `HZC_TOKEN`；或开启账号模式部署成多人网站 |
+| Linux 桌面 | `.AppImage` · `.deb`（x64 / arm64） | AppImage 需要 `chmod +x` |
+| 服务器（网页版，不用 Docker） | `haizhu-infinity-canvas-<版本>-server.tar.gz` | 需要 Node.js 22.13+；解压后 `./start.sh`，见包内 README |
+| Docker（x64 / arm64） | `docker pull ghcr.io/haizhuai/haizhu-infinity-canvas:<版本>`（最新候选版：`:rc`） | 或用仓库里的 `docker-compose.yml`：`docker compose pull && docker compose up -d`；设置 `HZC_TOKEN`，或开启账号模式部署成多人网站 |
+
+每个版本附 `SHA256SUMS.txt` 校验文件。
 
 视频反推与导出成片需要系统安装 FFmpeg（应用不内置），见[视频指南](./docs/03-guide/video-and-export.md)。让 Claude Code 操作画布见 [Agent 接入（MCP）](./docs/03-guide/agent-mcp.md)。
 
@@ -148,5 +151,7 @@ WebUI 容器部署：复制 `.env.example` 为 `.env` 并设置 `HZC_TOKEN`，�
 - **Claude Code (MCP)**: one command adds the desktop app to Claude Code as a local MCP server. Claude builds nodes, writes prompts and estimates the cost; it only runs after you agree. The open canvas shows every change live. The web version connects over HTTP with a key.
 - **Runs everywhere**: Windows, macOS (Apple silicon and Intel), Linux (x64 and arm64), web / Docker, and a multi-user site with sign-up and private workspaces.
 - **Your data stays yours**: projects live locally, API keys are encrypted (desktop: OS keychain), and backups and recovery are built in.
+
+Downloads: [Releases](https://github.com/HaizhuAI/HaizhuInfinityCanvas/releases) (Windows, macOS, Linux installers and a Node.js server package), and the Docker image `ghcr.io/haizhuai/haizhu-infinity-canvas` (x64 / arm64).
 
 Release notes in English: [CHANGELOG.en.md](./CHANGELOG.en.md). The guides in `docs/` are in Chinese.

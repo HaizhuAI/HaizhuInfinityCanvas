@@ -14,6 +14,9 @@ RUN pnpm install --frozen-lockfile --filter @hzc/core --filter @hzc/server --fil
  && pnpm --filter @hzc/server build
 
 FROM node:22-slim
+LABEL org.opencontainers.image.title="Haizhu Infinity Canvas" \
+      org.opencontainers.image.description="Infinite node canvas for image and video creators (WebUI)" \
+      org.opencontainers.image.source="https://github.com/HaizhuAI/HaizhuInfinityCanvas"
 WORKDIR /app
 RUN useradd -m -u 10001 hzc && mkdir -p /data && chown hzc /data
 COPY --from=build /app/apps/server/dist ./server

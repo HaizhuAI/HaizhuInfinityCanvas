@@ -1,7 +1,8 @@
 services:
   haizhu-canvas:
+    # `docker compose pull` fetches the published image; `docker compose up -d --build` builds it from this checkout
+    image: ghcr.io/haizhuai/haizhu-infinity-canvas:1.0.0-rc.20
     build: .
-    image: haizhu-infinity-canvas:1.0.0-rc.20
     ports:
       - "8787:8787"
     environment:

@@ -51,6 +51,20 @@ This version also exports a skill for Claude Code. The planned "batch and review
 - The installers (resources folder) and the Docker image include `THIRD_PARTY_NOTICES.md`.
 - Roadmap: rc.21 "batch and review", rc.22 "consistency" (grid splitting is done; only grid storyboard templates remain), rc.23 "assistant and apps".
 
+### Publishing (from rc.20, as you confirmed)
+- Pushing a version tag (such as `v1.0.0-rc.20`) makes "Build installers" create a **GitHub Release**. Release candidates are marked as pre-releases. Attached:
+  - Windows installer and portable;
+  - macOS (Apple silicon / Intel) dmg and zip;
+  - Linux (x64 / arm64) AppImage and deb;
+  - the **server package** `haizhu-infinity-canvas-<version>-server.tar.gz`;
+  - `SHA256SUMS.txt`.
+
+  The release notes are generated from the Chinese and English changelogs.
+- The **Docker image** (x64 / arm64) is pushed to `ghcr.io/haizhuai/haizhu-infinity-canvas:<version>`; release candidates also move `:rc`. `docker-compose.yml` now uses this image (`docker compose pull`; `--build` still builds it yourself).
+- **Server package** (new): the web version without Docker. Unpack it and run `./start.sh` with Node.js 22.13+. CI unpacks it into an empty folder on every run, starts it, opens the page, and checks that it refuses to listen beyond localhost without an access token.
+- The image's FFmpeg is Debian's unmodified package. The image keeps its copyright files (checked in CI), and the release notes say where its source is. The licence audit is updated.
+- Fixed a few CI checks that were meant to fail but never could (`! command` does not fail a step). They now check exit codes, and confirm that the server refuses to start without a token, with a weak one, or with the example one.
+
 ### What was not adopted
 - These were left out:
   - the 3D director stage;
