@@ -19,7 +19,7 @@
 
 ### Verified
 - 本机：标志在 16 / 22 / 32 / 64 px、深色与浅色背景、应用图标底色上逐一渲染检查（同时比较了四个方向的草图：开口画布 + 连线、取景框 + 连线、两张卡片相连、画布 + 直线；选了第一个，前三个容易被看成相机对焦、流程图或「编辑」图标）；类型检查通过；230 个单元 / 集成测试通过（这一版没有改动运行逻辑）；十八套 E2E 与截图脚本通过，截图里的顶栏和首页都是新标志。`pnpm audit` 无已知漏洞。
-- GitHub Actions：推送后补充。
+- GitHub Actions（commit fc7ad97）一次通过：CI run 43370221540——类型检查、单测、十八套 E2E 与截图脚本；安装包 run 43370221452——Windows、macOS（Apple 芯片 / Intel）、Linux（x64 / arm64）用新图标打包并通过启动测试（含 Agent 桥接与崩溃自动恢复），Docker 各项冒烟测试通过。
 
 ### Not verified yet
 - GitHub 仓库首页右侧「About」里的简介和标签需要在仓库设置里填写（这个会话没有修改仓库设置的权限），建议文字见 [docs/brand](./docs/brand/README.md#github-仓库简介about)。

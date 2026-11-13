@@ -39,7 +39,11 @@ From 1.0.0-rc.9 on, every entry is a full translation of the Chinese one. Earlie
   - Typecheck passes, and all 230 unit / integration tests pass (this version does not change how anything runs).
   - The eighteen E2E suites and the screenshot script pass; the screenshots show the new logo in the top bar and on the front page.
   - `pnpm audit` reports no known vulnerabilities.
-- GitHub Actions: added after the push.
+- GitHub Actions (commit fc7ad97) passed on the first attempt:
+  - CI run 43370221540: typecheck, unit tests, eighteen E2E suites and the screenshot script.
+  - Installer run 43370221452:
+    - Windows, macOS (Apple silicon / Intel) and Linux (x64 / arm64) were packaged with the new icons and passed their launch tests, including the agent bridge and recovery from a crash;
+    - the Docker smoke tests passed.
 
 ### Not verified yet
 - The short description and topics in the "About" box on the GitHub repository page must be set in the repository settings, which this session cannot change. Suggested text is in [docs/brand](./docs/brand/README.md#github-仓库简介about).
