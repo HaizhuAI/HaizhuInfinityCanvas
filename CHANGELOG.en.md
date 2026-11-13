@@ -63,6 +63,11 @@ This version also exports a skill for Claude Code. The planned "batch and review
 - The **Docker image** (x64 / arm64) is pushed to `ghcr.io/haizhuai/haizhu-infinity-canvas:<version>`; release candidates also move `:rc`. `docker-compose.yml` now uses this image (`docker compose pull`; `--build` still builds it yourself).
 - **Server package** (new): the web version without Docker. Unpack it and run `./start.sh` with Node.js 22.13+. CI unpacks it into an empty folder on every run, starts it, opens the page, and checks that it refuses to listen beyond localhost without an access token.
 - The image's FFmpeg is Debian's unmodified package. The image keeps its copyright files (checked in CI), and the release notes say where its source is. The licence audit is updated.
+- **Published** (2026-11-13, run 43475893254, commit 456a070):
+  - the [v1.0.0-rc.20 pre-release](https://github.com/HaizhuAI/HaizhuInfinityCanvas/releases/tag/v1.0.0-rc.20) with 12 files: Windows installer and portable; macOS Apple silicon / Intel dmg and zip; Linux x64 / arm64 AppImage and deb; the server tar.gz; SHA256SUMS.txt;
+  - the image `ghcr.io/haizhuai/haizhu-infinity-canvas:1.0.0-rc.20` and `:rc` (x64 / arm64).
+
+  Both download and pull without signing in. This session cannot push tags, so the workflow created the tag on the commit it built: "Build installers" was run by hand with "publish" ticked.
 - Fixed a few CI checks that were meant to fail but never could (`! command` does not fail a step). They now check exit codes, and confirm that the server refuses to start without a token, with a weak one, or with the example one.
 
 ### What was not adopted

@@ -39,6 +39,7 @@
 - **Docker 镜像**（x64 / arm64）推送到 `ghcr.io/haizhuai/haizhu-infinity-canvas:<版本>`，候选版同时更新 `:rc`；`docker-compose.yml` 改用这个镜像（`docker compose pull` 即可，仍可 `--build` 自己构建）。
 - **服务器版**（新）：不用 Docker 的网页版，Node.js 22.13+ 解压后 `./start.sh`；CI 每次解压到空目录启动、打开页面，并确认没有访问口令时拒绝对外监听。
 - Docker 镜像内的 FFmpeg 是未修改的 Debian 软件包：镜像保留它的版权文件（CI 检查），发布说明写明源码位置；许可证审计已更新。
+- **已发布**（2026-11-13，run 43475893254，提交 456a070）：[v1.0.0-rc.20 Pre-release](https://github.com/HaizhuAI/HaizhuInfinityCanvas/releases/tag/v1.0.0-rc.20) 附 12 个文件（Windows 安装版与便携版、macOS Apple 芯片 / Intel 的 dmg 与 zip、Linux x64 / arm64 的 AppImage 与 deb、服务器版 tar.gz、SHA256SUMS.txt）；镜像 `ghcr.io/haizhuai/haizhu-infinity-canvas:1.0.0-rc.20` 与 `:rc`（x64 / arm64）。已确认不登录即可下载安装包、拉取镜像。这个会话不能直接推送 tag，所以由流水线在构建的提交上创建 tag（Actions 里手动运行「Build installers」并勾选 publish）。
 - 修正 CI 里几处「应当失败」的检查实际不会失败的问题（`! 命令` 在脚本里不会让步骤失败）：改为检查退出码，并确认服务器确实拒绝没有口令、口令太弱或示例口令的启动。
 
 ### 没有采用的部分
