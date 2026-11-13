@@ -1,8 +1,10 @@
 name: Build installers
 
 # Runs on version tags, on dev-branch pushes that touch shipped code, or manually. Every run attaches the installers
-# and the server package to the run. A version tag (v1.2.3, v1.0.0-rc.20) also publishes them: a GitHub Release
-# (a pre-release when the version has a "-" suffix) with every file attached, and the Docker image on ghcr.io.
+# and the server package to the run. Publishing — a GitHub Release (a pre-release when the version has a "-"
+# suffix) with every file attached, and the Docker image on ghcr.io — happens on a version tag (v1.2.3,
+# v1.0.0-rc.20), or when started by hand with "publish" ticked: then the release creates the tag
+# v<package.json version> on the commit that was built.
 on:
   push:
     tags: ["v*"]
@@ -15,6 +17,11 @@ on:
       - "Dockerfile"
       - ".github/workflows/release.yml"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish this build: tag v<package version> on this commit, a GitHub Release and the image on ghcr.io"
+        type: boolean
+        default: false
 
 concurrency:
   group: installers-${{ github.ref }}
@@ -300,13 +307,14 @@ jobs:
       - name: FFmpeg's licence files travel with the image
         run: |
           docker run --rm --entrypoint sh haizhu-infinity-canvas:ci -c 'test -s /usr/share/doc/ffmpeg/copyright && test -s /app/THIRD_PARTY_NOTICES.md && ffmpeg -hide_banner -version | head -1'
-      - name: Publish the image (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the image (version tags, or started by hand with "publish")
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
         run: |
+          VER=$(node -p "require('./package.json').version")
+          case "$GITHUB_REF" in refs/tags/v*) test "${GITHUB_REF_NAME#v}" = "$VER" || { echo "tag $GITHUB_REF_NAME does not match package.json $VER"; exit 1; } ;; esac
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE="ghcr.io/$OWNER/haizhu-infinity-canvas"
-          VER="${GITHUB_REF_NAME#v}"
           # a pre-release moves the "rc" tag; a final release moves "latest"
           case "$VER" in *-*) CHANNEL=rc ;; *) CHANNEL=latest ;; esac
           docker buildx use multi
@@ -316,9 +324,9 @@ jobs:
             -t "$IMAGE:$VER" -t "$IMAGE:$CHANNEL" --push .
           echo "published $IMAGE:$VER and $IMAGE:$CHANNEL"
 
-  # a version tag: a GitHub Release with every installer and the server package attached
+  # a GitHub Release with every installer and the server package attached
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
     needs: [desktop, server, docker]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -333,12 +341,18 @@ jobs:
       - name: Checksums
         run: |
           cd dist && ls -la && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Version
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$VER" >> "$GITHUB_ENV"
       - name: Release notes (zh + en, from the changelogs)
-        run: node .github/release-notes.mjs "${GITHUB_REF_NAME#v}" > notes.md
-      - name: Create the release
+        run: node .github/release-notes.mjs "$VER" > notes.md
+      - name: Create the release (and its tag on the built commit, when started by hand)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          case "$GITHUB_REF_NAME" in *-*) PRE=--prerelease ;; *) PRE=--latest ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag $PRE \
-            --title "Haizhu Infinity Canvas ${GITHUB_REF_NAME}" --notes-file notes.md
+          case "$VER" in *-*) PRE=--prerelease ;; *) PRE=--latest ;; esac
+          gh release create "$RELEASE_TAG" dist/* --target "$GITHUB_SHA" $PRE \
+            --title "Haizhu Infinity Canvas $RELEASE_TAG" --notes-file notes.md
+          gh release view "$RELEASE_TAG" --json url,tagName,isPrerelease,assets --jq '{url, tagName, isPrerelease, assets: [.assets[].name]}'

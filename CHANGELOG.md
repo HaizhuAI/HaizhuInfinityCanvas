@@ -35,7 +35,7 @@
 - 路线图：rc.21「批量与复核」、rc.22「一致性」（宫格切分已完成，只留宫格分镜模板）、rc.23「助手与应用」。
 
 ### 发布（按你的确认，从 rc.20 起）
-- 推送版本 tag（如 `v1.0.0-rc.20`）后，「Build installers」自动创建 **GitHub Release**：候选版标为 Pre-release，附 Windows 安装版 / 便携版、macOS（Apple 芯片 / Intel）dmg 与 zip、Linux（x64 / arm64）AppImage 与 deb、**服务器版** `haizhu-infinity-canvas-<版本>-server.tar.gz` 和 `SHA256SUMS.txt`；发布说明由中英文更新记录自动生成。
+- 推送版本 tag（如 `v1.0.0-rc.20`），或在 Actions 里手动运行「Build installers」并勾选 publish（由流水线在构建的提交上打 tag）后，自动创建 **GitHub Release**：候选版标为 Pre-release，附 Windows 安装版 / 便携版、macOS（Apple 芯片 / Intel）dmg 与 zip、Linux（x64 / arm64）AppImage 与 deb、**服务器版** `haizhu-infinity-canvas-<版本>-server.tar.gz` 和 `SHA256SUMS.txt`；发布说明由中英文更新记录自动生成。
 - **Docker 镜像**（x64 / arm64）推送到 `ghcr.io/haizhuai/haizhu-infinity-canvas:<版本>`，候选版同时更新 `:rc`；`docker-compose.yml` 改用这个镜像（`docker compose pull` 即可，仍可 `--build` 自己构建）。
 - **服务器版**（新）：不用 Docker 的网页版，Node.js 22.13+ 解压后 `./start.sh`；CI 每次解压到空目录启动、打开页面，并确认没有访问口令时拒绝对外监听。
 - Docker 镜像内的 FFmpeg 是未修改的 Debian 软件包：镜像保留它的版权文件（CI 检查），发布说明写明源码位置；许可证审计已更新。

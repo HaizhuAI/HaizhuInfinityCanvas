@@ -1,13 +1,13 @@
 // Release notes for a GitHub Release: the downloads, then this version's Chinese and English changelog
 // entries (links made absolute so they work on the release page).
 //   node .github/release-notes.mjs 1.0.0-rc.20 > notes.md
-// GITHUB_REPOSITORY (owner/repo) and GITHUB_REF_NAME (the tag) are set by GitHub Actions.
+// GITHUB_REPOSITORY (owner/repo) is set by GitHub Actions; RELEASE_TAG defaults to v<version>.
 import { readFileSync } from 'node:fs'
 
 const version = process.argv[2]
 if (!version) { console.error('usage: release-notes.mjs <version>'); process.exit(2) }
 const repo = process.env.GITHUB_REPOSITORY || 'HaizhuAI/HaizhuInfinityCanvas'
-const tag = process.env.GITHUB_REF_NAME || `v${version}`
+const tag = process.env.RELEASE_TAG || `v${version}`
 const image = `ghcr.io/${repo.split('/')[0].toLowerCase()}/haizhu-infinity-canvas`
 
 /** the "## [version]" section of a changelog, without its heading */

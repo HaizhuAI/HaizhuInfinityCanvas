@@ -52,7 +52,7 @@ This version also exports a skill for Claude Code. The planned "batch and review
 - Roadmap: rc.21 "batch and review", rc.22 "consistency" (grid splitting is done; only grid storyboard templates remain), rc.23 "assistant and apps".
 
 ### Publishing (from rc.20, as you confirmed)
-- Pushing a version tag (such as `v1.0.0-rc.20`) makes "Build installers" create a **GitHub Release**. Release candidates are marked as pre-releases. Attached:
+- Pushing a version tag (such as `v1.0.0-rc.20`), or running "Build installers" by hand with "publish" ticked (the workflow then tags the commit it built), creates a **GitHub Release**. Release candidates are marked as pre-releases. Attached:
   - Windows installer and portable;
   - macOS (Apple silicon / Intel) dmg and zip;
   - Linux (x64 / arm64) AppImage and deb;
