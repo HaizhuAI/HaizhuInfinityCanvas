@@ -83,6 +83,10 @@ This version also exports a skill for Claude Code. The planned "batch and review
   - a Seedance 2.0 node offers 4–15 s, 480p / 720p / 1080p and sound, and saves them;
   - Settings downloads SKILL.md.
 - `pnpm audit` reports no known vulnerabilities.
+- All twenty E2E suites (including toolkit-flow) and the screenshot script (24 images) pass locally.
+- GitHub Actions (commit fa953c1) passed first time:
+  - CI run 43406628777: typecheck, unit tests, the twenty E2E suites and the screenshot script.
+  - Installer run 43406628709: Windows installer and portable, macOS (Apple silicon / Intel) and Linux (x64 / arm64) were packaged and passed their launch tests, including the agent bridge and crash recovery. The Docker smoke tests (token mode, HTTP MCP, arm64 image, accounts mode) passed.
 
 ### Not verified yet
 - Real Seedance 2.0 / 2.5 and MiniMax H3 videos longer than 15 seconds, at a chosen resolution, with sound; real gpt-image / Seedream angle and relight with a reference picture. Mock services were used here.
